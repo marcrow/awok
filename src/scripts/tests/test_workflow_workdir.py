@@ -93,3 +93,30 @@ def test_content_root_arg_precedence(bbw_module, tmp_path, monkeypatch):
     # neither -> None
     monkeypatch.delenv("AWOK_WORKDIR")
     assert bbw_module._content_root_arg(None) is None
+
+
+def test_init_scaffolds_and_is_idempotent(bbw_module, tmp_path, restore_roots):
+    content = tmp_path / "newwd"
+    bbw_module._apply_roots(bbw_module.ENGINE_ROOT, content)
+
+    class Args:
+        pass
+    assert bbw_module.cmd_init(Args()) == 0
+
+    # dirs + example files exist
+    assert (content / "src" / "workflows" / "example.yaml").is_file()
+    assert (content / "src" / "agents" / "example-agent.md").is_file()
+    assert (content / "src" / "workflow" / "templates" / "invocations" / "example-agent.md").is_file()
+    assert (content / "src" / "skills").is_dir()
+    assert (content / "docs" / "architecture-cartography").is_dir()
+    assert (content / ".gitignore").is_file()
+
+    # the scaffolded workflow validates against the engine schema, self-sufficiently
+    name, path = bbw_module.resolve_workflow("example")
+    assert bbw_module.validate_schema(__import__("yaml").safe_load(path.read_text())) == []
+
+    # idempotent: editing the example then re-running must NOT clobber it
+    edited = content / "src" / "workflows" / "example.yaml"
+    edited.write_text(edited.read_text() + "\n# my edit\n")
+    assert bbw_module.cmd_init(Args()) == 0
+    assert "# my edit" in edited.read_text()

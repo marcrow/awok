@@ -2645,6 +2645,86 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
     return _Handler
 
 
+_INIT_EXAMPLE_WORKFLOW = """schema_version: 1
+skill:
+  name: example
+  description: |
+    Example workflow scaffolded by `awok init`. Replace it with your own
+    (or delete it). Run `awok --workdir <this-dir> generate` to compile it.
+  title: "/example — scaffolded workflow"
+namespaces:
+  work: work/example
+groups:
+  main:
+    description: The single phase group
+    risk: none
+phases:
+  - id: P0-EXAMPLE
+    name: Example phase
+    group: main
+    type: agent
+    invocations:
+      - agent: example-agent
+        model: sonnet
+        description: Does the example work
+        outputs:
+          - { role: work:result, kind: md, terminal: true }
+"""
+
+_INIT_EXAMPLE_AGENT = """---
+name: example-agent
+description: Example agent scaffolded by `awok init`. Replace with your own.
+model: inherit
+tools:
+  - Read
+  - Write
+---
+
+You are an example agent. Do the work described in your task and write the
+`result` output declared for your invocation.
+"""
+
+_INIT_EXAMPLE_SNIPPET = """---
+agent: example-agent
+generated: false
+---
+
+**{{ agent }}** [{{ model }}] · Example scaffolded agent.
+{{ inputs_outputs_compact }}
+
+**Task**: Write the `result`.
+"""
+
+
+def cmd_init(args):
+    """Scaffold a content workdir (idempotent: never overwrites existing files)."""
+    root = CONTENT_ROOT
+    for d in [
+        root / "src" / "workflows",
+        root / "src" / "agents",
+        root / "src" / "workflow" / "templates" / "invocations",
+        root / "src" / "workflow" / "manual",
+        root / "src" / "skills",
+        root / "docs" / "architecture-cartography",
+    ]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    def _write_if_absent(path: Path, text: str):
+        if not path.exists():
+            path.write_text(text, encoding="utf-8")
+
+    _write_if_absent(root / ".gitignore", "work/\n")
+    _write_if_absent(root / "src" / "workflows" / "example.yaml", _INIT_EXAMPLE_WORKFLOW)
+    _write_if_absent(root / "src" / "agents" / "example-agent.md", _INIT_EXAMPLE_AGENT)
+    _write_if_absent(
+        root / "src" / "workflow" / "templates" / "invocations" / "example-agent.md",
+        _INIT_EXAMPLE_SNIPPET)
+
+    print(f"✅ workdir ready at {root}")
+    print(f"  next: awok --workdir {root} generate && awok --workdir {root} deploy")
+    return 0
+
+
 def cmd_edit(args):
     """Serve the local web editor."""
     workflows_dir = DEFAULT_WORKFLOWS_DIR
@@ -2726,6 +2806,9 @@ def main():
     p_new.add_argument("--workflow", default=None,
                        help="Target workflow name or path (default: main)")
     p_new.set_defaults(func=cmd_new_phase)
+
+    p_init = sub.add_parser("init", help="Scaffold a content workdir (use with --workdir)")
+    p_init.set_defaults(func=cmd_init)
 
     p_edit = sub.add_parser("edit", help="Serve the local web editor")
     p_edit.add_argument("--workflow", default=None,
