@@ -767,6 +767,21 @@ def check_dataflow_warnings(workflow: dict) -> list:
     return warnings
 
 
+def check_skill_name_matches_filename(workflow: dict, workflow_path) -> list:
+    """Warn when the workflow filename stem differs from skill.name.
+
+    Generated outputs are named after skill.name (skills/<name>/, <name>.html),
+    NOT the filename — so e.g. reporter.yaml with skill.name 'test' silently
+    produces test.html and never reporter.html. Returns 0 or 1 warning."""
+    skill_name = (workflow.get("skill") or {}).get("name")
+    stem = Path(workflow_path).stem
+    if skill_name and stem and skill_name != stem:
+        return [f"filename '{stem}.yaml' ≠ skill.name '{skill_name}' — generated "
+                f"outputs are named after skill.name (skills/{skill_name}/, "
+                f"{skill_name}.html), not '{stem}'"]
+    return []
+
+
 # ============================================================================
 # Snippet loader
 # ============================================================================
@@ -1763,6 +1778,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     schema_errors = validate_schema(workflow)
     coherence_errors = validate_coherence(workflow)
     warnings = check_dataflow_warnings(workflow)
+    warnings += check_skill_name_matches_filename(workflow, workflow_path)
     for e in schema_errors:
         print(f"  [{name}] SCHEMA: {e}", file=sys.stderr)
     for e in coherence_errors:
@@ -1914,6 +1930,8 @@ def _generate_one(name: str, workflow_path: Path,
     with open(workflow_path) as f:
         workflow = yaml.safe_load(f)
     skill_name = (workflow.get("skill") or {}).get("name", name)
+    for w in check_skill_name_matches_filename(workflow, workflow_path):
+        print(f"⚠ [{skill_name}] {w}", file=sys.stderr)
     paths = workflow_output_paths(skill_name)
     output_skill = output_skill_override or paths["skill"]
 

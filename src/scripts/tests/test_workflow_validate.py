@@ -80,3 +80,17 @@ def test_unknown_condition_fails(bbw_module, tmp_path):
     }
     errors = bbw_module.validate_coherence(wf, agents_dir=agents_dir)
     assert any("no_such_condition" in e for e in errors)
+
+
+def test_skill_name_mismatch_warns(bbw_module, tmp_path):
+    """Warn when the file stem differs from skill.name (outputs are named after
+    skill.name, so reporter.yaml + skill.name:test silently makes test.html)."""
+    wf = {"skill": {"name": "test"}}
+    warns = bbw_module.check_skill_name_matches_filename(wf, tmp_path / "reporter.yaml")
+    assert warns
+    assert "test" in warns[0] and "reporter" in warns[0]
+
+
+def test_skill_name_match_no_warn(bbw_module, tmp_path):
+    wf = {"skill": {"name": "reporter"}}
+    assert bbw_module.check_skill_name_matches_filename(wf, tmp_path / "reporter.yaml") == []
