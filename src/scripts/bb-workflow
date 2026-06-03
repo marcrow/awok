@@ -2797,51 +2797,57 @@ def main():
         "--workdir", default=None,
         help="Content root holding src/workflows + src/agents (default: the awok "
              "repo itself). Overrides $AWOK_WORKDIR. Use `awok init --workdir DIR` first.")
+    # Accept --workdir AFTER the subcommand too (awok <cmd> --workdir DIR) via a
+    # shared parent parser. SUPPRESS as default so an absent after-command flag
+    # never clobbers a value given before the subcommand.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--workdir", default=argparse.SUPPRESS,
+                        help="Content root (same as the global --workdir).")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_val = sub.add_parser("validate", help="Validate workflow.yaml")
+    p_val = sub.add_parser("validate", help="Validate workflow.yaml", parents=[common])
     p_val.add_argument("workflow", nargs="?", default=None)
     p_val.set_defaults(func=cmd_validate)
 
-    p_gen = sub.add_parser("generate", help="Generate SKILL.md + cartography")
+    p_gen = sub.add_parser("generate", help="Generate SKILL.md + cartography", parents=[common])
     p_gen.add_argument("--workflow", default=None)
     p_gen.add_argument("--output-skill", default=None)
     p_gen.set_defaults(func=cmd_generate)
 
-    p_check = sub.add_parser("check", help="Detect drift between SKILL.md and YAML")
+    p_check = sub.add_parser("check", help="Detect drift between SKILL.md and YAML", parents=[common])
     p_check.add_argument("--workflow", default=None)
     p_check.add_argument("--skill", default=None)
     p_check.set_defaults(func=cmd_check)
 
-    p_mig = sub.add_parser("migrate-from-skill", help="Prepare migration of SKILL.md to YAML+snippets")
+    p_mig = sub.add_parser("migrate-from-skill", help="Prepare migration of SKILL.md to YAML+snippets", parents=[common])
     p_mig.add_argument("--skill", default=None)
     p_mig.add_argument("--output-dir", default=None)
     p_mig.set_defaults(func=cmd_migrate_from_skill)
 
-    p_ren = sub.add_parser("rename-agent", help="Rename an agent across YAML/snippets/agents")
+    p_ren = sub.add_parser("rename-agent", help="Rename an agent across YAML/snippets/agents", parents=[common])
     p_ren.add_argument("old")
     p_ren.add_argument("new")
     p_ren.set_defaults(func=cmd_rename_agent)
 
-    p_assist = sub.add_parser("assist", help="Get help from a sub-agent for workflow modifications")
+    p_assist = sub.add_parser("assist", help="Get help from a sub-agent for workflow modifications", parents=[common])
     p_assist.add_argument("change_desc", help="Description of the change to make")
     p_assist.add_argument("--workflow", default=None,
                           help="Workflow name or path (default: main)")
     p_assist.set_defaults(func=cmd_assist)
 
-    p_new = sub.add_parser("new-phase", help="Interactive wizard for adding a phase")
+    p_new = sub.add_parser("new-phase", help="Interactive wizard for adding a phase", parents=[common])
     p_new.add_argument("--interactive", action="store_true")
     p_new.add_argument("--workflow", default=None,
                        help="Target workflow name or path (default: main)")
     p_new.set_defaults(func=cmd_new_phase)
 
-    p_init = sub.add_parser("init", help="Scaffold a content workdir (use with --workdir)")
+    p_init = sub.add_parser("init", help="Scaffold a content workdir (use with --workdir)", parents=[common])
     p_init.set_defaults(func=cmd_init)
 
-    p_deploy = sub.add_parser("deploy", help="Deploy a workdir's skills/agents to ~/.claude")
+    p_deploy = sub.add_parser("deploy", help="Deploy a workdir's skills/agents to ~/.claude", parents=[common])
     p_deploy.set_defaults(func=cmd_deploy)
 
-    p_edit = sub.add_parser("edit", help="Serve the local web editor")
+    p_edit = sub.add_parser("edit", help="Serve the local web editor", parents=[common])
     p_edit.add_argument("--workflow", default=None,
                         help="Workflow to open first (optional)")
     p_edit.add_argument("--port", type=int, default=0,
