@@ -58,20 +58,22 @@ footer code { background: #1e293b; padding: 1px 5px; border-radius: 4px; }
 <p class="subtitle">Cliquez un workflow pour ouvrir sa cartographie · généré par <code>bb-workflow generate</code></p>
 <div class="grid">
 
-        <a class="card" href="demo.html">
-          <div class="card-title">/demo — exemple awok</div>
-          <div class="card-desc">Exemple minimal awok : un pipeline collecte → résumé. Montre les phases,
-les dépendances, et les I/O par rôle résolus via la carte `namespaces`.</div>
+        <a class="card" href="onboard.html">
+          <div class="card-title">/onboard — repo cartography</div>
+          <div class="card-desc">Map an unfamiliar repository. A cheap inventory pass plus a deterministic
+git-history analysis fan out into parallel explorers (structure, deps, flow),
+then reduce into an architecture doc and a getting-started guide. Run it on
+any repo (including this one) to learn it fast.</div>
           <div class="card-meta">
-            <span class="chip">2 phase(s)</span>
-            <span class="chip">2 agent(s) DAG</span>
-            <span class="chip">0 on-demand</span>
-            <span class="chip">collect</span> <span class="chip">publish</span>
+            <span class="chip">7 phase(s)</span>
+            <span class="chip">6 agent(s) DAG</span>
+            <span class="chip">1 on-demand</span>
+            <span class="chip">scan</span> <span class="chip">explore</span> <span class="chip">synthesize</span>
           </div>
         </a>
 </div>
 <footer>
-  Pour ajouter un workflow : créer <code>claude-setup/workflows/&lt;name&gt;.yaml</code>
+  Pour ajouter un workflow : créer <code>src/workflows/&lt;name&gt;.yaml</code>
   puis <code>bb-workflow generate</code>.
 </footer>
 </body>

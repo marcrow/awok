@@ -1,0 +1,136 @@
+schema_version: 1
+skill:
+  name: onboard
+  description: |
+    Map an unfamiliar repository. A cheap inventory pass plus a deterministic
+    git-history analysis fan out into parallel explorers (structure, deps, flow),
+    then reduce into an architecture doc and a getting-started guide. Run it on
+    any repo (including this one) to learn it fast.
+  title: "/onboard — repo cartography"
+namespaces:
+  work: work/onboard
+groups:
+  scan:
+    description: Cheap initial scan of the target repo
+    risk: none
+  explore:
+    description: Parallel exploration of the codebase
+    risk: none
+  synthesize:
+    description: Synthesis of the deliverables
+    risk: none
+phases:
+  - id: O0-INVENTORY
+    name: Inventory
+    group: scan
+    type: agent
+    invocations:
+      - agent: repo-inventory
+        model: haiku
+        description: Inventory the repo tree, languages, build/config files and entry points
+        inputs:
+          - { path: ".", kind: dir, external: true }
+        outputs:
+          - { role: work:inventory, kind: md }
+  - id: OG-GITSTATS
+    name: Git history stats
+    group: scan
+    type: script
+    description: >
+      Deterministic git-history analysis (no LLM): commit volume, contributors,
+      churn hotspots, commits per month. Demonstrates a type:script phase whose
+      output feeds the synthesis reduce.
+    inputs:
+      - { path: ".git", kind: dir, external: true }
+    outputs:
+      - { role: work:git-stats, kind: md }
+    cmd: |
+      mkdir -p work/onboard
+      {
+        echo "# Git history stats"; echo
+        echo "## Activity"
+        echo "- Total commits: $(git rev-list --count HEAD)"
+        echo "- First commit:  $(git log --reverse --format=%ad --date=short | head -1)"
+        echo "- Last commit:   $(git log -1 --format=%ad --date=short)"
+        echo "- Contributors:  $(git shortlog -sne --all | wc -l)"; echo
+        echo "## Top 15 hotspots (most-changed files)"
+        git log --pretty=format: --name-only | grep . | sort | uniq -c | sort -rn | head -15; echo
+        echo "## Commits per month (last 12)"
+        git log --format=%ad --date=format:%Y-%m | sort | uniq -c | tail -12
+      } > work/onboard/git-stats.md
+  - id: O1-STRUCTURE
+    name: Structure mapping
+    group: explore
+    type: agent
+    depends_on: [O0-INVENTORY]
+    invocations:
+      - agent: structure-mapper
+        model: sonnet
+        description: Map modules/directories, responsibilities and boundaries
+        inputs:
+          - { role: work:inventory, kind: md }
+        outputs:
+          - { role: work:structure, kind: md }
+  - id: O2-DEPS
+    name: Dependency audit
+    group: explore
+    type: agent
+    depends_on: [O0-INVENTORY]
+    invocations:
+      - agent: deps-auditor
+        model: sonnet
+        description: Audit dependencies, package manager, build, scripts, lint/test/CI
+        inputs:
+          - { role: work:inventory, kind: md }
+        outputs:
+          - { role: work:deps, kind: md }
+  - id: O3-FLOW
+    name: Flow tracing
+    group: explore
+    type: agent
+    depends_on: [O0-INVENTORY]
+    invocations:
+      - agent: flow-tracer
+        model: sonnet
+        description: Trace entry points, commands/CLI and the main execution flow
+        inputs:
+          - { role: work:inventory, kind: md }
+        outputs:
+          - { role: work:flow, kind: md }
+  - id: O4-ARCHITECTURE
+    name: Architecture synthesis
+    group: synthesize
+    type: agent
+    depends_on: [O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS]
+    invocations:
+      - agent: architecture-writer
+        model: opus
+        description: Synthesize the architecture doc from the explorers and git stats
+        inputs:
+          - { role: work:structure, kind: md }
+          - { role: work:deps, kind: md }
+          - { role: work:flow, kind: md }
+          - { role: work:git-stats, kind: md }
+        outputs:
+          - { role: work:architecture, kind: md }
+  - id: O5-GETTING-STARTED
+    name: Getting-started guide
+    group: synthesize
+    type: agent
+    depends_on: [O4-ARCHITECTURE]
+    invocations:
+      - agent: onboarding-writer
+        model: sonnet
+        description: Write the getting-started / first-contribution guide
+        inputs:
+          - { role: work:architecture, kind: md }
+          - { role: work:inventory, kind: md }
+        outputs:
+          - { role: work:getting-started, kind: md, terminal: true }
+on_demand_agents:
+  - agent: deep-diver
+    model: sonnet
+    description: |
+      Zoom into one specific module/subsystem on demand and produce a focused
+      deep-dive note, after the cartography is done.
+    when: The user wants to drill into a specific module after reading the architecture doc.
