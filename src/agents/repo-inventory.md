@@ -8,7 +8,7 @@ tools:
   - Bash
 ---
 
-You inventory an unfamiliar repository so downstream explorers can work in parallel.
+You inventory an unfamiliar repository so the downstream explorer agents can work in parallel.
 
 Walk the repo from its root and produce a compact, factual inventory:
 - Top-level directory layout (one line each, with purpose if obvious).
