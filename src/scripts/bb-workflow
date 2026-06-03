@@ -2725,6 +2725,34 @@ def cmd_init(args):
     return 0
 
 
+def cmd_deploy(args):
+    """Deploy the content workdir's skills + agents into ~/.claude (additive).
+
+    Per-workdir equivalent of what install.sh does for the engine repo. Honours
+    $CLAUDE_HOME. Never deletes skills/agents awok does not own.
+    """
+    import shutil
+    claude_home = Path(os.environ.get("CLAUDE_HOME") or (Path.home() / ".claude"))
+    skills_src = CONTENT_ROOT / "src" / "skills"
+    agents_src = CONTENT_ROOT / "src" / "agents"
+    n_skills = n_agents = 0
+    if skills_src.is_dir():
+        (claude_home / "skills").mkdir(parents=True, exist_ok=True)
+        for child in skills_src.iterdir():
+            if child.is_dir():
+                shutil.copytree(child, claude_home / "skills" / child.name,
+                                dirs_exist_ok=True)
+                n_skills += 1
+    if agents_src.is_dir():
+        (claude_home / "agents").mkdir(parents=True, exist_ok=True)
+        for f in sorted(agents_src.glob("*.md")):
+            shutil.copy2(f, claude_home / "agents" / f.name)
+            n_agents += 1
+    print(f"→ deployed {n_skills} skill(s) + {n_agents} agent(s) to {claude_home}")
+    print("  restart Claude Code so the new agents register as dispatchable subagents.")
+    return 0
+
+
 def cmd_edit(args):
     """Serve the local web editor."""
     workflows_dir = DEFAULT_WORKFLOWS_DIR
@@ -2809,6 +2837,9 @@ def main():
 
     p_init = sub.add_parser("init", help="Scaffold a content workdir (use with --workdir)")
     p_init.set_defaults(func=cmd_init)
+
+    p_deploy = sub.add_parser("deploy", help="Deploy a workdir's skills/agents to ~/.claude")
+    p_deploy.set_defaults(func=cmd_deploy)
 
     p_edit = sub.add_parser("edit", help="Serve the local web editor")
     p_edit.add_argument("--workflow", default=None,

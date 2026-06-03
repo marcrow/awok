@@ -120,3 +120,21 @@ def test_init_scaffolds_and_is_idempotent(bbw_module, tmp_path, restore_roots):
     edited.write_text(edited.read_text() + "\n# my edit\n")
     assert bbw_module.cmd_init(Args()) == 0
     assert "# my edit" in edited.read_text()
+
+
+def test_deploy_copies_skills_and_agents(bbw_module, tmp_path, restore_roots, monkeypatch):
+    content = tmp_path / "wd"
+    (content / "src" / "skills" / "wf").mkdir(parents=True)
+    (content / "src" / "skills" / "wf" / "SKILL.md").write_text("# wf skill\n")
+    (content / "src" / "agents").mkdir(parents=True)
+    (content / "src" / "agents" / "a1.md").write_text("---\nname: a1\n---\nbody\n")
+    bbw_module._apply_roots(bbw_module.ENGINE_ROOT, content)
+
+    claude_home = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+
+    class Args:
+        pass
+    assert bbw_module.cmd_deploy(Args()) == 0
+    assert (claude_home / "skills" / "wf" / "SKILL.md").is_file()
+    assert (claude_home / "agents" / "a1.md").is_file()
