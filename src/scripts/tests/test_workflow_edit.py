@@ -34,7 +34,7 @@ def test_dump_long_description_is_block_scalar(bbw_module):
 
 
 def test_dump_is_idempotent(bbw_module):
-    src = (REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text()
+    src = (REPO_ROOT / "src" / "workflows" / "onboard.yaml").read_text()
     model = yaml.safe_load(src)
     once = bbw_module.dump_workflow_yaml(model)
     twice = bbw_module.dump_workflow_yaml(yaml.safe_load(once))
@@ -98,11 +98,11 @@ def test_blank_workflow_is_schema_valid(bbw_module):
 
 
 def test_clone_workflow_renames_skill(bbw_module):
-    src = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text())
-    cloned = bbw_module.clone_workflow(src, "demo-copy")
-    assert cloned["skill"]["name"] == "demo-copy"
+    src = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "onboard.yaml").read_text())
+    cloned = bbw_module.clone_workflow(src, "onboard-copy")
+    assert cloned["skill"]["name"] == "onboard-copy"
     assert len(cloned["phases"]) == len(src["phases"])
-    cloned["phases"].append({"id": "Z", "name": "z", "group": "collect"})
+    cloned["phases"].append({"id": "Z", "name": "z", "group": "scan"})
     assert len(cloned["phases"]) == len(src["phases"]) + 1
 
 
@@ -110,7 +110,7 @@ import re
 
 
 def test_slug_guard_rejects_traversal(bbw_module):
-    assert bbw_module.is_valid_slug("demo") is True
+    assert bbw_module.is_valid_slug("onboard") is True
     assert bbw_module.is_valid_slug("../etc") is False
     assert bbw_module.is_valid_slug("Foo") is False
     assert bbw_module.is_valid_slug("a b") is False
@@ -160,7 +160,7 @@ def test_create_agent_rejects_bad_slug(bbw_module, tmp_path):
 
 
 def test_split_agent_md_preserves_rich_frontmatter(bbw_module):
-    raw = (REPO_ROOT / "src" / "agents" / "summarizer.md").read_text()
+    raw = (REPO_ROOT / "src" / "scripts" / "tests" / "fixtures" / "agents" / "rich-agent.md").read_text()
     fm, body = bbw_module.split_agent_md(raw)
     assert "description: |" in fm          # literal block scalar kept
     assert "- Read" in fm                  # tools block-sequence kept
@@ -178,9 +178,9 @@ def test_split_agent_md_no_frontmatter(bbw_module):
 
 
 def test_render_cartography_mermaid_from_dict(bbw_module):
-    wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text())
+    wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "onboard.yaml").read_text())
     out = bbw_module.render_cartography_mermaid(wf)
-    assert "D0-COLLECT" in out or "D0_COLLECT" in out
+    assert "O0-INVENTORY" in out or "O0_INVENTORY" in out
     assert "graph" in out.lower() or "flowchart" in out.lower()
 
 
@@ -225,26 +225,26 @@ def test_get_workflows_list(editor_server):
     status, body = _get(editor_server, "/api/workflows")
     assert status == 200
     names = json.loads(body)
-    assert "demo" in names
+    assert "onboard" in names
 
 
 def test_get_workflow_includes_levels(editor_server):
-    status, body = _get(editor_server, "/api/workflow/demo")
+    status, body = _get(editor_server, "/api/workflow/onboard")
     assert status == 200
     data = json.loads(body)
-    assert data["model"]["skill"]["name"] == "demo"
-    assert data["levels"]["D0-COLLECT"] == 0
+    assert data["model"]["skill"]["name"] == "onboard"
+    assert data["levels"]["O0-INVENTORY"] == 0
 
 
 def test_put_invalid_workflow_is_rejected(editor_server, tmp_path):
-    status, body = _send(editor_server, "PUT", "/api/workflow/demo",
+    status, body = _send(editor_server, "PUT", "/api/workflow/onboard",
                          {"schema_version": 1})
     assert status == 422
     assert json.loads(body)["errors"]
 
 
 def test_preview_returns_mermaid(editor_server):
-    model = json.loads(_get(editor_server, "/api/workflow/demo")[1])["model"]
+    model = json.loads(_get(editor_server, "/api/workflow/onboard")[1])["model"]
     status, body = _send(editor_server, "POST", "/api/preview", model)
     assert status == 200
     j = json.loads(body)
@@ -252,11 +252,11 @@ def test_preview_returns_mermaid(editor_server):
 
 
 def test_render_dataflow_mermaid_from_dict(bbw_module):
-    wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text())
+    wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "onboard.yaml").read_text())
     out = bbw_module.render_dataflow_mermaid(wf, mode="all")
     assert "graph" in out.lower() or "flowchart" in out.lower()
-    # the demo's terminal artifact work/demo/digest.md must appear as a node
-    assert "digest" in out
+    # the onboard terminal artifact work/onboard/getting-started.md must appear as a node
+    assert "getting-started" in out
 
 
 @pytest.fixture
@@ -296,11 +296,11 @@ def editor_server_agents(bbw_module, tmp_path):
 
 
 def test_get_agent_returns_body(editor_server):
-    status, body = _get(editor_server, "/api/agent/summarizer")
+    status, body = _get(editor_server, "/api/agent/repo-inventory")
     assert status == 200
     j = json.loads(body)
-    assert "Read work/" in j["body"]
-    assert "description: |" in j["frontmatter"]
+    assert "You inventory" in j["body"]
+    assert "name: repo-inventory" in j["frontmatter"]
 
 
 def test_get_agent_unknown_is_404(editor_server):
@@ -417,14 +417,14 @@ def test_apply_parallel_with_sets_and_clears(bbw_module):
 
 
 def test_view_endpoint_returns_layout(editor_server):
-    model = json.loads(_get(editor_server, "/api/workflow/demo")[1])["model"]
+    model = json.loads(_get(editor_server, "/api/workflow/onboard")[1])["model"]
     status, body = _send(editor_server, "POST", "/api/view", model)
     assert status == 200
     j = json.loads(body)
     for key in ("levels", "columns", "parallel_with", "edges", "errors"):
         assert key in j
-    assert j["levels"]["D0-COLLECT"] == 0
-    assert any(e["to"] == "D1-SUMMARIZE" for e in j["edges"])
+    assert j["levels"]["O0-INVENTORY"] == 0
+    assert any(e["to"] == "O4-ARCHITECTURE" for e in j["edges"])
 
 
 def test_view_endpoint_reports_errors_without_500(editor_server):
