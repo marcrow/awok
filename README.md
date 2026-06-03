@@ -75,6 +75,16 @@ You never hand-write the `SKILL.md` — it is generated. `awok check` fails the
 build if a generated file has drifted from its YAML source, so wire it into a
 pre-commit hook.
 
+### Authoring a workflow — just ask the AI
+
+You can write `src/workflows/<name>.yaml` three ways — but the **simplest and
+fastest is to brainstorm it with Claude Code and let the AI generate the YAML
+for you**, well-formed and ready to compile. Describe the pipeline in plain
+English — the phases, the agent each one calls, what flows in and out — and the
+model writes the declarative YAML; the JSON schema, role-based I/O and
+`awok validate` then keep it honest. Hand-editing the YAML and the visual editor
+below are there for when you want finer control, not as the starting point.
+
 ### Edit visually — `awok edit`
 
 Prefer a GUI to YAML? `awok edit` serves a local, dependency-free web editor on
