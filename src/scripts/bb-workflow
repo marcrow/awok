@@ -857,10 +857,12 @@ def render_snippet(snippet: Snippet, invocation: dict) -> str:
 # ============================================================================
 
 def generate_skill_md(workflow_path: Path, output_path: Path,
-                     templates_dir: Path = None, agents_dir: Path = None) -> None:
+                     templates_dir: Path = None, agents_dir: Path = None,
+                     invocations_dir: Path = None) -> None:
     """Generate the SKILL.md from workflow.yaml + snippets."""
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
-    invocations_dir = templates_dir / "invocations"
+    # Jinja templates are engine-owned; invocation snippets are content-owned.
+    invocations_dir = invocations_dir or (templates_dir / "invocations")
 
     with open(workflow_path) as f:
         workflow = yaml.safe_load(f)
@@ -1549,7 +1551,8 @@ def check_drift(workflow_path: Path, skill_path: Path,
         tmp_path = Path(tmp.name)
     try:
         generate_skill_md(workflow_path, tmp_path,
-                          templates_dir=templates_dir, agents_dir=agents_dir)
+                          templates_dir=templates_dir, agents_dir=agents_dir,
+                          invocations_dir=DEFAULT_INVOCATIONS_DIR)
         actual = skill_path.read_text(encoding="utf-8")
         expected = tmp_path.read_text(encoding="utf-8")
         if actual == expected:
@@ -1915,7 +1918,8 @@ def _generate_one(name: str, workflow_path: Path,
     output_skill = output_skill_override or paths["skill"]
 
     print(f"[{skill_name}] SKILL.md → {output_skill}")
-    generate_skill_md(workflow_path, output_skill)
+    generate_skill_md(workflow_path, output_skill,
+                      invocations_dir=DEFAULT_INVOCATIONS_DIR)
 
     print(f"[{skill_name}] cartography-texte.md → {paths['carto_texte']}")
     generate_cartography_texte(workflow_path, paths["carto_texte"])
@@ -2478,8 +2482,11 @@ def _mermaid_lib_bytes() -> bytes:
 
 
 def make_edit_handler(workflows_dir: Path, agents_dir: Path,
-                      templates_dir: Path):
+                      templates_dir: Path, invocations_dir: Path = None):
     """Build a request handler class bound to the given dirs."""
+    # Invocation snippets are content-owned (workdir), distinct from the
+    # engine-owned Jinja templates_dir.
+    invocations_dir = invocations_dir or (templates_dir / "invocations")
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):  # silence per-request logging
@@ -2564,7 +2571,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 agent = p.rsplit("/", 1)[-1]
                 if not is_valid_slug(agent):
                     return self._json(400, {"error": "bad name"})
-                fp = (templates_dir / "invocations" / f"{agent}.md")
+                fp = (invocations_dir / f"{agent}.md")
                 text = fp.read_text() if fp.exists() else ""
                 return self._json(200, {"prompt": text})
             return self._json(404, {"error": "unknown route"})
@@ -2608,7 +2615,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                     data.get("name", ""), data.get("description", ""),
                     data.get("tools", ""), data.get("model", "inherit"),
                     data.get("prompt", ""), agents_dir,
-                    templates_dir / "invocations")
+                    invocations_dir)
                 return self._json(200 if not errs else 400, {"errors": errs})
             return self._json(404, {"error": "unknown route"})
 
@@ -2626,7 +2633,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 agent = p.rsplit("/", 1)[-1]
                 if not is_valid_slug(agent):
                     return self._json(400, {"error": "bad name"})
-                (templates_dir / "invocations" / f"{agent}.md").write_text(
+                (invocations_dir / f"{agent}.md").write_text(
                     self._body().get("prompt", ""), encoding="utf-8")
                 return self._json(200, {"ok": True})
             if p.startswith("/api/agent/"):
@@ -2758,7 +2765,8 @@ def cmd_edit(args):
     workflows_dir = DEFAULT_WORKFLOWS_DIR
     agents_dir = DEFAULT_AGENTS_DIR
     templates_dir = REPO_ROOT_GUESS / "src" / "workflow" / "templates"
-    handler = make_edit_handler(workflows_dir, agents_dir, templates_dir)
+    handler = make_edit_handler(workflows_dir, agents_dir, templates_dir,
+                                invocations_dir=DEFAULT_INVOCATIONS_DIR)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     host, port = srv.server_address
     url = f"http://{host}:{port}/"

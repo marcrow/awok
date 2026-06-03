@@ -138,3 +138,56 @@ def test_deploy_copies_skills_and_agents(bbw_module, tmp_path, restore_roots, mo
     assert bbw_module.cmd_deploy(Args()) == 0
     assert (claude_home / "skills" / "wf" / "SKILL.md").is_file()
     assert (claude_home / "agents" / "a1.md").is_file()
+
+
+def test_generate_uses_workdir_invocation_snippet(bbw_module, tmp_path, restore_roots):
+    """generate must read invocation snippets from the workdir, not the engine
+    templates dir — otherwise the SKILL renders `_(snippet missing)_`."""
+    eng = bbw_module.ENGINE_ROOT
+    content = tmp_path / "priv"
+    _scaffold_workdir(content)
+    bbw_module._apply_roots(eng, content)
+
+    class Args:
+        workflow = "wf"
+        output_skill = None
+    assert bbw_module.cmd_generate(Args()) == 0
+
+    skill = (content / "src" / "skills" / "wf" / "SKILL.md").read_text()
+    assert "snippet missing" not in skill          # the workdir snippet WAS found
+    assert "wd-agent" in skill
+
+
+def test_editor_invocation_uses_given_invocations_dir(bbw_module, tmp_path):
+    """The web editor must read/write invocation snippets from the supplied
+    invocations_dir (the content root), not templates_dir/invocations (engine)."""
+    import threading, http.client, json
+    from http.server import HTTPServer
+
+    agents = tmp_path / "agents"; agents.mkdir()
+    (agents / "edagent.md").write_text("---\nname: edagent\n---\nbody\n")
+    inv = tmp_path / "inv"; inv.mkdir()
+    (inv / "edagent.md").write_text(
+        "---\nagent: edagent\ngenerated: false\n---\n\noriginal snippet\n")
+    (tmp_path / "wf").mkdir()
+    templates = bbw_module.ENGINE_ROOT / "src" / "workflow" / "templates"
+
+    handler = bbw_module.make_edit_handler(
+        tmp_path / "wf", agents, templates, invocations_dir=inv)
+    srv = HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        addr = srv.server_address
+        c = http.client.HTTPConnection(*addr); c.request("GET", "/api/invocation/edagent")
+        r = c.getresponse(); body = json.loads(r.read().decode())
+        assert r.status == 200 and "original snippet" in body["prompt"]
+
+        c = http.client.HTTPConnection(*addr)
+        c.request("PUT", "/api/invocation/edagent",
+                  json.dumps({"prompt": "edited snippet"}),
+                  {"Content-Type": "application/json"})
+        assert c.getresponse().status == 200
+        assert "edited snippet" in (inv / "edagent.md").read_text()
+        assert not (templates / "invocations" / "edagent.md").exists()  # engine untouched
+    finally:
+        srv.shutdown()
