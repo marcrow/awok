@@ -4,6 +4,7 @@ description: Audits a repository's dependencies, package manager, build system a
 model: inherit
 tools:
   - Read
+  - Write
   - Glob
   - Grep
   - Bash

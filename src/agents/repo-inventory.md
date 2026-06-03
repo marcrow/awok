@@ -4,6 +4,7 @@ description: Inventories a repository's tree, languages, build/config files and 
 model: inherit
 tools:
   - Read
+  - Write
   - Glob
   - Bash
 ---

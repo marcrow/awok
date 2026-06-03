@@ -4,6 +4,7 @@ description: Traces a program's entry points and main execution flow from startu
 model: inherit
 tools:
   - Read
+  - Write
   - Glob
   - Grep
 ---

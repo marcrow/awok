@@ -4,6 +4,7 @@ description: Maps a codebase into modules with responsibilities and boundaries, 
 model: inherit
 tools:
   - Read
+  - Write
   - Glob
   - Grep
 ---
