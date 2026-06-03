@@ -126,9 +126,9 @@ def resolve_workflow(name_or_path: str) -> tuple:
 
 def workflow_output_paths(skill_name: str) -> dict:
     """Per-workflow output paths derived from the skill name."""
-    carto_dir = REPO_ROOT_GUESS / "docs" / "architecture-cartography"
+    carto_dir = CONTENT_ROOT / "docs" / "architecture-cartography"
     return {
-        "skill": REPO_ROOT_GUESS / "src" / "skills" / skill_name / "SKILL.md",
+        "skill": CONTENT_ROOT / "src" / "skills" / skill_name / "SKILL.md",
         "carto_html": carto_dir / f"{skill_name}.html",
         "carto_texte": carto_dir / f"{skill_name}-texte.md",
         "carto_mermaid": carto_dir / f"_{skill_name}.mermaid",
@@ -928,7 +928,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
 
     for ms in ordered_sections:
         # ms["path"] is relative to repo root, no double-prefix
-        manual_path = REPO_ROOT_GUESS / ms["path"]
+        manual_path = CONTENT_ROOT / ms["path"]
         if not manual_path.exists():
             continue
         content = manual_path.read_text(encoding="utf-8")
@@ -2133,7 +2133,7 @@ def cmd_generate(args):
         return 1
 
     # Legacy dataflow.html cleanup (single-diagram artifact pre-multi-tab)
-    legacy_dataflow_html = REPO_ROOT_GUESS / "docs" / "architecture-cartography" / "dataflow.html"
+    legacy_dataflow_html = CONTENT_ROOT / "docs" / "architecture-cartography" / "dataflow.html"
     if legacy_dataflow_html.exists():
         legacy_dataflow_html.unlink()
         print(f"(removed legacy {legacy_dataflow_html.name})")
@@ -2148,7 +2148,7 @@ def cmd_generate(args):
 
     # Always regenerate the index from ALL discovered workflows (not just the
     # ones generated in this run) so it stays consistent.
-    index_path = REPO_ROOT_GUESS / "docs" / "architecture-cartography" / "index.html"
+    index_path = CONTENT_ROOT / "docs" / "architecture-cartography" / "index.html"
     generate_workflows_index(all_workflows, index_path)
     print(f"[index] {index_path} ({len(all_workflows)} workflow(s))")
 
@@ -2159,10 +2159,10 @@ def cmd_generate(args):
 def cmd_migrate_from_skill(args):
     """Prepare inputs for a Claude sub-agent to migrate SKILL.md to workflow.yaml + snippets."""
     skill_path = Path(args.skill) if args.skill else (
-        REPO_ROOT_GUESS / "src" / "skills" / "main" / "SKILL.md"
+        CONTENT_ROOT / "src" / "skills" / "main" / "SKILL.md"
     )
     output_dir = Path(args.output_dir) if args.output_dir else (
-        REPO_ROOT_GUESS / "src" / "workflow"
+        CONTENT_ROOT / "src" / "workflow"
     )
 
     if not skill_path.exists():
@@ -2228,8 +2228,8 @@ def rename_agent(old: str, new: str,
     discovered under workflows/. Passing an explicit path scopes the rename
     to that single workflow (used by tests).
     """
-    snippets_dir = snippets_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates" / "invocations")
-    agents_dir = agents_dir or (REPO_ROOT_GUESS / "src" / "agents")
+    snippets_dir = snippets_dir or (CONTENT_ROOT / "src" / "workflow" / "templates" / "invocations")
+    agents_dir = agents_dir or (CONTENT_ROOT / "src" / "agents")
 
     if workflow_path is None:
         workflow_paths = [p for _, p in discover_workflows()]
@@ -2294,8 +2294,8 @@ def cmd_assist(args):
     except FileNotFoundError as e:
         print(f"❌ {e}", file=sys.stderr)
         return 1
-    snippets_dir = REPO_ROOT_GUESS / "src" / "workflow" / "templates" / "invocations"
-    agents_dir = REPO_ROOT_GUESS / "src" / "agents"
+    snippets_dir = CONTENT_ROOT / "src" / "workflow" / "templates" / "invocations"
+    agents_dir = CONTENT_ROOT / "src" / "agents"
     available_workflows = [name for name, _ in discover_workflows()]
 
     print(f"📝 Change requested on workflow '{workflow_name}': {change_desc}")
@@ -2387,6 +2387,8 @@ def cmd_new_phase(args):
         print(f"❌ {e}", file=sys.stderr)
         return 1
     available = [name for name, _ in discover_workflows()]
+    snippets_dir = CONTENT_ROOT / "src" / "workflow" / "templates" / "invocations"
+    agents_dir = CONTENT_ROOT / "src" / "agents"
     print(f"New phase wizard for workflow: {workflow_name}")
     print("Run this prompt with a Claude sub-agent:")
     print()
@@ -2420,7 +2422,7 @@ After collecting the answers:
 1. Insert the new phase block in {workflow_path} at the right position
    (after its depends_on).
 2. For each NEW agent invocation: create a snippet at
-   src/workflow/templates/invocations/<agent>.md (frontmatter + body
+   {snippets_dir}/<agent>.md (frontmatter + body
    with placeholders for inputs_outputs_compact).
 3. Run: bb-workflow validate --workflow {workflow_name}
 4. Run: bb-workflow generate --workflow {workflow_name}
