@@ -38,9 +38,11 @@ before it ships, and a diagram you can actually read.
 | `docs/dev/bb-workflow.md` | user guide |
 | `CLAUDE.md` | development guide (was `CLAUDE-DEV.md`) |
 
-The bundled `demo` workflow (`src/workflows/demo.yaml`) is a minimal,
-domain-neutral example — a 2-phase `collector → summarizer` pipeline — that
-doubles as a test fixture.
+The bundled `onboard` workflow (`src/workflows/onboard.yaml`) is the worked
+example used throughout this README: it maps an unfamiliar repository — a cheap
+inventory pass plus a deterministic git-history script fan out into three
+parallel explorers (structure / deps / flow), which an `opus` synthesis reduces
+into an architecture doc and a getting-started guide.
 
 ## Install (from scratch)
 
@@ -54,6 +56,51 @@ awok validate
 Requires Python 3 (deps: PyYAML, Jinja2, jsonschema — installed into a dedicated
 `.venv` by `install.sh`, nothing touches system Python). Override interpreter or
 bin dir: `PYTHON=python3.12 AWOK_BIN=~/bin ./install.sh`.
+
+## How to use it
+
+awok turns one YAML file into a runnable Claude Code skill. The loop is always
+the same — **edit → validate → generate → install → invoke**:
+
+```bash
+# 1. Describe (or tweak) a workflow in src/workflows/<name>.yaml:
+#    its phases, the agent each one calls, and the I/O that flows between them.
+awok validate          # 2. schema + DAG coherence + dataflow checks
+awok generate          # 3. compile → SKILL.md + cartography + index
+./install.sh           # 4. deploy the skill + its agents to ~/.claude/
+#  5. restart Claude Code, then run  /<name>  on a target repo.
+```
+
+You never hand-write the `SKILL.md` — it is generated. `awok check` fails the
+build if a generated file has drifted from its YAML source, so wire it into a
+pre-commit hook.
+
+### Edit visually — `awok edit`
+
+Prefer a GUI to YAML? `awok edit` serves a local, dependency-free web editor on
+`127.0.0.1`: arrange phases on the DAG grid, wire dependencies, and edit each
+phase/agent in a side panel — **save** writes the YAML back, ready for `generate`.
+
+<p align="center">
+  <img src="assets/webui_workflow_editor.png" alt="awok web editor — DAG grid with a phase editor panel" width="820">
+</p>
+
+### Read the whole pipeline — the cartography
+
+`awok generate` also emits an offline HTML cartography (no network, no build step).
+The **Workflow** tab renders the DAG with phases coloured by group and the model
+each runs on; parallel phases sit side by side:
+
+<p align="center">
+  <img src="assets/workflow_preview.png" alt="cartography — Workflow tab showing the onboard DAG" width="820">
+</p>
+
+The **Dataflow** tab shows the same pipeline as artifacts — which file each phase
+produces and who consumes it (role-based I/O resolved to concrete paths):
+
+<p align="center">
+  <img src="assets/dataflow_of_workflow_preview.png" alt="cartography — Dataflow tab showing per-phase artifacts" width="820">
+</p>
 
 ## Commands
 
@@ -77,3 +124,4 @@ cd src/scripts/tests/webedit && bun test   # front-end (after `bun install`)
 
 Security review -> So you should not exposed the awok edit service.
 Improve the WebUI workflow editor.
+Fix invocation file in WEBui
