@@ -10,7 +10,7 @@ groups:
 
 manual_sections:
   - name: example_notes
-    path: claude-setup/workflow/manual/example-notes.md
+    path: src/workflow/manual/example-notes.md
     insert_at: end
 
 conditions:

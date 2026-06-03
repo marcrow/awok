@@ -1,5 +1,5 @@
 // Single source of truth for pure helpers — shared with the bun tests
-// (claude-setup/scripts/tests/webedit import the same files).
+// (src/scripts/tests/webedit import the same files).
 import { computeDropDepends, safeDropDepends, blockedDependents,
          buildNotice, renderEdges, aggregateInvocationIo, applyPhaseGroup } from "./editlogic.js";
 import { makeCard, section, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
@@ -188,11 +188,11 @@ function tabGeneral(body,p,id){
   mk(fieldTextarea("description", p.description, v=>{ if(v) p.description=v; else delete p.description; refreshView(); }));
   if(p.type==="script"){
     const c=fieldTextarea("cmd", p.cmd, v=>{ if(v) p.cmd=v; else delete p.cmd; refreshView(); });
-    c.appendChild(helpIcon("Commande shell exécutée pour cette phase (ex: python claude-setup/scripts/foo.py).")); mk(c);
+    c.appendChild(helpIcon("Commande shell exécutée pour cette phase (ex: python src/scripts/foo.py).")); mk(c);
   }
   if(p.type==="workflow_call"){
     const w=fieldSelect("workflow", p.workflow||"", ["", ...(state.workflows||[]).filter(n=>n!==state.name)], v=>{ if(v) p.workflow=v; else delete p.workflow; refreshView(); });
-    w.appendChild(helpIcon("Workflow à invoquer en sous-étape (doit exister dans claude-setup/workflows/).")); mk(w);
+    w.appendChild(helpIcon("Workflow à invoquer en sous-étape (doit exister dans src/workflows/).")); mk(w);
   }
 }
 function tabDeps(body,p){
@@ -259,7 +259,7 @@ function renderInvocations(host, p, id){
     pick.addEventListener("change",()=>{ if(!pick.value)return; p.invocations=p.invocations||[]; if(!p.invocations.some(i=>i.agent===pick.value)) p.invocations.push({agent:pick.value,model:"inherit"}); refreshView().then(()=>selectPhase(id)); });
     host.appendChild(pick);
   } else {
-    host.appendChild(helpNote("Aucun agent dans claude-setup/agents/."));
+    host.appendChild(helpNote("Aucun agent dans src/agents/."));
   }
   const create=document.createElement("button"); create.className="link-btn"; create.textContent="+ créer un nouvel agent…";
   create.addEventListener("click",()=>openAgentForm());
@@ -300,15 +300,15 @@ function openAgentForm(){
 }
 
 async function openPrompt(agent){
-  // Two distinct artifacts: the agent's real system prompt (claude-setup/agents/<name>.md
+  // Two distinct artifacts: the agent's real system prompt (src/agents/<name>.md
   // body) and the per-phase invocation snippet (templates/invocations/<name>.md).
   const ag=await api('GET','/api/agent/'+agent);
   const iv=await api('GET','/api/invocation/'+agent);
   const agentExists=ag.status===200;
   const sources=[
-    {label:"Prompt agent — claude-setup/agents/"+agent+".md",
+    {label:"Prompt agent — src/agents/"+agent+".md",
      value:(ag.j&&ag.j.body)||"", disabled:!agentExists,
-     hint:agentExists?"Le prompt système complet de l'agent. Le frontmatter (tools, model, description) est préservé.":"Agent introuvable dans claude-setup/agents/ — crée-le via « + agent ».",
+     hint:agentExists?"Le prompt système complet de l'agent. Le frontmatter (tools, model, description) est préservé.":"Agent introuvable dans src/agents/ — crée-le via « + agent ».",
      save:v=>api('PUT','/api/agent/'+agent,{body:v})},
     {label:"Snippet d'invocation — inclus dans le SKILL",
      value:(iv.j&&iv.j.prompt)||"", disabled:false,

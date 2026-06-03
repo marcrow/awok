@@ -5,7 +5,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SNIPPETS_DIR = REPO_ROOT / "claude-setup" / "workflow" / "templates" / "invocations"
+SNIPPETS_DIR = REPO_ROOT / "src" / "workflow" / "templates" / "invocations"
 
 
 def test_load_snippet_parses_frontmatter(bbw_module):
@@ -52,7 +52,7 @@ def test_generate_skill_produces_file(bbw_module, tmp_path):
     # Copy snippet + skeleton from the real repo
     shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
     shutil.copy(
-        REPO_ROOT / "claude-setup" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
         templates_dir / "skill-skeleton.md.jinja",
     )
 
@@ -95,7 +95,7 @@ phases:
 
 
 def test_generate_cartography_texte(bbw_module, tmp_path):
-    workflow_yaml = REPO_ROOT / "claude-setup" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
+    workflow_yaml = REPO_ROOT / "src" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
     output = tmp_path / "carto.md"
     bbw_module.generate_cartography_texte(workflow_yaml, output)
     content = output.read_text()
@@ -105,7 +105,7 @@ def test_generate_cartography_texte(bbw_module, tmp_path):
 
 
 def test_generate_mermaid_cartography(bbw_module, tmp_path):
-    workflow_yaml = REPO_ROOT / "claude-setup" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
+    workflow_yaml = REPO_ROOT / "src" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
     output = tmp_path / "carto.mermaid"
     bbw_module.generate_mermaid_cartography(workflow_yaml, output)
     content = output.read_text()
@@ -114,7 +114,7 @@ def test_generate_mermaid_cartography(bbw_module, tmp_path):
 
 
 def test_generate_mermaid_dataflow(bbw_module, tmp_path):
-    workflow_yaml = REPO_ROOT / "claude-setup" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
+    workflow_yaml = REPO_ROOT / "src" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
     output = tmp_path / "df.mermaid"
     bbw_module.generate_mermaid_dataflow(workflow_yaml, output)
     content = output.read_text()

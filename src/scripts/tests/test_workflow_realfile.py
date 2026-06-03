@@ -1,4 +1,4 @@
-"""Guard tests on every REAL workflow under claude-setup/workflows/ + its
+"""Guard tests on every REAL workflow under src/workflows/ + its
 generated SKILL.md.
 
 The other workflow tests run against toy/fixture workflows. These lock the
@@ -14,9 +14,9 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-WORKFLOWS_DIR = REPO_ROOT / "claude-setup" / "workflows"
-AGENTS_DIR = REPO_ROOT / "claude-setup" / "agents"
-SKILLS_DIR = REPO_ROOT / "claude-setup" / "skills"
+WORKFLOWS_DIR = REPO_ROOT / "src" / "workflows"
+AGENTS_DIR = REPO_ROOT / "src" / "agents"
+SKILLS_DIR = REPO_ROOT / "src" / "skills"
 
 
 def _workflow_files():

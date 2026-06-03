@@ -15,11 +15,11 @@ def test_check_no_drift(bbw_module, tmp_path):
     templates_dir = workflow_dir / "templates"
 
     shutil.copy(
-        REPO_ROOT / "claude-setup" / "workflow" / "templates" / "invocations" / "test-agent.md",
+        REPO_ROOT / "src" / "workflow" / "templates" / "invocations" / "test-agent.md",
         invocations_dir / "test-agent.md",
     )
     shutil.copy(
-        REPO_ROOT / "claude-setup" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
         templates_dir / "skill-skeleton.md.jinja",
     )
 
@@ -54,11 +54,11 @@ def test_check_drift_detected(bbw_module, tmp_path):
     templates_dir = workflow_dir / "templates"
 
     shutil.copy(
-        REPO_ROOT / "claude-setup" / "workflow" / "templates" / "invocations" / "test-agent.md",
+        REPO_ROOT / "src" / "workflow" / "templates" / "invocations" / "test-agent.md",
         invocations_dir / "test-agent.md",
     )
     shutil.copy(
-        REPO_ROOT / "claude-setup" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
         templates_dir / "skill-skeleton.md.jinja",
     )
 

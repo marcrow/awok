@@ -6,7 +6,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_PATH = REPO_ROOT / "claude-setup" / "workflow" / "workflow.schema.json"
+SCHEMA_PATH = REPO_ROOT / "src" / "workflow" / "workflow.schema.json"
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "workflows"
 
 

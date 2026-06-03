@@ -12,7 +12,7 @@
         "name": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$",
-          "description": "Skill slug, used as directory name under claude-setup/skills/<name>/ and as the SKILL.md frontmatter name. Must be unique across workflows."
+          "description": "Skill slug, used as directory name under src/skills/<name>/ and as the SKILL.md frontmatter name. Must be unique across workflows."
         },
         "description": {
           "type": "string",
@@ -72,7 +72,7 @@
         "type": { "enum": ["agent", "script", "external", "main_agent", "workflow_call"], "default": "agent" },
         "workflow": {
           "type": "string",
-          "description": "When type=workflow_call, the name of another workflow to invoke (must match a file claude-setup/workflows/<workflow>.yaml). Validated by coherence check."
+          "description": "When type=workflow_call, the name of another workflow to invoke (must match a file src/workflows/<workflow>.yaml). Validated by coherence check."
         },
         "description": { "type": "string" },
         "depends_on": { "type": "array", "items": { "type": "string" } },

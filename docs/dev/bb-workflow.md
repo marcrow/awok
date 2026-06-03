@@ -1,8 +1,8 @@
 # bb-workflow — Générateur multi-workflows depuis YAML
 
 `bb-workflow` est un CLI qui transforme **N workflows nommés** sous
-`claude-setup/workflows/` (sources de vérité) en, pour chacun :
-- `claude-setup/skills/<name>/SKILL.md` (orchestrateur Claude Code, callable via `/<name>`)
+`src/workflows/` (sources de vérité) en, pour chacun :
+- `src/skills/<name>/SKILL.md` (orchestrateur Claude Code, callable via `/<name>`)
 - `docs/architecture-cartography/<name>.html` (4 onglets : Details + Workflow + Dataflow + On-demand)
 - `docs/architecture-cartography/<name>-texte.md` (ASCII)
 
@@ -57,7 +57,7 @@ phases:                             # le DAG
     group: collect
     depends_on: [D0-COLLECT]
     invocations:
-      - agent: mon-agent            # doit exister dans claude-setup/agents/
+      - agent: mon-agent            # doit exister dans src/agents/
         model: sonnet
         description: "..."
         inputs:  [{ path: work/demo/raw.json, kind: json, external: true }]
@@ -81,24 +81,24 @@ on_demand_agents:                   # callables hors-DAG, listés dans l'onglet 
 
 ```bash
 # 1. Éditer le YAML du workflow cible
-vim claude-setup/workflows/demo.yaml
+vim src/workflows/demo.yaml
 
 # 2. Valider (le workflow ciblé seulement)
 awok validate --workflow demo
 
 # 3. (Si nouveau agent) — créer le snippet PARTAGÉ
-cp claude-setup/workflow/templates/invocations/_template.md \
-   claude-setup/workflow/templates/invocations/mon-agent.md
-vim claude-setup/workflow/templates/invocations/mon-agent.md
+cp src/workflow/templates/invocations/_template.md \
+   src/workflow/templates/invocations/mon-agent.md
+vim src/workflow/templates/invocations/mon-agent.md
 
 # 4. Régénérer (le workflow ciblé + l'index)
 awok generate --workflow demo
 
 # 5. Inspecter le diff
-git diff claude-setup/skills/demo/SKILL.md docs/architecture-cartography/
+git diff src/skills/demo/SKILL.md docs/architecture-cartography/
 
 # 6. Commit
-git add claude-setup/workflows/demo.yaml claude-setup/skills/demo/SKILL.md
+git add src/workflows/demo.yaml src/skills/demo/SKILL.md
 git commit -m "feat(demo): add D2 phase"
 ```
 
@@ -106,7 +106,7 @@ git commit -m "feat(demo): add D2 phase"
 
 ```bash
 # 1. Créer le YAML (au minimum : skill + groups + phases)
-cat > claude-setup/workflows/mon-workflow.yaml << 'EOF'
+cat > src/workflows/mon-workflow.yaml << 'EOF'
 schema_version: 1
 skill:
   name: mon-workflow
@@ -127,7 +127,7 @@ bb-workflow validate
 bb-workflow generate
 
 # 3. Déployer le skill
-./claude-setup/install.sh
+./install.sh
 
 # 4. Le skill /mon-workflow est maintenant invocable
 ```
@@ -148,7 +148,7 @@ Claude de lancer `/<autre-workflow>` via le Skill tool, puis de revenir.
 
 **Garanties cohérence** :
 - Champ `workflow:` obligatoire (sinon erreur de coherence)
-- Cible doit exister (`claude-setup/workflows/<target>.yaml`)
+- Cible doit exister (`src/workflows/<target>.yaml`)
 - Auto-call interdit (loop)
 
 **Rendu** :
@@ -263,7 +263,7 @@ données).
   chargé à la demande) · Réglages (skill.* / groups / conditions /
   on_demand_agents) · YAML (lecture seule).
 - **Création** : « + nouveau » (vierge) ou « dupliquer » (clone) ; « + phase » ;
-  « + agent » (scaffolde `claude-setup/agents/<nom>.md` + le template
+  « + agent » (scaffolde `src/agents/<nom>.md` + le template
   d'invocation via `POST /api/agent`).
 - **`--workflow NAME`** ouvre directement ce workflow (sinon le premier).
 - Hors couverture éditable (lecture YAML) : `brainstormings`, `manual_sections`.
@@ -290,7 +290,7 @@ données).
 ## Pre-commit hook
 
 ```bash
-cp claude-setup/hooks/pre-commit-bb-workflow-check.sh .git/hooks/pre-commit
+cp src/hooks/pre-commit-bb-workflow-check.sh .git/hooks/pre-commit
 ```
 
 Bloque les commits si un `workflows/*.yaml`, un `SKILL.md`, ou un template change

@@ -29,16 +29,16 @@ before it ships, and a diagram you can actually read.
 
 | Path | Role |
 |---|---|
-| `claude-setup/scripts/bb-workflow` | the compiler + local web editor (`awok edit`) |
-| `claude-setup/workflows/*.yaml` | **source of truth** — one file per workflow |
-| `claude-setup/workflow/` | Jinja templates, JSON schema, web-editor front-end, manual sections |
-| `claude-setup/agents/*.md` | agent definitions (system prompts) |
-| `claude-setup/skills/<name>/SKILL.md` | **generated** — never edit by hand |
+| `src/scripts/bb-workflow` | the compiler + local web editor (`awok edit`) |
+| `src/workflows/*.yaml` | **source of truth** — one file per workflow |
+| `src/workflow/` | Jinja templates, JSON schema, web-editor front-end, manual sections |
+| `src/agents/*.md` | agent definitions (system prompts) |
+| `src/skills/<name>/SKILL.md` | **generated** — never edit by hand |
 | `docs/architecture-cartography/` | **generated** HTML/ASCII cartography |
 | `docs/dev/bb-workflow.md` | user guide |
 | `CLAUDE.md` | development guide (was `CLAUDE-DEV.md`) |
 
-The bundled `demo` workflow (`claude-setup/workflows/demo.yaml`) is a minimal,
+The bundled `demo` workflow (`src/workflows/demo.yaml`) is a minimal,
 domain-neutral example — a 2-phase `collector → summarizer` pipeline — that
 doubles as a test fixture.
 
@@ -69,8 +69,8 @@ awok edit          # local web editor (127.0.0.1)
 ## Tests
 
 ```bash
-python -m pytest claude-setup/scripts/tests/        # Python (compiler)
-cd claude-setup/scripts/tests/webedit && bun test   # front-end (after `bun install`)
+python -m pytest src/scripts/tests/        # Python (compiler)
+cd src/scripts/tests/webedit && bun test   # front-end (after `bun install`)
 ```
 
 ## Status

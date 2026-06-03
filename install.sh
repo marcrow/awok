@@ -13,7 +13,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="${PYTHON:-python3}"
 VENV="$HERE/.venv"
 BINDIR="${AWOK_BIN:-$HOME/.local/bin}"
-SCRIPTS="$HERE/claude-setup/scripts"
+SCRIPTS="$HERE/src/scripts"
 
 command -v "$PY" >/dev/null 2>&1 || { echo "✗ '$PY' introuvable. Installe Python 3."; exit 1; }
 
@@ -41,4 +41,4 @@ case ":$PATH:" in
 esac
 
 echo "✓ installé. Essaie :  awok validate"
-echo "  (tests : $VENV/bin/pip install pytest && $VENV/bin/python -m pytest claude-setup/scripts/tests/)"
+echo "  (tests : $VENV/bin/pip install pytest && $VENV/bin/python -m pytest src/scripts/tests/)"

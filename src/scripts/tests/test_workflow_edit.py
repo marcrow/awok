@@ -34,7 +34,7 @@ def test_dump_long_description_is_block_scalar(bbw_module):
 
 
 def test_dump_is_idempotent(bbw_module):
-    src = (REPO_ROOT / "claude-setup" / "workflows" / "demo.yaml").read_text()
+    src = (REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text()
     model = yaml.safe_load(src)
     once = bbw_module.dump_workflow_yaml(model)
     twice = bbw_module.dump_workflow_yaml(yaml.safe_load(once))
@@ -98,7 +98,7 @@ def test_blank_workflow_is_schema_valid(bbw_module):
 
 
 def test_clone_workflow_renames_skill(bbw_module):
-    src = yaml.safe_load((REPO_ROOT / "claude-setup" / "workflows" / "demo.yaml").read_text())
+    src = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text())
     cloned = bbw_module.clone_workflow(src, "demo-copy")
     assert cloned["skill"]["name"] == "demo-copy"
     assert len(cloned["phases"]) == len(src["phases"])
@@ -160,7 +160,7 @@ def test_create_agent_rejects_bad_slug(bbw_module, tmp_path):
 
 
 def test_split_agent_md_preserves_rich_frontmatter(bbw_module):
-    raw = (REPO_ROOT / "claude-setup" / "agents" / "summarizer.md").read_text()
+    raw = (REPO_ROOT / "src" / "agents" / "summarizer.md").read_text()
     fm, body = bbw_module.split_agent_md(raw)
     assert "description: |" in fm          # literal block scalar kept
     assert "- Read" in fm                  # tools block-sequence kept
@@ -178,7 +178,7 @@ def test_split_agent_md_no_frontmatter(bbw_module):
 
 
 def test_render_cartography_mermaid_from_dict(bbw_module):
-    wf = yaml.safe_load((REPO_ROOT / "claude-setup" / "workflows" / "demo.yaml").read_text())
+    wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text())
     out = bbw_module.render_cartography_mermaid(wf)
     assert "D0-COLLECT" in out or "D0_COLLECT" in out
     assert "graph" in out.lower() or "flowchart" in out.lower()
@@ -192,9 +192,9 @@ from http.server import HTTPServer
 @pytest.fixture
 def editor_server(bbw_module):
     handler = bbw_module.make_edit_handler(
-        workflows_dir=REPO_ROOT / "claude-setup" / "workflows",
-        agents_dir=REPO_ROOT / "claude-setup" / "agents",
-        templates_dir=REPO_ROOT / "claude-setup" / "workflow" / "templates",
+        workflows_dir=REPO_ROOT / "src" / "workflows",
+        agents_dir=REPO_ROOT / "src" / "agents",
+        templates_dir=REPO_ROOT / "src" / "workflow" / "templates",
     )
     srv = HTTPServer(("127.0.0.1", 0), handler)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -252,7 +252,7 @@ def test_preview_returns_mermaid(editor_server):
 
 
 def test_render_dataflow_mermaid_from_dict(bbw_module):
-    wf = yaml.safe_load((REPO_ROOT / "claude-setup" / "workflows" / "demo.yaml").read_text())
+    wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "demo.yaml").read_text())
     out = bbw_module.render_dataflow_mermaid(wf, mode="all")
     assert "graph" in out.lower() or "flowchart" in out.lower()
     # the demo's terminal artifact work/demo/digest.md must appear as a node
@@ -271,7 +271,7 @@ def editor_server_tmp(bbw_module, tmp_path):
         bbw_module.blank_workflow("seed")))
     handler = bbw_module.make_edit_handler(
         workflows_dir=wf_dir, agents_dir=ag_dir,
-        templates_dir=REPO_ROOT / "claude-setup" / "workflow" / "templates")
+        templates_dir=REPO_ROOT / "src" / "workflow" / "templates")
     srv = HTTPServer(("127.0.0.1", 0), handler)
     t = threading.Thread(target=srv.serve_forever, daemon=True); t.start()
     yield srv.server_address, wf_dir
@@ -288,7 +288,7 @@ def editor_server_agents(bbw_module, tmp_path):
         "model: inherit\ntools:\n  - Read\n  - Grep\n---\n\nOriginal body line.\n")
     handler = bbw_module.make_edit_handler(
         workflows_dir=wf_dir, agents_dir=ag_dir,
-        templates_dir=REPO_ROOT / "claude-setup" / "workflow" / "templates")
+        templates_dir=REPO_ROOT / "src" / "workflow" / "templates")
     srv = HTTPServer(("127.0.0.1", 0), handler)
     t = threading.Thread(target=srv.serve_forever, daemon=True); t.start()
     yield srv.server_address, ag_dir

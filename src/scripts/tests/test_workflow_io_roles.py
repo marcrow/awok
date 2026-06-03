@@ -218,7 +218,7 @@ def test_generate_resolves_role_paths_in_skill(bbw_module, tmp_path):
     invocations_dir = templates_dir / "invocations"
     invocations_dir.mkdir(parents=True)
     shutil.copy(
-        REPO_ROOT / "claude-setup" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
         templates_dir / "skill-skeleton.md.jinja",
     )
 
@@ -278,7 +278,7 @@ import pathlib
 
 def test_existing_workflows_still_validate_and_generate(bbw_module):
     repo = pathlib.Path(__file__).resolve().parents[3]
-    wf_dir = repo / "claude-setup" / "workflows"
+    wf_dir = repo / "src" / "workflows"
     import yaml
     for wf_path in sorted(wf_dir.glob("*.yaml")):
         if wf_path.stem in ("test", "reporter", "report-writer"):  # scratch WIP yamls

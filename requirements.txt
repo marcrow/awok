@@ -5,4 +5,4 @@ jsonschema>=4
 
 # Dev/test extras (not required to run awok):
 #   pip install pytest
-# Front-end tests (claude-setup/scripts/tests/webedit) need `bun` + `bun install`.
+# Front-end tests (src/scripts/tests/webedit) need `bun` + `bun install`.

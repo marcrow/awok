@@ -7,7 +7,7 @@ from importlib.machinery import SourceFileLoader
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-BBW_SCRIPT_PATH = REPO_ROOT / "claude-setup" / "scripts" / "bb-workflow"
+BBW_SCRIPT_PATH = REPO_ROOT / "src" / "scripts" / "bb-workflow"
 
 
 @pytest.fixture(scope="session")
