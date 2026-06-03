@@ -94,6 +94,61 @@ phases:
     assert "test-agent" in content
 
 
+def test_generate_skill_derives_parallel_with(bbw_module, tmp_path):
+    """generate_skill_md must derive parallel_with from the DAG so sibling phases
+    render the ∥ marker — even when the YAML does NOT declare parallel_with.
+
+    Regression guard: the CLI generate path used to skip apply_parallel_with
+    (it only ran in the web-editor save path), so hand-authored parallel phases
+    never showed up as parallel in the generated SKILL.md."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    # Two sibling phases at level 0 — NO depends_on, NO parallel_with declared.
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: par-flow
+  description: Two parallel roots, parallel_with NOT declared in the YAML
+groups:
+  g: { description: x }
+phases:
+  - id: A1
+    name: Alpha
+    group: g
+    invocations:
+      - agent: test-agent
+  - id: A2
+    name: Beta
+    group: g
+    invocations:
+      - agent: test-agent
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    # A1 and A2 are siblings → each must be annotated parallel with the other.
+    assert "∥ A2" in content
+    assert "∥ A1" in content
+
+
 def test_generate_cartography_texte(bbw_module, tmp_path):
     workflow_yaml = REPO_ROOT / "src" / "scripts" / "tests" / "fixtures" / "workflows" / "valid-complex.yaml"
     output = tmp_path / "carto.md"

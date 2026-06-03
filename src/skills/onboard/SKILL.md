@@ -26,7 +26,7 @@ Pipeline en 7 phases, organisées en 3 groupes :
 ## Pipeline phases (DAG)
 
 ### O0-INVENTORY — Inventory
-> `scan` · agent
+> `scan` · agent · ∥ OG-GITSTATS
 
 #### Invocation `repo-inventory`
 
@@ -40,7 +40,7 @@ Pipeline en 7 phases, organisées en 3 groupes :
 
 
 ### OG-GITSTATS — Git history stats
-> `scan` · script
+> `scan` · script · ∥ O0-INVENTORY
 Deterministic git-history analysis (no LLM): commit volume, contributors, churn hotspots, commits per month. Demonstrates a type:script phase whose output feeds the synthesis reduce.
 
 ```bash
@@ -63,7 +63,7 @@ mkdir -p work/onboard
 
 
 ### O1-STRUCTURE — Structure mapping
-> `explore` · agent · ⇐ O0-INVENTORY
+> `explore` · agent · ⇐ O0-INVENTORY · ∥ O2-DEPS, O3-FLOW
 
 #### Invocation `structure-mapper`
 
@@ -77,7 +77,7 @@ mkdir -p work/onboard
 
 
 ### O2-DEPS — Dependency audit
-> `explore` · agent · ⇐ O0-INVENTORY
+> `explore` · agent · ⇐ O0-INVENTORY · ∥ O1-STRUCTURE, O3-FLOW
 
 #### Invocation `deps-auditor`
 
@@ -91,7 +91,7 @@ mkdir -p work/onboard
 
 
 ### O3-FLOW — Flow tracing
-> `explore` · agent · ⇐ O0-INVENTORY
+> `explore` · agent · ⇐ O0-INVENTORY · ∥ O1-STRUCTURE, O2-DEPS
 
 #### Invocation `flow-tracer`
 

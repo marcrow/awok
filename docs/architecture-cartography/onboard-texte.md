@@ -26,26 +26,26 @@ Niveau 3 : O5-GETTING-STARTED
 ### O0-INVENTORY — Inventory
 
 - Groupe : `scan`
-- Type : `agent`- Invocations :
+- Type : `agent`- Parallèle avec : OG-GITSTATS- Invocations :
   - `repo-inventory` (haiku)
 ### OG-GITSTATS — Git history stats
 
 - Groupe : `scan`
-- Type : `script`
+- Type : `script`- Parallèle avec : O0-INVENTORY
 ### O1-STRUCTURE — Structure mapping
 
 - Groupe : `explore`
-- Type : `agent`- Dépend de : O0-INVENTORY- Invocations :
+- Type : `agent`- Dépend de : O0-INVENTORY- Parallèle avec : O2-DEPS, O3-FLOW- Invocations :
   - `structure-mapper` (sonnet)
 ### O2-DEPS — Dependency audit
 
 - Groupe : `explore`
-- Type : `agent`- Dépend de : O0-INVENTORY- Invocations :
+- Type : `agent`- Dépend de : O0-INVENTORY- Parallèle avec : O1-STRUCTURE, O3-FLOW- Invocations :
   - `deps-auditor` (sonnet)
 ### O3-FLOW — Flow tracing
 
 - Groupe : `explore`
-- Type : `agent`- Dépend de : O0-INVENTORY- Invocations :
+- Type : `agent`- Dépend de : O0-INVENTORY- Parallèle avec : O1-STRUCTURE, O2-DEPS- Invocations :
   - `flow-tracer` (sonnet)
 ### O4-ARCHITECTURE — Architecture synthesis
 

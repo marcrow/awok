@@ -855,6 +855,11 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
     # le YAML source reste en rôles.
     workflow = resolve_io_paths(workflow)
 
+    # Dérive parallel_with depuis les niveaux du DAG pour que les phases sœurs
+    # affichent le marqueur ∥ (le chemin save_workflow de l'éditeur web le fait
+    # aussi ; le chemin generate CLI doit le faire également).
+    apply_parallel_with(workflow, compute_levels(workflow))
+
     # Render each invocation snippet for each phase
     phases_rendered = []
     for phase in workflow.get("phases", []):
@@ -1286,6 +1291,7 @@ def generate_mermaid_cartography(workflow_path: Path, output_path: Path,
                                   templates_dir: Path = None) -> None:
     with open(workflow_path) as f:
         workflow = yaml.safe_load(f)
+    apply_parallel_with(workflow, compute_levels(workflow))
     output = render_cartography_mermaid(workflow, templates_dir=templates_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -1468,6 +1474,7 @@ def generate_cartography_texte(workflow_path: Path, output_path: Path,
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
     with open(workflow_path) as f:
         workflow = yaml.safe_load(f)
+    apply_parallel_with(workflow, compute_levels(workflow))
     dag = build_dag(workflow)
 
     env = jinja2.Environment(
