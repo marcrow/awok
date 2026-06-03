@@ -73,9 +73,7 @@ python -m pytest src/scripts/tests/        # Python (compiler)
 cd src/scripts/tests/webedit && bun test   # front-end (after `bun install`)
 ```
 
-## Status
+## TBD
 
-Extracted 2026-06-02 from a larger monorepo (fresh history). The I/O
-model "Lot 1" (role + namespaces + path derivation) is delivered; see
-`docs/superpowers/specs/2026-06-02-bb-workflow-io-model.md` and the plans for the
-remaining lots (contract rubric + verbatim relay, role↔prose check, `bb-workflow init`).
+Security review -> So you should not exposed the awok edit service.
+Improve the WebUI workflow editor.
