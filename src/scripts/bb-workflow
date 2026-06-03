@@ -54,10 +54,33 @@ def _find_repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-REPO_ROOT_GUESS = _find_repo_root()
-DEFAULT_WORKFLOWS_DIR = REPO_ROOT_GUESS / "src" / "workflows"
-LEGACY_WORKFLOW_PATH = REPO_ROOT_GUESS / "src" / "workflow" / "workflow.yaml"
-DEFAULT_SCHEMA_PATH = REPO_ROOT_GUESS / "src" / "workflow" / "workflow.schema.json"
+def _apply_roots(engine_root: Path, content_root: Path) -> None:
+    """(Re)derive every root-dependent path constant.
+
+    ENGINE_ROOT owns the engine (Jinja templates + JSON schema); CONTENT_ROOT
+    owns the workflows/agents and all generated outputs. Called at import
+    (content == engine, i.e. identical to today) and again in main() once
+    --workdir / $AWOK_WORKDIR is known. Functions read these module globals at
+    call time, so re-applying takes effect for the dispatched command.
+    """
+    global ENGINE_ROOT, CONTENT_ROOT, REPO_ROOT_GUESS
+    global DEFAULT_WORKFLOWS_DIR, LEGACY_WORKFLOW_PATH, DEFAULT_SCHEMA_PATH
+    global DEFAULT_AGENTS_DIR, DEFAULT_INVOCATIONS_DIR
+    ENGINE_ROOT = engine_root
+    CONTENT_ROOT = content_root
+    REPO_ROOT_GUESS = engine_root  # back-compat alias — always the engine side
+    DEFAULT_WORKFLOWS_DIR = content_root / "src" / "workflows"
+    LEGACY_WORKFLOW_PATH = content_root / "src" / "workflow" / "workflow.yaml"
+    DEFAULT_SCHEMA_PATH = engine_root / "src" / "workflow" / "workflow.schema.json"
+    DEFAULT_AGENTS_DIR = content_root / "src" / "agents"
+    DEFAULT_INVOCATIONS_DIR = (content_root / "src" / "workflow"
+                               / "templates" / "invocations")
+
+
+ENGINE_ROOT = _find_repo_root()
+CONTENT_ROOT = ENGINE_ROOT
+REPO_ROOT_GUESS = ENGINE_ROOT
+_apply_roots(ENGINE_ROOT, CONTENT_ROOT)
 
 
 def discover_workflows(workflows_dir: Path = None) -> list:
@@ -376,12 +399,6 @@ def validate_schema(workflow: dict, schema: dict = None) -> list:
         path = ".".join(str(p) for p in err.absolute_path) or "<root>"
         errors.append(f"{path}: {err.message}")
     return errors
-
-
-DEFAULT_AGENTS_DIR = REPO_ROOT_GUESS / "src" / "agents"
-
-DEFAULT_INVOCATIONS_DIR = (REPO_ROOT_GUESS / "src" / "workflow"
-                           / "templates" / "invocations")
 
 
 def create_agent(name: str, description: str, tools: str, model: str,
