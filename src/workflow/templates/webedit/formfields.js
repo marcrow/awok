@@ -50,25 +50,49 @@ export function fieldCheckbox(label, checked, onChange){
 const IO_KINDS = ["json","jsonl","md","text","yaml","dir","sqlite","binary"];
 const IO_FLAGS = ["optional","external","terminal"];
 
-const IO_FLAG_HELP = "optional = the file may be missing · external = produced outside the workflow (external tool…), hides the « no producer » warning · terminal = final artifact read on output, hides the « no consumer » warning";
+const IO_FLAG_HELP = "role = ns:name (resolved to a path via namespaces, e.g. work:inventory → work/onboard/inventory.md) · path = explicit override (escape hatch, wins over role) · optional = the file may be missing · external = produced outside the workflow, hides the « no producer » warning · terminal = final artifact read on output, hides the « no consumer » warning";
 
-export function ioRefEditor(label, items, onChange){
+// Extension per kind — mirrors EXT_BY_KIND in bb-workflow so the editor can show
+// the same resolved path the generator / dataflow compute.
+const EXT_BY_KIND = { json:".json", jsonl:".jsonl", md:".md", text:".txt", yaml:".yaml", sqlite:".sqlite", binary:"", dir:"" };
+
+// Mirror of resolve_io_path() in bb-workflow: explicit path wins, otherwise the
+// path is derived from role (ns:name | namespace+role) + the namespaces map.
+// Returns "" when it can't be resolved (caller shows an "unresolved" hint).
+export function resolveIoPath(item, namespaces){
+  if (item && item.path) return item.path;
+  const role = item && item.role;
+  if (!role) return "";
+  let ns, name;
+  if (role.includes(":")){ [ns, name] = role.split(/:(.*)/s); }
+  else { ns = item.namespace || ""; name = role; }
+  const base = (namespaces || {})[ns];
+  if (base == null) return "";
+  const b = String(base).replace(/\/+$/,"");
+  const kind = item.kind || "";
+  return kind === "dir" ? `${b}/${name}/` : `${b}/${name}${EXT_BY_KIND[kind] || ""}`;
+}
+
+export function ioRefEditor(label, items, onChange, namespaces){
   const wrap = document.createElement("div"); wrap.className = "ioref-editor";
   const head = document.createElement("label"); head.textContent = label + " "; head.appendChild(helpIcon(IO_FLAG_HELP)); wrap.appendChild(head);
   const list = (items || []).map(x => ({ ...x }));
   const emit = () => onChange(list.map(x => ({ ...x })));
   const body = document.createElement("div"); wrap.appendChild(body);
+  // Keep/delete a key based on a (trimmed) value so we never persist role:"" or path:"".
+  const setKey = (item, k, v) => { if (v) item[k] = v; else delete item[k]; };
   function render(){
     body.replaceChildren();
     list.forEach((item, idx) => {
       const r = document.createElement("div"); r.className = "ioref-row";
+      const role = document.createElement("input"); role.type = "text"; role.dataset.k = "role";
+      role.value = item.role || ""; role.placeholder = "role (ns:name)"; role.className = "ioref-role";
+      r.appendChild(role);
       const path = document.createElement("input"); path.type = "text"; path.dataset.k = "path";
-      path.value = item.path || ""; path.placeholder = "path";
-      path.addEventListener("change", () => { item.path = path.value; emit(); });
+      path.value = item.path || ""; path.placeholder = "path override";
       r.appendChild(path);
       const kind = document.createElement("select"); kind.dataset.k = "kind";
       for (const k of IO_KINDS){ const o = document.createElement("option"); o.value = k; o.textContent = k; if (k === (item.kind||"json")) o.selected = true; kind.appendChild(o); }
-      kind.addEventListener("change", () => { item.kind = kind.value; emit(); });
       r.appendChild(kind);
       for (const f of IO_FLAGS){
         const lbl = document.createElement("label"); lbl.className = "ioref-flag";
@@ -81,10 +105,24 @@ export function ioRefEditor(label, items, onChange){
       del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
       r.appendChild(del);
       body.appendChild(r);
+      // Resolved-path hint (read-only): what the role+namespaces (or path override) resolve to.
+      const resolved = document.createElement("div"); resolved.className = "ioref-resolved";
+      const refresh = () => {
+        const p = resolveIoPath(item, namespaces);
+        if (p){ resolved.textContent = (item.path ? "→ " : "→ ") + p; resolved.classList.remove("warn"); }
+        else { resolved.textContent = "⚠ unresolved (set a role + a declared namespace, or a path)"; resolved.classList.add("warn"); }
+      };
+      role.addEventListener("change", () => { setKey(item, "role", role.value.trim()); refresh(); emit(); });
+      role.addEventListener("input", refresh);
+      path.addEventListener("change", () => { setKey(item, "path", path.value.trim()); refresh(); emit(); });
+      path.addEventListener("input", refresh);
+      kind.addEventListener("change", () => { item.kind = kind.value; refresh(); emit(); });
+      refresh();
+      body.appendChild(resolved);
     });
   }
   const add = document.createElement("button"); add.className = "ioref-add"; add.textContent = "+ "+label;
-  add.addEventListener("click", () => { list.push({ path: "", kind: "json" }); render(); emit(); });
+  add.addEventListener("click", () => { list.push({ kind: "json" }); render(); emit(); });
   render(); wrap.appendChild(add);
   return wrap;
 }

@@ -71,8 +71,11 @@ pre{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace}
 .field-inline label{margin:0}
 #edit-panel textarea,.notice-box textarea{width:100%;background:#121a24;color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px;font:12px/1.4 ui-monospace,monospace}
 .ioref-row,.trigger-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px;border-top:1px solid #1b2530;padding-top:4px}
-.ioref-row input[data-k=path],.trigger-row input{flex:1 1 90px;min-width:70px}
+.ioref-row input[data-k=path],.ioref-row input[data-k=role],.trigger-row input{flex:1 1 90px;min-width:70px}
+.ioref-row input[data-k=role]{color:#9cf}
 .ioref-flag{display:flex;align-items:center;gap:2px;font-size:10px;text-transform:none}
+.ioref-resolved{font:10.5px/1.4 ui-monospace,monospace;color:#7c9;margin:2px 0 2px 4px;word-break:break-all}
+.ioref-resolved.warn{color:#c97}
 .ioref-add,.trigger-add{margin-top:6px;font-size:11px}
 .ioref-del,.trigger-row button{background:none;border:none;color:#a55;cursor:pointer}
 .inv-block{margin-top:10px;border-top:1px solid var(--border);padding-top:6px}

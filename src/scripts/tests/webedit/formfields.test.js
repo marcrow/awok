@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { parseHTML } from "linkedom";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
-         ioRefEditor, triggerEditor } from "../../../workflow/templates/webedit/formfields.js";
+         ioRefEditor, triggerEditor, resolveIoPath } from "../../../workflow/templates/webedit/formfields.js";
 
 function dom(){ const { document } = parseHTML("<!DOCTYPE html><body></body>"); globalThis.document = document; return document; }
 function ev(node){ return new node.ownerDocument.defaultView.Event("change"); }
@@ -75,6 +75,34 @@ test("ioRefEditor renders rows and adds", () => {
   node.querySelector(".ioref-add").dispatchEvent(click(node));
   expect(changed.length).toBe(2);
   expect(changed[1].kind).toBe("json");
+});
+
+test("resolveIoPath mirrors bb-workflow: role+namespaces → path, kind ext, dir, override", () => {
+  const ns = { work: "work/onboard" };
+  expect(resolveIoPath({ role: "work:inventory", kind: "md" }, ns)).toBe("work/onboard/inventory.md");
+  expect(resolveIoPath({ role: "work:db", kind: "sqlite" }, ns)).toBe("work/onboard/db.sqlite");
+  expect(resolveIoPath({ role: "work:out", kind: "dir" }, ns)).toBe("work/onboard/out/");
+  // role with separate namespace field
+  expect(resolveIoPath({ role: "x", namespace: "work", kind: "json" }, ns)).toBe("work/onboard/x.json");
+  // explicit path always wins (escape hatch)
+  expect(resolveIoPath({ role: "work:inventory", kind: "md", path: "custom/p.md" }, ns)).toBe("custom/p.md");
+  // unresolved: unknown namespace / no role
+  expect(resolveIoPath({ role: "ghost:x", kind: "md" }, ns)).toBe("");
+  expect(resolveIoPath({ kind: "md" }, ns)).toBe("");
+});
+
+test("ioRefEditor renders role + resolved-path hint, keeps model role-based", () => {
+  dom();
+  const list = [{ role: "work:inventory", kind: "md" }];
+  let changed = null;
+  const node = ioRefEditor("inputs", list, next => { changed = next; }, { work: "work/onboard" });
+  expect(node.querySelector(".ioref-row input[data-k=role]").value).toBe("work:inventory");
+  expect(node.querySelector(".ioref-resolved").textContent).toContain("work/onboard/inventory.md");
+  // editing the role must NOT inject a path key (model stays role-based)
+  const roleIn = node.querySelector("input[data-k=role]");
+  roleIn.value = "work:structure"; roleIn.dispatchEvent(ev(roleIn));
+  expect(changed[0].role).toBe("work:structure");
+  expect("path" in changed[0]).toBe(false);
 });
 
 test("ioRefEditor edits path/flags through callback", () => {

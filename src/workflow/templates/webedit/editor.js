@@ -228,8 +228,8 @@ function tabDeps(body,p){
 function tabFiles(body,p){
   const ph=section("phase files", true);
   ph.body.appendChild(labelWithHelp("phase-level", "Inputs/outputs declared directly on the phase (scripts, main_agent). For a phase with invocations, files are set per invocation — see below and the Invocations tab."));
-  ph.body.appendChild(ioRefEditor("inputs", p.inputs||[], next=>{ if(next.length) p.inputs=next; else delete p.inputs; refreshView(); }));
-  ph.body.appendChild(ioRefEditor("outputs", p.outputs||[], next=>{ if(next.length) p.outputs=next; else delete p.outputs; refreshView(); }));
+  ph.body.appendChild(ioRefEditor("inputs", p.inputs||[], next=>{ if(next.length) p.inputs=next; else delete p.inputs; refreshView(); }, state.model.namespaces));
+  ph.body.appendChild(ioRefEditor("outputs", p.outputs||[], next=>{ if(next.length) p.outputs=next; else delete p.outputs; refreshView(); }, state.model.namespaces));
   body.appendChild(ph);
   const agg=aggregateInvocationIo(p);
   if(agg.length){
@@ -263,8 +263,8 @@ function renderInvocations(host, p, id){
     const it=section("invocation triggers", false); b.appendChild(it);
     it.body.appendChild(triggerEditor("triggers", inv.triggers||[], next=>{ if(next.length) inv.triggers=next; else delete inv.triggers; refreshView();}));
     const io=section("invocation files", false); b.appendChild(io);
-    io.body.appendChild(ioRefEditor("inputs", inv.inputs||[], next=>{ if(next.length) inv.inputs=next; else delete inv.inputs; refreshView();}));
-    io.body.appendChild(ioRefEditor("outputs", inv.outputs||[], next=>{ if(next.length) inv.outputs=next; else delete inv.outputs; refreshView();}));
+    io.body.appendChild(ioRefEditor("inputs", inv.inputs||[], next=>{ if(next.length) inv.inputs=next; else delete inv.inputs; refreshView();}, state.model.namespaces));
+    io.body.appendChild(ioRefEditor("outputs", inv.outputs||[], next=>{ if(next.length) inv.outputs=next; else delete inv.outputs; refreshView();}, state.model.namespaces));
     const rm=document.createElement("button"); rm.className="inv-remove"; rm.textContent="✕ remove this invocation";
     rm.addEventListener("click",()=>{p.invocations.splice(idx,1); if(!p.invocations.length) delete p.invocations; refreshView().then(()=>selectPhase(id));});
     b.appendChild(rm);
@@ -423,6 +423,19 @@ function renderSettings(){
   root.appendChild(fieldText("name", m.skill.name||"", v=>{m.skill.name=v;}));
   root.appendChild(fieldTextarea("description", m.skill.description||"", v=>{m.skill.description=v;}));
   root.appendChild(fieldText("title", m.skill.title||"", v=>{ if(v) m.skill.title=v; else delete m.skill.title; }));
+  sec("namespaces");
+  m.namespaces=m.namespaces||{};
+  root.appendChild((()=>{const h=document.createElement("div"); h.className="help-note"; h.textContent="Maps a role prefix to a base path: role `ns:name` (+ kind) resolves to `<base>/name<ext>`. Used by the Files editor and the dataflow."; return h;})());
+  Object.keys(m.namespaces).forEach(ns=>{
+    const box=document.createElement("div"); box.className="settings-row";
+    const nm=document.createElement("input"); nm.value=ns; nm.placeholder="prefix (e.g. work)";
+    nm.addEventListener("change",()=>{ const v=nm.value.trim(); if(v&&v!==ns){ m.namespaces[v]=m.namespaces[ns]; delete m.namespaces[ns]; renderSettings(); refreshView(); } });
+    box.appendChild(nm);
+    box.appendChild(fieldText("base path", m.namespaces[ns]||"", v=>{m.namespaces[ns]=v; refreshView();}));
+    const del=document.createElement("button"); del.textContent="✕ namespace"; del.addEventListener("click",()=>{ delete m.namespaces[ns]; renderSettings(); refreshView(); }); box.appendChild(del);
+    root.appendChild(box);
+  });
+  const addN=document.createElement("button"); addN.textContent="+ namespace"; addN.addEventListener("click",()=>{ let n="ns",i=1; while(m.namespaces[n])n="ns"+(++i); m.namespaces[n]="work/"+n; renderSettings(); refreshView(); }); root.appendChild(addN);
   sec("groups");
   m.groups=m.groups||{};
   Object.keys(m.groups).forEach(g=>{
