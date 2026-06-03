@@ -112,6 +112,22 @@ produces and who consumes it (role-based I/O resolved to concrete paths):
   <img src="assets/dataflow_of_workflow_preview.png" alt="cartography — Dataflow tab showing per-phase artifacts" width="820">
 </p>
 
+## Private / external workflows
+
+Keep workflows you don't want in this repo (e.g. pentest pipelines) in a
+**separate private repo** and point awok at it with `--workdir` — the engine
+(templates + schema) is reused, only your workflows/agents/outputs live there:
+
+```bash
+awok init   --workdir ~/pentest-workflows   # scaffold the workdir (once)
+awok --workdir ~/pentest-workflows generate # compile into the workdir
+awok deploy --workdir ~/pentest-workflows   # deploy its skills/agents to ~/.claude
+# restart Claude Code, then invoke the private skill
+```
+
+The workdir mirrors `src/` (its own `src/workflows/` + `src/agents/`); set
+`AWOK_WORKDIR` to avoid repeating the flag. Nothing private touches this repo.
+
 ## Commands
 
 ```bash

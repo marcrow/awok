@@ -206,6 +206,33 @@ workflow.yaml + the snippet + `agents/<name>.md`. Then `awok generate`.
 - **Design**: `docs/superpowers/specs/` and `docs/superpowers/plans/`
 - **Cartography**: `docs/architecture-cartography/`
 
+## Engine vs content root (`--workdir`)
+
+awok separates two roots so private workflows can live in a **separate repo**
+while reusing this engine:
+
+- **ENGINE_ROOT** — this awok repo. Owns the engine: `src/scripts/bb-workflow`,
+  the Jinja templates `src/workflow/templates/*.jinja`, `workflow.schema.json`,
+  `html-wrapper.html`, webedit.
+- **CONTENT_ROOT** — `--workdir DIR` (or `$AWOK_WORKDIR`); defaults to ENGINE_ROOT,
+  so with no flag everything behaves as before. Owns the content: `src/workflows/`,
+  `src/agents/`, `src/workflow/templates/invocations/`, `src/workflow/manual/`,
+  and the generated `src/skills/` + `docs/architecture-cartography/`.
+
+A content workdir is "an awok repo minus the engine" — it mirrors `src/` and its
+agents are **self-sufficient** (resolved only from the workdir; templates + schema
+come from the engine).
+
+```bash
+awok init   --workdir ~/pentest-workflows   # scaffold (idempotent)
+awok --workdir ~/pentest-workflows validate
+awok --workdir ~/pentest-workflows generate
+awok deploy --workdir ~/pentest-workflows   # → ~/.claude/{skills,agents}
+```
+
+Precedence: `--workdir` > `$AWOK_WORKDIR` > engine. `$BB_WORKFLOW_REPO` still
+overrides ENGINE_ROOT only.
+
 ## Workflow conventions (read before modifying)
 
 ### Single source: workflows/<name>.yaml generates its SKILL.md

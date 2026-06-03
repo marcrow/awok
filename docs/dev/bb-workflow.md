@@ -308,3 +308,20 @@ sans régénérer.
 - `docs/superpowers/plans/2026-05-21-workflow-modulable-yaml.md`
 - `docs/superpowers/plans/2026-05-28-bb-workflow-web-editor.md` (éditeur web v1)
 - `docs/superpowers/plans/2026-05-29-bb-workflow-web-editor-v2-lot{1,2,3}.md` (éditeur web v2)
+
+## `--workdir` / `$AWOK_WORKDIR` (external content root)
+
+awok resolves paths from two roots: **ENGINE_ROOT** (this repo — templates +
+schema, found via `$BB_WORKFLOW_REPO` → schema-marker walk-up → install location)
+and **CONTENT_ROOT** (`--workdir` / `$AWOK_WORKDIR`, default = engine).
+
+| From ENGINE_ROOT | From CONTENT_ROOT |
+|---|---|
+| `src/workflow/templates/*.jinja`, `html-wrapper.html`, webedit | `src/workflows/`, `src/agents/` |
+| `src/workflow/workflow.schema.json` | `src/workflow/templates/invocations/`, `src/workflow/manual/` |
+| | generated `src/skills/`, `docs/architecture-cartography/`, `index.html` |
+
+`awok init --workdir DIR` scaffolds a workdir (idempotent); `awok deploy --workdir DIR`
+copies its `src/skills/*` + `src/agents/*` into `~/.claude/` (honours `$CLAUDE_HOME`).
+Agents are self-sufficient: a workflow referencing an agent absent from the workdir
+fails coherence validation.
