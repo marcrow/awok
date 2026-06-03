@@ -77,3 +77,19 @@ def test_generate_writes_into_workdir_not_engine(bbw_module, tmp_path, restore_r
     assert (content / "docs" / "architecture-cartography" / "wf.html").is_file()
     assert (content / "docs" / "architecture-cartography" / "index.html").is_file()
     assert not (eng / "src" / "skills" / "wf").exists()
+
+
+import os
+
+
+def test_content_root_arg_precedence(bbw_module, tmp_path, monkeypatch):
+    flag = tmp_path / "fromflag"
+    env = tmp_path / "fromenv"
+    monkeypatch.setenv("AWOK_WORKDIR", str(env))
+    # flag wins over env
+    assert bbw_module._content_root_arg(str(flag)) == flag.resolve()
+    # env used when no flag
+    assert bbw_module._content_root_arg(None) == env.resolve()
+    # neither -> None
+    monkeypatch.delenv("AWOK_WORKDIR")
+    assert bbw_module._content_root_arg(None) is None

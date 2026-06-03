@@ -77,6 +77,12 @@ def _apply_roots(engine_root: Path, content_root: Path) -> None:
                                / "templates" / "invocations")
 
 
+def _content_root_arg(cli_workdir):
+    """Resolve the content root from --workdir (cli) then $AWOK_WORKDIR. None if unset."""
+    wd = cli_workdir or os.environ.get("AWOK_WORKDIR")
+    return Path(wd).resolve() if wd else None
+
+
 ENGINE_ROOT = _find_repo_root()
 CONTENT_ROOT = ENGINE_ROOT
 REPO_ROOT_GUESS = ENGINE_ROOT
@@ -2679,6 +2685,10 @@ def main():
     parser = argparse.ArgumentParser(
         prog="awok",
         description="awok — Agentic Workflow Orchestration Kompiler")
+    parser.add_argument(
+        "--workdir", default=None,
+        help="Content root holding src/workflows + src/agents (default: the awok "
+             "repo itself). Overrides $AWOK_WORKDIR. Use `awok init --workdir DIR` first.")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_val = sub.add_parser("validate", help="Validate workflow.yaml")
@@ -2726,6 +2736,9 @@ def main():
     p_edit.set_defaults(func=cmd_edit)
 
     args = parser.parse_args()
+    content = _content_root_arg(args.workdir)
+    if content is not None:
+        _apply_roots(ENGINE_ROOT, content)
     sys.exit(args.func(args))
 
 
