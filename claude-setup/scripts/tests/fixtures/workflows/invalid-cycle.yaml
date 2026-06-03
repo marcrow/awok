@@ -1,0 +1,12 @@
+schema_version: 1
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: x
+    group: g
+    depends_on: [T2]
+  - id: T2
+    name: y
+    group: g
+    depends_on: [T1]

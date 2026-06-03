@@ -1,0 +1,17 @@
+```mermaid
+flowchart TB
+{% for group_label, items in groups_items -%}
+    subgraph {{ loop.index0 }}_{{ group_label|replace(' ', '_')|replace('/', '_') }}["{{ group_label }}"]
+        direction TB
+{% for od in items -%}
+{%- set nid = 'ondemand_' ~ (od.agent|node_id) -%}
+{%- set meta_parts = [] -%}
+{%- if od.model -%}{%- set _ = meta_parts.append(od.model) -%}{%- endif -%}
+        {{ nid }}["`**{{ od.agent }}**{% if meta_parts %}
+_{{ meta_parts|join(' · ') }}_{% endif %}{% if od.when %}
+{{ od.when|truncate(110, end='…') }}{% endif %}`"]:::ondemand
+{% endfor -%}
+    end
+{% endfor -%}
+    classDef ondemand fill:#1e293b,stroke:#38bdf8,stroke-width:1px,color:#e2e8f0
+```

@@ -1,0 +1,43 @@
+# Cartographie (généré depuis workflow.yaml)
+
+> Auto-généré par `bb-workflow generate`. Ne pas éditer à la main.
+
+## Vue d'ensemble
+
+{{ phases|length }} phases, organisées en {{ groups|length }} groupes.
+
+## Groupes
+
+{% for gname, g in groups.items() %}
+- **`{{ gname }}`** — {{ g.description }} (risque : {{ g.risk|default('?') }})
+{% endfor %}
+
+## DAG
+
+```
+{% for level in execution_levels %}
+Niveau {{ loop.index0 }} : {{ level|join(' || ') }}
+{% endfor %}
+```
+
+## Phases
+
+{% for phase in phases %}
+### {{ phase.id }} — {{ phase.name }}
+
+- Groupe : `{{ phase.group }}`
+- Type : `{{ phase.type|default('agent') }}`
+{%- if phase.depends_on %}
+- Dépend de : {{ phase.depends_on|join(', ') }}
+{%- endif %}
+{%- if phase.parallel_with %}
+- Parallèle avec : {{ phase.parallel_with|join(', ') }}
+{%- endif %}
+{%- if phase.invocations %}
+- Invocations :
+{% for inv in phase.invocations %}
+  - `{{ inv.agent }}` ({{ inv.model|default('inherit') }}){% if inv.background %} [bg]{% endif %}
+{% endfor %}
+{%- endif %}
+
+{% endfor %}

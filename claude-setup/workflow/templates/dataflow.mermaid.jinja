@@ -1,0 +1,20 @@
+```mermaid
+flowchart LR
+{% for pa in phase_agents -%}
+    {{ pa.node_id }}["`**{{ pa.phase_name }}**
+*{{ pa.agent }}*`"]:::{{ pa.group }}
+{% endfor %}
+{% for path in file_paths -%}
+    {{ path|node_id }}[/"{{ path }}"/]:::file
+{% endfor %}
+{% for prod_pid, prod_agent, prod_node_id, path in producer_edges -%}
+    {{ prod_node_id }} --> {{ path|node_id }}
+{% endfor -%}
+{% for cons_pid, cons_agent, cons_node_id, path in consumer_edges %}
+    {{ path|node_id }} --> {{ cons_node_id }}
+{% endfor %}
+    classDef file fill:#1e293b,stroke:#64748b,stroke-dasharray:4 3,color:#cbd5e1,font-style:italic
+{% for gname in groups -%}
+    classDef {{ gname }} fill:{{ group_colors[gname] }},stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
+{% endfor -%}
+```

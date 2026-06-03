@@ -1,0 +1,43 @@
+%% Modèle I/O bb-workflow — qui sait quoi / produit quoi / vérifie quoi
+%% Doc associée : 2026-06-02-bb-workflow-io-model.md
+flowchart TB
+    subgraph SRC["✍️ Source — édité à la main (+ Claude)"]
+        YAML["workflows/&lt;name&gt;.yaml<br/><b>SOURCE DE VÉRITÉ</b><br/>DAG · invocations · I/O (rôle+chemin+kind+flags) · groups"]
+        BODY["agents/&lt;name&gt;.md<br/><i>body comportement</i> (manuel)"]
+        SNIP["templates/invocations/&lt;agent&gt;.md<br/>task par <b>rôle</b> (manuel)"]
+    end
+
+    G["⚙️ bb-workflow generate<br/>(le compilateur)"]
+
+    subgraph ART["📦 Artefacts générés"]
+        SKILL["skills/&lt;wf&gt;/SKILL.md<br/>prompts de tâche <b>verbatim</b><br/>(chemins inclus, dérivés rôle→chemin)"]
+        CONTRACT["agents/&lt;name&gt;.md<br/><b>rubrique contrat I/O</b><br/>(rôles, miroir du YAML)"]
+        CARTO["cartography.html / dataflow<br/>(visualisation)"]
+    end
+
+    subgraph CHK["✅ Vérification"]
+        VAL["bb-workflow validate<br/><b>déterministe</b><br/>schema · cohérence · orphelins · couverture rôle↔prose"]
+        REV["agent de review (Sonnet, on-demand)<br/><b>sémantique</b><br/>task vs rôle · I/O suffisants · qualité prompt"]
+    end
+
+    subgraph RUN["▶️ Exécution (runtime)"]
+        ORCH["Orchestrateur (/skill)<br/>connaît DAG + I/O déclarés<br/>relaie le prompt <b>verbatim</b> · skip/staleness/verify"]
+        SUB["Sous-agent dispatché<br/>reçoit : son .md + prompt verbatim<br/><b>aveugle au SKILL et au YAML</b>"]
+        FILES["fichiers work/ · notes/<br/>(I/O réels)"]
+    end
+
+    YAML --> G
+    BODY --> G
+    SNIP --> G
+    G --> SKILL
+    G --> CONTRACT
+    G --> CARTO
+    YAML --> VAL
+    SNIP --> VAL
+    CONTRACT --> REV
+    SKILL --> REV
+    SKILL --> ORCH
+    ORCH -->|"Task tool + prompt verbatim"| SUB
+    CONTRACT -.->|system prompt| SUB
+    SUB -->|"lit inputs / écrit outputs"| FILES
+    FILES -.->|"staleness / verify"| ORCH

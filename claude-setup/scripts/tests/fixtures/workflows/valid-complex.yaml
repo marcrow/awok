@@ -1,0 +1,61 @@
+schema_version: 1
+
+skill:
+  name: complex-test
+  description: Complex fixture covering conditions, brainstormings, manual sections.
+
+groups:
+  g1: { description: "Group 1", risk: none }
+  g2: { description: "Group 2", risk: low }
+
+manual_sections:
+  - name: example_notes
+    path: claude-setup/workflow/manual/example-notes.md
+    insert_at: end
+
+conditions:
+  no_data:
+    check: file_missing
+    path: data/in.json
+
+phases:
+  - id: T1
+    name: First
+    group: g1
+    invocations:
+      - agent: agent-a
+        outputs:
+          - { path: out/a.json, kind: json }
+
+  - id: T2
+    name: Second
+    group: g1
+    parallel_with: [T3]
+    invocations:
+      - agent: agent-b
+        inputs:
+          - { path: out/a.json, kind: json }
+        outputs:
+          - { path: out/b.json, kind: json }
+
+  - id: T3
+    name: Third
+    group: g2
+    parallel_with: [T2]
+    invocations:
+      - agent: agent-c
+        inputs:
+          - { path: out/a.json, kind: json }
+        outputs:
+          - { path: out/c.json, kind: json }
+
+  - id: T4
+    name: Fourth
+    group: g2
+    depends_on: [T2, T3]
+    invocations:
+      - agent: agent-d
+        skip_if: no_data
+        inputs:
+          - { path: out/b.json, kind: json }
+          - { path: out/c.json, kind: json }

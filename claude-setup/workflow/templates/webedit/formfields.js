@@ -1,0 +1,125 @@
+import { helpIcon } from "./render-helpers.js";
+
+// Pure form-field DOM builders. Each returns a row node and invokes onChange
+// with the new value. Labels/values are set via textContent/value only.
+function row(labelText){
+  const r = document.createElement("div"); r.className = "field";
+  const l = document.createElement("label"); l.textContent = labelText; r.appendChild(l);
+  return r;
+}
+export function fieldText(label, value, onChange){
+  const r = row(label);
+  const i = document.createElement("input"); i.type = "text"; i.value = value == null ? "" : value;
+  i.addEventListener("change", () => onChange(i.value));
+  r.appendChild(i); return r;
+}
+export function fieldTextarea(label, value, onChange){
+  const r = row(label);
+  const t = document.createElement("textarea"); t.rows = 3; t.value = value == null ? "" : value;
+  t.addEventListener("change", () => onChange(t.value));
+  r.appendChild(t); return r;
+}
+export function fieldSelect(label, value, options, onChange){
+  const r = row(label);
+  const s = document.createElement("select");
+  for (const opt of options){ const o = document.createElement("option"); o.value = opt; o.textContent = opt; if (opt === (value == null ? "" : value)) o.selected = true; s.appendChild(o); }
+  s.addEventListener("change", () => onChange(s.value));
+  r.appendChild(s); return r;
+}
+// Free-text input backed by a <datalist>: the user can type ANY value, and the
+// provided options show up as suggestions (used for the phase `group`, which is
+// an open-ended string — not a fixed enum).
+let _dlSeq = 0;
+export function fieldDatalist(label, value, options, onChange){
+  const r = row(label);
+  const i = document.createElement("input"); i.type = "text"; i.value = value == null ? "" : value;
+  const id = "dl-" + (++_dlSeq); i.setAttribute("list", id);
+  const dl = document.createElement("datalist"); dl.id = id;
+  for (const opt of options || []){ const o = document.createElement("option"); o.value = opt; dl.appendChild(o); }
+  i.addEventListener("change", () => onChange(i.value));
+  r.appendChild(i); r.appendChild(dl); return r;
+}
+export function fieldCheckbox(label, checked, onChange){
+  const r = row(label); r.classList.add("field-inline");
+  const c = document.createElement("input"); c.type = "checkbox"; c.checked = !!checked;
+  c.addEventListener("change", () => onChange(c.checked));
+  r.insertBefore(c, r.firstChild);
+  return r;
+}
+
+const IO_KINDS = ["json","jsonl","md","text","yaml","dir","sqlite","binary"];
+const IO_FLAGS = ["optional","external","terminal"];
+
+const IO_FLAG_HELP = "optional = le fichier peut manquer · external = produit hors workflow (outil externe…), masque l'alerte « pas de producteur » · terminal = artefact final lu en sortie, masque l'alerte « pas de consommateur »";
+
+export function ioRefEditor(label, items, onChange){
+  const wrap = document.createElement("div"); wrap.className = "ioref-editor";
+  const head = document.createElement("label"); head.textContent = label + " "; head.appendChild(helpIcon(IO_FLAG_HELP)); wrap.appendChild(head);
+  const list = (items || []).map(x => ({ ...x }));
+  const emit = () => onChange(list.map(x => ({ ...x })));
+  const body = document.createElement("div"); wrap.appendChild(body);
+  function render(){
+    body.replaceChildren();
+    list.forEach((item, idx) => {
+      const r = document.createElement("div"); r.className = "ioref-row";
+      const path = document.createElement("input"); path.type = "text"; path.dataset.k = "path";
+      path.value = item.path || ""; path.placeholder = "path";
+      path.addEventListener("change", () => { item.path = path.value; emit(); });
+      r.appendChild(path);
+      const kind = document.createElement("select"); kind.dataset.k = "kind";
+      for (const k of IO_KINDS){ const o = document.createElement("option"); o.value = k; o.textContent = k; if (k === (item.kind||"json")) o.selected = true; kind.appendChild(o); }
+      kind.addEventListener("change", () => { item.kind = kind.value; emit(); });
+      r.appendChild(kind);
+      for (const f of IO_FLAGS){
+        const lbl = document.createElement("label"); lbl.className = "ioref-flag";
+        const c = document.createElement("input"); c.type = "checkbox"; c.dataset.k = f; c.checked = !!item[f];
+        c.addEventListener("change", () => { if (c.checked) item[f] = true; else delete item[f]; emit(); });
+        lbl.appendChild(c); lbl.appendChild(document.createTextNode(f));
+        r.appendChild(lbl);
+      }
+      const del = document.createElement("button"); del.className = "ioref-del"; del.textContent = "✕";
+      del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
+      r.appendChild(del);
+      body.appendChild(r);
+    });
+  }
+  const add = document.createElement("button"); add.className = "ioref-add"; add.textContent = "+ "+label;
+  add.addEventListener("click", () => { list.push({ path: "", kind: "json" }); render(); emit(); });
+  render(); wrap.appendChild(add);
+  return wrap;
+}
+
+const TRIGGER_ON = ["file_appears","file_changes","event","db_event","threshold_reached"];
+const TRIGGER_KEYS = ["path","type","source","condition"];
+const TRIGGER_HELP = "Déclenche la phase quand : un fichier apparaît/change (renseigne path), un event survient (type/source), un event de base de données (type), ou un seuil atteint (condition). Laisse vide les champs non pertinents pour le type choisi.";
+
+export function triggerEditor(label, items, onChange){
+  const wrap = document.createElement("div"); wrap.className = "trigger-editor";
+  const head = document.createElement("label"); head.textContent = label + " "; head.appendChild(helpIcon(TRIGGER_HELP)); wrap.appendChild(head);
+  const list = (items || []).map(x => ({ ...x }));
+  const emit = () => onChange(list.map(x => ({ ...x })));
+  const body = document.createElement("div"); wrap.appendChild(body);
+  function render(){
+    body.replaceChildren();
+    list.forEach((item, idx) => {
+      const r = document.createElement("div"); r.className = "trigger-row";
+      const on = document.createElement("select"); on.dataset.k = "on";
+      for (const v of TRIGGER_ON){ const o = document.createElement("option"); o.value = v; o.textContent = v; if (v === (item.on||TRIGGER_ON[0])) o.selected = true; on.appendChild(o); }
+      on.addEventListener("change", () => { item.on = on.value; emit(); });
+      r.appendChild(on);
+      for (const k of TRIGGER_KEYS){
+        const i = document.createElement("input"); i.type = "text"; i.dataset.k = k; i.placeholder = k; i.value = item[k] || "";
+        i.addEventListener("change", () => { if (i.value) item[k] = i.value; else delete item[k]; emit(); });
+        r.appendChild(i);
+      }
+      const del = document.createElement("button"); del.textContent = "✕";
+      del.addEventListener("click", () => { list.splice(idx,1); render(); emit(); });
+      r.appendChild(del);
+      body.appendChild(r);
+    });
+  }
+  const add = document.createElement("button"); add.className = "trigger-add"; add.textContent = "+ trigger";
+  add.addEventListener("click", () => { list.push({ on: TRIGGER_ON[0] }); render(); emit(); });
+  render(); wrap.appendChild(add);
+  return wrap;
+}

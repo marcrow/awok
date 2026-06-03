@@ -1,0 +1,19 @@
+schema_version: 1
+
+skill:
+  name: minimal-test
+  description: Minimal workflow used by the test suite.
+
+groups:
+  test-group:
+    description: Group de test
+    risk: none
+
+phases:
+  - id: T1
+    name: Test phase
+    group: test-group
+    invocations:
+      - agent: test-agent
+        description: Agent de test
+        model: haiku

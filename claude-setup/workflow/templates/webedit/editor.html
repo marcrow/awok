@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>bb-workflow editor</title>
+<style>/*__EDITOR_CSS__*/</style>
+</head>
+<body>
+  <header id="topbar">
+    <select id="wf-select"></select>
+    <button id="wf-new">+ nouveau</button>
+    <button id="wf-clone">dupliquer</button>
+    <button id="add-phase">+ phase</button>
+    <button id="add-agent">+ agent</button>
+    <button id="wf-save">💾 enregistrer</button>
+    <span id="status"></span>
+  </header>
+  <nav id="tabs">
+    <button class="tab active" data-tab="grid">Grille</button>
+    <button class="tab" data-tab="dataflow">Dataflow</button>
+    <button class="tab" data-tab="settings">Réglages</button>
+    <button class="tab" data-tab="yaml">YAML</button>
+  </nav>
+  <main>
+    <section id="panel-grid" class="panel active">
+      <div id="grid-wrap">
+        <svg id="edge-overlay"></svg>
+        <div id="grid"></div>
+      </div>
+    </section>
+    <section id="panel-dataflow" class="panel"><div id="dataflow-render" class="mermaid-out">(ouvre cet onglet pour charger le diagramme)</div></section>
+    <section id="panel-settings" class="panel"><div id="settings"></div></section>
+    <section id="panel-yaml" class="panel"><pre id="yaml-src"></pre></section>
+  </main>
+  <aside id="edit-panel" hidden></aside>
+<script type="module" src="/editor/editor.js"></script>
+</body>
+</html>

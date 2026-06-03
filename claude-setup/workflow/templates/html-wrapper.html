@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>awok — workflow</title>
+<style>
+:root {
+  --bg: #0b1120;
+  --panel: #0f172a;
+  --border: #243049;
+  --txt: #e2e8f0;
+  --dim: #94a3b8;
+  --accent: #38bdf8;
+  --accent-soft: rgba(56,189,248,0.15);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+/* Top workflow selector bar */
+.topbar {
+  display: flex; align-items: stretch;
+  background: #050a14;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  overflow-x: auto;
+}
+.topbar:empty { display: none; }
+.topbar a.wf-tab {
+  text-decoration: none;
+  padding: 8px 18px;
+  font-size: 12.5px; font-weight: 500;
+  color: var(--dim);
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  display: flex; align-items: center; gap: 8px;
+}
+.topbar a.wf-tab:hover { color: var(--txt); background: #0f172a; }
+.topbar a.wf-tab.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+  font-weight: 600;
+}
+.topbar a.wf-index {
+  margin-left: auto; color: var(--dim);
+  border-right: none; border-left: 1px solid var(--border);
+}
+.topbar a.wf-index:hover { color: var(--accent); }
+
+/* Details tab content */
+.details-pane {
+  padding: 24px 28px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+.details-pane h2 {
+  margin: 0 0 12px;
+  font-size: 18px; font-weight: 600;
+  color: var(--txt);
+}
+.details-pane .desc {
+  color: var(--txt); font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-line;
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  background: #15213a;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+}
+.details-pane .stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.details-pane .stat {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.details-pane .stat-label {
+  color: var(--dim); font-size: 11.5px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.details-pane .stat-value {
+  color: var(--accent); font-size: 22px; font-weight: 600;
+}
+.details-pane .group-list,
+.details-pane .agent-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.details-pane .group-list span,
+.details-pane .agent-list span {
+  background: #1e293b; color: var(--txt);
+  font-size: 11.5px; padding: 3px 8px; border-radius: 4px;
+}
+.details-pane .meta-line {
+  color: var(--dim); font-size: 12px;
+  margin-top: 24px; padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.details-pane .meta-line code {
+  background: #1e293b; padding: 1px 5px; border-radius: 4px;
+}
+
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.tabs { display: flex; flex: 1 1 auto; }
+.tab {
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tab:hover { color: var(--txt); background: #15213a; }
+.tab.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+.controls {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  align-items: center;
+}
+.controls button {
+  background: #1e293b;
+  color: var(--txt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.controls button:hover { border-color: var(--accent); color: var(--accent); }
+
+.mode-switch {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-right: 6px;
+  font-size: 12px;
+}
+.mode-switch-label {
+  padding: 4px 9px;
+  color: var(--dim);
+  font-size: 11px;
+  background: #15213a;
+  display: inline-flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+.mode-btn {
+  background: #1e293b;
+  color: var(--dim);
+  border: none;
+  padding: 4px 11px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  border-right: 1px solid var(--border);
+}
+.mode-btn:last-child { border-right: none; }
+.mode-btn:hover { color: var(--txt); }
+.mode-btn.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.focus-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid #fde047;
+  border-radius: 20px;
+  padding: 5px 12px 5px 14px;
+  font-size: 12.5px;
+  color: var(--txt);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  z-index: 8;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+.focus-banner .focus-icon { color: #fde047; font-size: 14px; }
+.focus-banner .focus-text strong { color: var(--accent); }
+.focus-banner .focus-clear {
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.focus-banner .focus-clear:hover { color: #fca5a5; }
+
+.panels {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel {
+  position: absolute;
+  inset: 0;
+  display: none;
+  padding: 8px;
+}
+.panel.active { display: block; }
+
+.canvas {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 1px 1px, #1e293b 1px, transparent 0) 0 0/22px 22px,
+    var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.canvas svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+.canvas:fullscreen { border-radius: 0; border: none; }
+.spinner {
+  color: var(--dim);
+  font-size: 13px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.err {
+  color: #fca5a5;
+  padding: 16px;
+  white-space: pre-wrap;
+  font-size: 13px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.hint {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  font-size: 11px;
+  color: var(--dim);
+  background: rgba(15,23,42,0.75);
+  padding: 3px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Legend panel */
+.legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  max-width: 380px;
+  z-index: 5;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  user-select: none;
+}
+.legend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 11px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--txt);
+}
+.legend-header:hover { color: var(--accent); }
+.legend-toggle { font-size: 10px; color: var(--dim); transition: transform 0.15s; }
+.legend.collapsed .legend-toggle { transform: rotate(-90deg); }
+.legend.collapsed .legend-body { display: none; }
+.legend-body {
+  padding: 4px 11px 9px;
+  border-top: 1px solid var(--border);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.legend-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 7px;
+}
+.legend-row:first-child { margin-top: 4px; }
+.legend-swatch {
+  width: 16px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  border: 1px solid rgba(148,163,184,0.5);
+}
+.legend-swatch.file {
+  border: 1px dashed #64748b;
+}
+.legend-text { flex: 1; min-width: 0; }
+.legend-label { font-weight: 600; color: var(--txt); font-size: 12.5px; }
+.legend-desc {
+  color: var(--dim);
+  font-size: 11px;
+  margin-top: 1px;
+  line-height: 1.35;
+}
+
+/* Tooltip on hover */
+.node-tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 11px;
+  font-size: 12px;
+  max-width: 420px;
+  z-index: 1000;
+  color: var(--txt);
+  line-height: 1.45;
+  display: none;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.55);
+}
+.node-tooltip.visible { display: block; }
+.node-tooltip-title {
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+
+/* Agent doc drawer */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 900;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 50vw;
+  min-width: 320px;
+  max-width: 95vw;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  z-index: 901;
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+}
+.drawer.open { transform: translateX(0); }
+.drawer.resizing { transition: none; }
+.drawer-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 902;
+  background: transparent;
+}
+.drawer-resizer::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s;
+}
+.drawer-resizer:hover::before,
+.drawer-resizer.dragging::before { background: var(--accent); }
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.drawer-title { font-size: 15px; font-weight: 600; color: var(--txt); }
+.drawer-close {
+  background: #1e293b;
+  color: var(--txt);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+.drawer-close:hover { border-color: #fca5a5; color: #fca5a5; }
+.drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 18px 32px;
+  font-size: 13.5px;
+}
+
+/* agent meta header inside drawer */
+.agent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.agent-chip {
+  font-size: 11.5px;
+  background: #1e293b;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 9px;
+  color: var(--dim);
+}
+.agent-chip strong { color: var(--accent); font-weight: 600; }
+.agent-desc {
+  color: var(--dim);
+  font-size: 12.5px;
+  font-style: italic;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+}
+.agent-section-sep {
+  margin: 22px 0 14px;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+.agent-section-name { font-size: 13px; color: var(--accent); font-weight: 600; margin-bottom: 8px; }
+
+/* Rendered markdown styling */
+.md-body { color: var(--txt); line-height: 1.6; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+  color: var(--txt);
+  margin: 18px 0 8px;
+  line-height: 1.3;
+}
+.md-body h1 { font-size: 18px; }
+.md-body h2 { font-size: 16px; }
+.md-body h3 { font-size: 14.5px; }
+.md-body h4 { font-size: 13.5px; }
+.md-body p { margin: 8px 0; }
+.md-body ul, .md-body ol { margin: 8px 0; padding-left: 22px; }
+.md-body li { margin: 3px 0; }
+.md-body code {
+  background: #1e293b;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+.md-body pre {
+  background: #0b1120;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.md-body pre code { background: none; padding: 0; font-size: 12px; line-height: 1.5; }
+.md-body a { color: var(--accent); }
+.md-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: 10px 0;
+  padding: 2px 0 2px 14px;
+  color: var(--dim);
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12.5px;
+  width: 100%;
+}
+.md-body th, .md-body td {
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  text-align: left;
+}
+.md-body th { background: #1e293b; }
+.md-body hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+.drawer-empty { color: var(--dim); font-style: italic; }
+
+/* Mermaid SVG nodes — make them hoverable */
+.canvas svg .node[data-has-tooltip="1"] { cursor: help; }
+.canvas svg .node[data-has-tooltip="1"]:hover rect,
+.canvas svg .node[data-has-tooltip="1"]:hover polygon,
+.canvas svg .node[data-has-tooltip="1"]:hover path {
+  filter: brightness(1.25) drop-shadow(0 0 6px rgba(56,189,248,0.45));
+}
+</style>
+</head>
+<body>
+
+<div class="topbar"><!--__WORKFLOW_SELECTOR__--></div>
+
+<div class="tabbar">
+  <div class="tabs" id="tabs"><!--__TABS__--></div>
+  <div class="controls">
+    <span id="mode-switch" class="mode-switch" style="display:none"></span>
+    <button onclick="resetZoom()" title="Réinitialiser le zoom">Reset</button>
+    <button onclick="toggleFullscreen()" title="Basculer en plein écran">Plein écran</button>
+  </div>
+</div>
+
+<div class="panels" id="panels"><!--__PANELS__--></div>
+
+<div class="node-tooltip" id="node-tooltip"></div>
+
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-resizer" id="drawer-resizer" title="Glisser pour redimensionner"></div>
+  <div class="drawer-header">
+    <div class="drawer-title" id="drawer-title"></div>
+    <button class="drawer-close" id="drawer-close" title="Fermer (Échap)">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<script id="lib-panzoom">/*__PANZOOM_LIB__*/</script>
+<script id="lib-mermaid">/*__MERMAID_LIB__*/</script>
+<script id="lib-marked">/*__MARKED_LIB__*/</script>
+
+<!--__SOURCES__-->
+
+<script>
+const panzoomInstances = {};
+const rendered = {};
+const activeModes = {};
+const focusedNode = {};   // tabId -> node_id or null
+let activeTab = null;
+
+const META = (function() {
+  const el = document.getElementById('diagram-meta');
+  try { return el ? JSON.parse(el.textContent) : {}; } catch (e) { return {}; }
+})();
+
+const tooltipEl = document.getElementById('node-tooltip');
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    darkMode: true,
+    background: '#0b1120',
+    primaryColor: '#1e293b',
+    primaryTextColor: '#e2e8f0',
+    primaryBorderColor: '#38bdf8',
+    lineColor: '#94a3b8',
+    edgeLabelBackground: '#1e293b',
+  },
+  flowchart: { curve: 'basis', useMaxWidth: false, htmlLabels: true },
+});
+
+function buildSourceFromGraph(meta, mode, focusId) {
+  const g = meta.graphs && meta.graphs[mode];
+  if (!g) return null;
+
+  let keepNodes;
+  if (!focusId || !g.nodes[focusId]) {
+    keepNodes = new Set(Object.keys(g.nodes));
+  } else {
+    keepNodes = new Set([focusId]);
+    // 1-hop: every direct neighbor
+    g.edges.forEach(e => {
+      if (e.from === focusId) keepNodes.add(e.to);
+      if (e.to === focusId) keepNodes.add(e.from);
+    });
+    // If the focused node is a phase, expand once more on the file side
+    // so the user sees every phase that touches the same files.
+    if (g.nodes[focusId].type === 'phase') {
+      const filesToExpand = Array.from(keepNodes).filter(nid =>
+        g.nodes[nid] && g.nodes[nid].type === 'file'
+      );
+      filesToExpand.forEach(fileNid => {
+        g.edges.forEach(e => {
+          if (e.from === fileNid) keepNodes.add(e.to);
+          if (e.to === fileNid) keepNodes.add(e.from);
+        });
+      });
+    }
+  }
+
+  const lines = [meta.header || 'flowchart LR'];
+  keepNodes.forEach(nid => {
+    const node = g.nodes[nid];
+    if (node) lines.push('    ' + node.fragment);
+  });
+  g.edges.forEach(e => {
+    if (keepNodes.has(e.from) && keepNodes.has(e.to)) {
+      lines.push('    ' + e.fragment);
+    }
+  });
+  // Highlight focused node via classDef
+  if (focusId && g.nodes[focusId]) {
+    lines.push(`    class ${focusId} focused`);
+  }
+  (g.classdefs || []).forEach(c => lines.push('    ' + c));
+  lines.push('    classDef focused stroke:#fde047,stroke-width:3px');
+  return lines.join('\n');
+}
+
+function getSourceFor(tabId) {
+  const meta = META[tabId] || {};
+  if (meta.graphs) {
+    const mode = activeModes[tabId] || meta.default_mode || Object.keys(meta.graphs)[0];
+    activeModes[tabId] = mode;
+    return buildSourceFromGraph(meta, mode, focusedNode[tabId] || null) || '';
+  }
+  const srcEl = document.getElementById(`src-${tabId}`);
+  return srcEl ? srcEl.textContent.trim() : '';
+}
+
+async function renderTab(tabId, force = false) {
+  if (rendered[tabId] && !force) return;
+  const panel = document.querySelector(`.panel[data-panel="${tabId}"]`);
+  const canvas = panel ? panel.querySelector('.canvas') : null;
+  if (!canvas) return;
+  const src = getSourceFor(tabId).trim();
+  if (!src) {
+    canvas.innerHTML = '<div class="err">Aucun contenu mermaid.</div>';
+    rendered[tabId] = true;
+    return;
+  }
+  try {
+    const { svg } = await mermaid.render(`graph-${tabId}`, src);
+    canvas.innerHTML = svg + '<div class="hint">molette = zoom · drag = pan</div>';
+    const svgEl = canvas.querySelector('svg');
+    if (svgEl && window.svgPanZoom) {
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      svgEl.style.width = '100%';
+      svgEl.style.height = '100%';
+      panzoomInstances[tabId] = svgPanZoom(svgEl, {
+        zoomEnabled: true,
+        controlIconsEnabled: false,
+        fit: true,
+        center: true,
+        minZoom: 0.2,
+        maxZoom: 20,
+        zoomScaleSensitivity: 0.4,
+      });
+    }
+    attachTooltips(tabId);
+    attachClickFocus(tabId);
+    attachAgentDrawer(tabId);
+    renderLegend(tabId);
+    renderFocusBanner(tabId);
+    rendered[tabId] = true;
+  } catch (e) {
+    canvas.innerHTML = '<div class="err">Erreur de rendu :\n\n' + (e && e.message ? e.message : String(e)) + '</div>';
+    rendered[tabId] = true;
+  }
+}
+
+function nodeKeyFrom(elId) {
+  // Mermaid SVG node IDs look like "{containerId}-flowchart-{nodeId}-{N}"
+  // (e.g. "graph-workflow-flowchart-P0-EVAL-0"). We strip everything up to and
+  // including "flowchart-", then drop the trailing "-N" counter.
+  if (!elId) return '';
+  let key = elId.replace(/^.*?flowchart-/, '');
+  const m = key.match(/^(.+)-(\d+)$/);
+  if (m) key = m[1];
+  return key;
+}
+
+function attachTooltips(tabId) {
+  const tooltips = (META[tabId] && META[tabId].tooltips) || {};
+  const svg = document.querySelector(`.panel[data-panel="${tabId}"] svg`);
+  if (!svg) return;
+  svg.querySelectorAll('g.node').forEach(node => {
+    const rawId = node.id || '';
+    const key = nodeKeyFrom(rawId);
+    const text = tooltips[key] || tooltips[rawId];
+    if (!text) return;
+    node.setAttribute('data-has-tooltip', '1');
+    // Read the node's visible label for the tooltip header
+    let title = key;
+    const labelEl = node.querySelector('.nodeLabel, foreignObject p strong, .label');
+    if (labelEl) {
+      const strong = labelEl.querySelector ? labelEl.querySelector('strong') : null;
+      title = (strong || labelEl).textContent.trim().split('\n')[0] || key;
+    }
+    node.addEventListener('mouseenter', () => {
+      tooltipEl.innerHTML = `<div class="node-tooltip-title">${escapeHtml(title)}</div>${escapeHtml(text)}`;
+      tooltipEl.classList.add('visible');
+    });
+    node.addEventListener('mouseleave', () => tooltipEl.classList.remove('visible'));
+    node.addEventListener('mousemove', positionTooltip);
+  });
+}
+
+function positionTooltip(e) {
+  const pad = 14;
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  tooltipEl.style.left = x + 'px';
+  tooltipEl.style.top = y + 'px';
+  const r = tooltipEl.getBoundingClientRect();
+  if (r.right > window.innerWidth - 6) {
+    tooltipEl.style.left = (e.clientX - r.width - pad) + 'px';
+  }
+  if (r.bottom > window.innerHeight - 6) {
+    tooltipEl.style.top = (e.clientY - r.height - pad) + 'px';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function attachClickFocus(tabId) {
+  const meta = META[tabId] || {};
+  if (!meta.graphs) return;
+  const svg = document.querySelector(`.panel[data-panel="${tabId}"] svg`);
+  if (!svg) return;
+  svg.querySelectorAll('g.node').forEach(node => {
+    const key = nodeKeyFrom(node.id || '');
+    node.style.cursor = 'pointer';
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Toggle: clicking the focused node clears focus
+      if (focusedNode[tabId] === key) {
+        focusedNode[tabId] = null;
+      } else {
+        focusedNode[tabId] = key;
+      }
+      rerenderTab(tabId);
+    });
+  });
+}
+
+function attachAgentDrawer(tabId) {
+  const meta = META[tabId] || {};
+  if (!meta.agent_docs) return;
+  const svg = document.querySelector(`.panel[data-panel="${tabId}"] svg`);
+  if (!svg) return;
+  svg.querySelectorAll('g.node').forEach(node => {
+    const phaseId = nodeKeyFrom(node.id || '');
+    node.style.cursor = 'pointer';
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAgentDrawer(tabId, phaseId);
+    });
+  });
+}
+
+function openAgentDrawer(tabId, phaseId) {
+  const meta = META[tabId] || {};
+  const agentDocs = meta.agent_docs || {};
+  const phaseAgents = (meta.phase_agents || {})[phaseId] || [];
+  const phaseInfo = (meta.phase_meta || {})[phaseId] || { name: phaseId, type: '', description: '' };
+
+  const titleEl = document.getElementById('drawer-title');
+  const bodyEl = document.getElementById('drawer-body');
+  titleEl.textContent = phaseInfo.name || phaseId;
+
+  let html = '';
+  if (phaseInfo.type) {
+    html += `<div class="agent-meta"><span class="agent-chip"><strong>${escapeHtml(phaseInfo.type)}</strong></span>`;
+    html += `<span class="agent-chip">${escapeHtml(phaseId)}</span></div>`;
+  }
+
+  if (!phaseAgents.length) {
+    if (phaseInfo.description) {
+      html += `<div class="md-body">${marked.parse(phaseInfo.description)}</div>`;
+    }
+    html += `<p class="drawer-empty">Cette phase est pilotée par le main agent (pas d'agent dédié à documenter).</p>`;
+  } else {
+    phaseAgents.forEach((agent, idx) => {
+      const doc = agentDocs[agent];
+      if (idx > 0) html += '<hr class="agent-section-sep">';
+      html += `<div class="agent-section-name">Agent : ${escapeHtml(agent)}</div>`;
+      if (!doc) {
+        html += `<p class="drawer-empty">Documentation introuvable pour cet agent.</p>`;
+        return;
+      }
+      const chips = [];
+      if (doc.model) chips.push(`<span class="agent-chip">model · <strong>${escapeHtml(doc.model)}</strong></span>`);
+      (doc.tools || []).forEach(t => chips.push(`<span class="agent-chip">${escapeHtml(t)}</span>`));
+      if (chips.length) html += `<div class="agent-meta">${chips.join('')}</div>`;
+      if (doc.description) html += `<div class="agent-desc">${escapeHtml(doc.description)}</div>`;
+      if (doc.body) html += `<div class="md-body">${marked.parse(doc.body)}</div>`;
+    });
+  }
+
+  bodyEl.innerHTML = html;
+  bodyEl.scrollTop = 0;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+  document.getElementById('drawer-backdrop').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+  document.getElementById('drawer-backdrop').classList.remove('open');
+}
+
+function setupDrawerResize() {
+  const resizer = document.getElementById('drawer-resizer');
+  const drawer = document.getElementById('drawer');
+  if (!resizer || !drawer) return;
+  let dragging = false;
+
+  const onMove = (clientX) => {
+    const min = 320;
+    const max = window.innerWidth * 0.95;
+    let w = window.innerWidth - clientX;
+    w = Math.max(min, Math.min(max, w));
+    drawer.style.width = w + 'px';
+  };
+
+  resizer.addEventListener('mousedown', (e) => {
+    dragging = true;
+    resizer.classList.add('dragging');
+    drawer.classList.add('resizing');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ew-resize';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => { if (dragging) onMove(e.clientX); });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('dragging');
+    drawer.classList.remove('resizing');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  });
+}
+
+function rerenderTab(tabId) {
+  rendered[tabId] = false;
+  if (panzoomInstances[tabId]) {
+    try { panzoomInstances[tabId].destroy(); } catch (e) {}
+    delete panzoomInstances[tabId];
+  }
+  tooltipEl.classList.remove('visible');
+  renderTab(tabId, true);
+}
+
+function renderFocusBanner(tabId) {
+  const meta = META[tabId] || {};
+  const panel = document.querySelector(`.panel[data-panel="${tabId}"]`);
+  if (!panel) return;
+  panel.querySelectorAll('.focus-banner').forEach(el => el.remove());
+  const focusId = focusedNode[tabId];
+  if (!focusId || !meta.graphs) return;
+  const mode = activeModes[tabId];
+  const node = meta.graphs[mode] && meta.graphs[mode].nodes[focusId];
+  if (!node) return;
+  // Extract a friendly title from the node fragment
+  const m = node.fragment.match(/\*\*(.+?)\*\*/) || node.fragment.match(/"\/(.+?)\/"/) || [];
+  const title = m[1] || focusId;
+  const banner = document.createElement('div');
+  banner.className = 'focus-banner';
+  banner.innerHTML =
+    `<span class="focus-icon">⊙</span>
+     <span class="focus-text">Focus : <strong>${escapeHtml(title)}</strong></span>
+     <button class="focus-clear" title="Retour à la vue complète">✕</button>`;
+  banner.querySelector('.focus-clear').addEventListener('click', () => {
+    focusedNode[tabId] = null;
+    rerenderTab(tabId);
+  });
+  panel.appendChild(banner);
+}
+
+function renderLegend(tabId) {
+  const legend = (META[tabId] && META[tabId].legend) || [];
+  const panel = document.querySelector(`.panel[data-panel="${tabId}"]`);
+  if (!panel) return;
+  panel.querySelectorAll('.legend').forEach(el => el.remove());
+  if (!legend.length) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'legend';
+  wrap.innerHTML =
+    `<div class="legend-header">
+      <span>Légende</span>
+      <span class="legend-toggle">▾</span>
+    </div>
+    <div class="legend-body">
+      ${legend.map(e => `
+        <div class="legend-row">
+          <div class="legend-swatch${e.is_file ? ' file' : ''}" style="background:${escapeHtml(e.color)}"></div>
+          <div class="legend-text">
+            <div class="legend-label">${escapeHtml(e.label)}</div>
+            ${e.description ? `<div class="legend-desc">${escapeHtml(e.description)}</div>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+  wrap.querySelector('.legend-header').addEventListener('click', () => {
+    wrap.classList.toggle('collapsed');
+  });
+  panel.appendChild(wrap);
+}
+
+function switchTab(tabId) {
+  if (activeTab === tabId) return;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tabId));
+  activeTab = tabId;
+  renderModeSwitch(tabId);
+  renderTab(tabId).then(() => {
+    const pz = panzoomInstances[tabId];
+    if (pz) { pz.resize(); pz.fit(); pz.center(); }
+  });
+  if (history.replaceState) history.replaceState(null, '', '#' + tabId);
+}
+
+function renderModeSwitch(tabId) {
+  const wrap = document.getElementById('mode-switch');
+  const meta = META[tabId] || {};
+  const modes = (meta.graphs && Object.keys(meta.graphs)) || [];
+  if (!modes.length) {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+  if (!activeModes[tabId]) activeModes[tabId] = meta.default_mode || modes[0];
+  wrap.style.display = 'inline-flex';
+  wrap.innerHTML = '<span class="mode-switch-label">Vue</span>' +
+    modes.map(m =>
+      `<button class="mode-btn${m === activeModes[tabId] ? ' active' : ''}" data-mode="${escapeHtml(m)}">${escapeHtml(m)}</button>`
+    ).join('');
+  wrap.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const m = btn.dataset.mode;
+      if (activeModes[tabId] === m) return;
+      activeModes[tabId] = m;
+      focusedNode[tabId] = null;  // clear focus on mode change
+      renderModeSwitch(tabId);
+      rerenderTab(tabId);
+    });
+  });
+}
+
+function resetZoom() {
+  const pz = panzoomInstances[activeTab];
+  if (pz) { pz.resize(); pz.fit(); pz.center(); }
+}
+
+function toggleFullscreen() {
+  const el = document.querySelector(`.panel[data-panel="${activeTab}"] .canvas`);
+  if (!el) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    el.requestFullscreen && el.requestFullscreen();
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  setTimeout(() => {
+    const pz = panzoomInstances[activeTab];
+    if (pz) { pz.resize(); pz.fit(); pz.center(); }
+  }, 50);
+});
+
+window.addEventListener('resize', () => {
+  const pz = panzoomInstances[activeTab];
+  if (pz) { pz.resize(); pz.fit(); pz.center(); }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.marked && marked.setOptions) {
+    marked.setOptions({ breaks: false, gfm: true });
+  }
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+  document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+  document.getElementById('drawer-backdrop').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+  setupDrawerResize();
+  const initial = (location.hash || '').replace('#', '') || document.querySelector('.tab')?.dataset.tab;
+  if (initial) switchTab(initial);
+});
+</script>
+
+</body>
+</html>

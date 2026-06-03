@@ -1,0 +1,8 @@
+schema_version: 1
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: x
+    group: g
+    depends_on: [T999]

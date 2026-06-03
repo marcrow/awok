@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "awok workflow.yaml",
+  "type": "object",
+  "required": ["schema_version", "skill", "groups", "phases"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "skill": {
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Skill slug, used as directory name under claude-setup/skills/<name>/ and as the SKILL.md frontmatter name. Must be unique across workflows."
+        },
+        "description": {
+          "type": "string",
+          "description": "SKILL.md frontmatter description (used by Claude Code to decide when to invoke the skill)."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional H1 title for the SKILL.md body. Defaults to '/<name> — <name>'."
+        }
+      }
+    },
+    "groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string" },
+          "risk": { "enum": ["none", "low", "medium", "high"] }
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/phase" }
+    },
+    "brainstormings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/brainstorming" }
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/condition" }
+    },
+    "manual_sections": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/manual_section" }
+    },
+    "on_demand_agents": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/on_demand_agent" }
+    },
+    "namespaces": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Carte namespace logique -> chemin de base. Un io_ref avec role 'ns:nom' résout en '<namespaces[ns]>/nom.<ext>'."
+    }
+  },
+  "definitions": {
+    "phase": {
+      "type": "object",
+      "required": ["id", "name", "group"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]*$" },
+        "name": { "type": "string" },
+        "group": { "type": "string" },
+        "type": { "enum": ["agent", "script", "external", "main_agent", "workflow_call"], "default": "agent" },
+        "workflow": {
+          "type": "string",
+          "description": "When type=workflow_call, the name of another workflow to invoke (must match a file claude-setup/workflows/<workflow>.yaml). Validated by coherence check."
+        },
+        "description": { "type": "string" },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "parallel_with": { "type": "array", "items": { "type": "string" } },
+        "triggers": { "type": "array", "items": { "$ref": "#/definitions/trigger" } },
+        "cmd": { "type": "string" },
+        "invocations": { "type": "array", "items": { "$ref": "#/definitions/invocation" } },
+        "inputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
+        "outputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "required": ["agent"],
+      "properties": {
+        "agent": { "type": "string" },
+        "description": { "type": "string" },
+        "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
+        "background": { "type": "boolean" },
+        "depends_on_invocation": { "type": "string" },
+        "skip_if": { "type": "string" },
+        "triggers": { "type": "array", "items": { "$ref": "#/definitions/trigger" } },
+        "inputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
+        "outputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } }
+      }
+    },
+    "io_ref": {
+      "type": "object",
+      "required": ["kind"],
+      "anyOf": [
+        { "required": ["path"] },
+        { "required": ["role"] }
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "role": { "type": "string", "description": "Nom logique de la donnée, optionnellement préfixé d'un namespace (ns:nom). Le chemin est dérivé de namespaces[ns] sauf si path est fourni (override)." },
+        "namespace": { "type": "string", "description": "Namespace explicite si role ne contient pas de préfixe ns:. Ignoré si role contient ':' ou si path est fourni." },
+        "kind": { "enum": ["json", "jsonl", "md", "text", "yaml", "dir", "sqlite", "binary"] },
+        "optional": { "type": "boolean", "default": false },
+        "external": { "type": "boolean", "default": false, "description": "Input produced outside the agent DAG by an external tool; suppresses the no-producer warning." },
+        "terminal": { "type": "boolean", "default": false, "description": "Final artifact read by the hunter or report phase, not consumed by another agent; suppresses the no-consumer warning." }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "required": ["on"],
+      "properties": {
+        "on": { "enum": ["file_appears", "file_changes", "event", "db_event", "threshold_reached"] },
+        "path": { "type": "string" },
+        "type": { "type": "string" },
+        "source": { "type": "string" },
+        "condition": { "type": "string" }
+      }
+    },
+    "brainstorming": {
+      "type": "object",
+      "required": ["id", "timebox_minutes", "protocol"],
+      "properties": {
+        "id": { "type": "string" },
+        "after_phase": { "type": "string" },
+        "before_phase": { "type": "string" },
+        "timebox_minutes": { "type": "integer", "minimum": 1 },
+        "protocol": { "enum": ["brainstorm-light", "brainstorm-deep"] },
+        "output": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "required": ["check"],
+      "properties": {
+        "check": { "enum": ["file_missing", "file_exists", "dir_missing", "dir_exists"] },
+        "path": { "type": "string" }
+      }
+    },
+    "manual_section": {
+      "type": "object",
+      "required": ["name", "path", "insert_at"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "insert_at": { "type": "string" }
+      }
+    },
+    "on_demand_agent": {
+      "type": "object",
+      "required": ["agent", "description"],
+      "properties": {
+        "agent": { "type": "string" },
+        "description": { "type": "string" },
+        "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
+        "triggered_by": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "when": { "type": "string" }
+      }
+    }
+  }
+}

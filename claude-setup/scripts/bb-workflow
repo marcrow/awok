@@ -1,0 +1,2685 @@
+#!/usr/bin/env python3
+"""bb-workflow — multi-workflow CLI for awok.
+
+Source of truth: every YAML file under claude-setup/workflows/. Each workflow
+declares its own `skill: {name, description}` block at the top, and the
+generator produces one SKILL.md + one cartography.html per workflow.
+
+Usage:
+  bb-workflow validate [--workflow NAME|PATH]    # all workflows when omitted
+  bb-workflow generate [--workflow NAME|PATH] [--output-skill PATH]
+  bb-workflow check    [--workflow NAME|PATH] [--skill PATH]
+  bb-workflow assist <change-desc> [--workflow NAME]
+  bb-workflow new-phase --interactive [--workflow NAME]
+  bb-workflow rename-agent <old> <new>           # applied to every workflow
+  bb-workflow migrate-from-skill <skill-path>
+"""
+import argparse
+import copy
+import difflib
+import http.server
+import json
+import os
+import re
+import sys
+import tempfile
+import threading
+import urllib.parse
+import webbrowser
+from pathlib import Path
+
+import jinja2
+import yaml
+import jsonschema
+
+
+def _find_repo_root() -> Path:
+    """Locate the awok repo root.
+
+    Resolution order:
+      1. $BB_WORKFLOW_REPO if set (explicit override).
+      2. Walk up from CWD looking for claude-setup/workflow/workflow.schema.json
+         — lets the user run `bb-workflow` from anywhere inside any clone of
+         the template.
+      3. Fall back to parents[2] of this script (the install-time location).
+    """
+    override = os.environ.get("BB_WORKFLOW_REPO")
+    if override:
+        return Path(override).resolve()
+    cwd = Path.cwd().resolve()
+    marker = Path("claude-setup") / "workflow" / "workflow.schema.json"
+    for candidate in [cwd, *cwd.parents]:
+        if (candidate / marker).is_file():
+            return candidate
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT_GUESS = _find_repo_root()
+DEFAULT_WORKFLOWS_DIR = REPO_ROOT_GUESS / "claude-setup" / "workflows"
+LEGACY_WORKFLOW_PATH = REPO_ROOT_GUESS / "claude-setup" / "workflow" / "workflow.yaml"
+DEFAULT_SCHEMA_PATH = REPO_ROOT_GUESS / "claude-setup" / "workflow" / "workflow.schema.json"
+
+
+def discover_workflows(workflows_dir: Path = None) -> list:
+    """Return [(name, path), ...] for every workflow YAML under workflows_dir.
+
+    Sorted alphabetically. Legacy workflow.yaml (if present) is included as
+    name='main' for back-compat — but workflows_dir takes precedence.
+    """
+    workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
+    found = {}
+    if workflows_dir.is_dir():
+        for p in sorted(workflows_dir.glob("*.yaml")):
+            found[p.stem] = p
+    if "main" not in found and LEGACY_WORKFLOW_PATH.exists():
+        found["main"] = LEGACY_WORKFLOW_PATH
+    return [(name, found[name]) for name in sorted(found)]
+
+
+def resolve_workflow(name_or_path: str) -> tuple:
+    """Resolve a CLI --workflow argument to (name, path).
+
+    Accepts:
+      - a workflow name (looked up in workflows/<name>.yaml)
+      - a filesystem path to a YAML file
+    Raises FileNotFoundError if neither resolves.
+    """
+    if name_or_path is None:
+        return None
+    candidate = Path(name_or_path)
+    if candidate.exists() and candidate.is_file():
+        # Path form
+        name = candidate.stem
+        return (name, candidate)
+    # Name form
+    by_name = DEFAULT_WORKFLOWS_DIR / f"{name_or_path}.yaml"
+    if by_name.exists():
+        return (name_or_path, by_name)
+    raise FileNotFoundError(
+        f"Workflow not found: {name_or_path!r} (tried as path and as "
+        f"{by_name})"
+    )
+
+
+def workflow_output_paths(skill_name: str) -> dict:
+    """Per-workflow output paths derived from the skill name."""
+    carto_dir = REPO_ROOT_GUESS / "docs" / "architecture-cartography"
+    return {
+        "skill": REPO_ROOT_GUESS / "claude-setup" / "skills" / skill_name / "SKILL.md",
+        "carto_html": carto_dir / f"{skill_name}.html",
+        "carto_texte": carto_dir / f"{skill_name}-texte.md",
+        "carto_mermaid": carto_dir / f"_{skill_name}.mermaid",
+        "dataflow_mermaid": carto_dir / f"_{skill_name}-dataflow.mermaid",
+        "on_demand_mermaid": carto_dir / f"_{skill_name}-on-demand.mermaid",
+    }
+
+
+# ============================================================================
+# Web editor — canonical YAML serialization
+# ============================================================================
+
+_IO_REF_KEYS = {"path", "role", "namespace", "kind", "optional", "external", "terminal"}
+
+
+class _FlowDict(dict):
+    """Dict rendered in YAML flow style (inline braces)."""
+
+
+class _BlockStr(str):
+    """String rendered as a block scalar (`|` if it has newlines, else `>`)."""
+
+
+class _CanonicalDumper(yaml.SafeDumper):
+    # Indent block sequences under their key (`  - item`), matching the
+    # hand-written workflow style instead of PyYAML's flush-left default.
+    def increase_indent(self, flow=False, indentless=False):
+        return super().increase_indent(flow, False)
+
+
+def _repr_flow_dict(dumper, data):
+    return dumper.represent_mapping("tag:yaml.org,2002:map", data, flow_style=True)
+
+
+def _repr_block_str(dumper, data):
+    # Literal `|` preserves embedded newlines (e.g. a `description:` authored
+    # as a multi-line block); folded `>` is for long single-line prose that we
+    # want soft-wrapped. Trailing whitespace per line is stripped so PyYAML
+    # doesn't silently fall back to quoted style.
+    # A sole trailing newline is an artefact of how PyYAML loads block scalars
+    # — decide the style on *internal* newlines only, but re-emit the trailing
+    # newline (clip chomping) so the value round-trips byte-for-byte. Per-line
+    # trailing spaces are stripped to avoid PyYAML's quoted-style fallback.
+    raw = str(data)
+    body = "\n".join(line.rstrip() for line in raw.rstrip("\n").split("\n"))
+    style = "|" if "\n" in body else ">"
+    emit = body + "\n" if raw.endswith("\n") else body
+    return dumper.represent_scalar("tag:yaml.org,2002:str", emit, style=style)
+
+
+_CanonicalDumper.add_representer(_FlowDict, _repr_flow_dict)
+_CanonicalDumper.add_representer(_BlockStr, _repr_block_str)
+
+
+def _to_yaml_dom(value):
+    """Wrap io_ref dicts as flow, long strings as block scalars; recurse."""
+    if isinstance(value, dict):
+        if value and set(value.keys()) <= _IO_REF_KEYS:
+            return _FlowDict({k: _to_yaml_dom(v) for k, v in value.items()})
+        return {k: _to_yaml_dom(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_yaml_dom(v) for v in value]
+    if isinstance(value, str) and (len(value) > 70 or "\n" in value):
+        return _BlockStr(value)
+    return value
+
+
+def dump_workflow_yaml(model: dict) -> str:
+    """Serialize a workflow model dict to canonical, idempotent YAML."""
+    dom = _to_yaml_dom(model)
+    return yaml.dump(dom, Dumper=_CanonicalDumper, sort_keys=False,
+                     allow_unicode=True, width=80, default_flow_style=False)
+
+
+EXT_BY_KIND = {
+    "json": ".json", "jsonl": ".jsonl", "md": ".md", "text": ".txt",
+    "yaml": ".yaml", "sqlite": ".sqlite", "binary": "", "dir": "",
+}
+
+
+def resolve_io_path(io_ref: dict, namespaces: dict) -> str:
+    """Concrete path for an io_ref.
+
+    Explicit `path` always wins (override / escape hatch). Otherwise the path is
+    derived from `role` + `namespaces`: a role `ns:name` (or `role`+`namespace`)
+    resolves to `<namespaces[ns]>/name<ext>`, the extension coming from `kind`.
+    `dir` kind yields a trailing-slash directory and no extension. Returns None
+    when the path can't be resolved (no path, no role, or unknown namespace) —
+    callers validate that case.
+    """
+    if io_ref.get("path"):
+        return io_ref["path"]
+    role = io_ref.get("role")
+    if not role:
+        return None
+    if ":" in role:
+        ns, name = role.split(":", 1)
+    else:
+        ns, name = io_ref.get("namespace", ""), role
+    base = (namespaces or {}).get(ns)
+    if base is None:
+        return None
+    base = base.rstrip("/")
+    kind = io_ref.get("kind", "")
+    if kind == "dir":
+        return f"{base}/{name}/"
+    return f"{base}/{name}{EXT_BY_KIND.get(kind, '')}"
+
+
+def resolve_io_paths(model: dict) -> dict:
+    """Return a deep copy of the model with every io_ref's `path` filled in from
+    its role + the model's `namespaces`. Used by generation / dataflow / rendering
+    so downstream code can keep reading io['path']. NEVER call this on the model
+    that gets dumped back to YAML — the persisted form must stay role-based."""
+    resolved = copy.deepcopy(model)
+    namespaces = resolved.get("namespaces", {})
+
+    def fill(io_list):
+        for io in io_list or []:
+            if not io.get("path"):
+                path = resolve_io_path(io, namespaces)
+                if path is not None:
+                    io["path"] = path
+
+    for phase in resolved.get("phases", []):
+        fill(phase.get("inputs"))
+        fill(phase.get("outputs"))
+        for inv in phase.get("invocations", []) or []:
+            fill(inv.get("inputs"))
+            fill(inv.get("outputs"))
+    return resolved
+
+
+def compute_levels(workflow: dict) -> dict:
+    """Map phase id -> grid row (longest dependency path from a root)."""
+    phases = workflow.get("phases", [])
+    deps = {p["id"]: [d for d in (p.get("depends_on") or []) if d] for p in phases}
+    memo = {}
+
+    def level(pid, seen):
+        if pid in memo:
+            return memo[pid]
+        ds = [d for d in deps.get(pid, []) if d in deps and d not in seen]
+        lvl = 0 if not ds else 1 + max(level(d, seen | {pid}) for d in ds)
+        memo[pid] = lvl
+        return lvl
+
+    return {pid: level(pid, set()) for pid in deps}
+
+
+def derive_columns(workflow: dict, levels: dict) -> dict:
+    """Column index of each phase within its level, in declaration order."""
+    counters = {}
+    cols = {}
+    for p in workflow.get("phases", []):
+        lvl = levels.get(p["id"], 0)
+        cols[p["id"]] = counters.get(lvl, 0)
+        counters[lvl] = counters.get(lvl, 0) + 1
+    return cols
+
+
+def derive_parallel_with(workflow: dict, levels: dict) -> dict:
+    """Map phase id -> other phase ids sharing its level (declaration order)."""
+    by_level = {}
+    for p in workflow.get("phases", []):
+        by_level.setdefault(levels.get(p["id"], 0), []).append(p["id"])
+    out = {}
+    for ids in by_level.values():
+        for pid in ids:
+            out[pid] = [x for x in ids if x != pid]
+    return out
+
+
+def build_edges(workflow: dict) -> list:
+    """List of {from, to} dependency edges between known phases."""
+    ids = {p["id"] for p in workflow.get("phases", [])}
+    edges = []
+    for p in workflow.get("phases", []):
+        for dep in (p.get("depends_on") or []):
+            if dep in ids:
+                edges.append({"from": dep, "to": p["id"]})
+    return edges
+
+
+def default_depends_on_for_level(workflow: dict, levels: dict, level: int) -> list:
+    """Phase ids on the immediately-previous level (drop default)."""
+    if level <= 0:
+        return []
+    return [p["id"] for p in workflow.get("phases", [])
+            if levels.get(p["id"], 0) == level - 1]
+
+
+def apply_parallel_with(model: dict, levels: dict) -> None:
+    """Write derived parallel_with onto each phase (in place); drop when solo."""
+    pw = derive_parallel_with(model, levels)
+    for p in model.get("phases", []):
+        peers = pw.get(p["id"], [])
+        if peers:
+            p["parallel_with"] = peers
+        else:
+            p.pop("parallel_with", None)
+
+
+def blank_workflow(name: str) -> dict:
+    """A minimal schema-valid workflow scaffold."""
+    return {
+        "schema_version": 1,
+        "skill": {"name": name, "description": f"Workflow {name} (à compléter)."},
+        "groups": {"setup": {"description": "Préparation", "risk": "none"}},
+        "phases": [{"id": "P0", "name": "Première phase", "group": "setup",
+                    "type": "main_agent", "description": "À compléter."}],
+    }
+
+
+def clone_workflow(model: dict, new_name: str) -> dict:
+    """Deep-copy a workflow under a new skill name."""
+    cloned = copy.deepcopy(model)
+    cloned.setdefault("skill", {})["name"] = new_name
+    return cloned
+
+
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def is_valid_slug(name: str) -> bool:
+    """True for safe workflow/agent slugs (also blocks path traversal)."""
+    return bool(isinstance(name, str) and _SLUG_RE.match(name))
+
+
+def save_workflow(name: str, model: dict, workflows_dir: Path = None,
+                  agents_dir: Path = None) -> list:
+    """Validate then write. Returns [] on success, list of errors otherwise."""
+    workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
+    agents_dir = agents_dir or DEFAULT_AGENTS_DIR
+    if not is_valid_slug(name):
+        return [f"invalid workflow name: {name!r}"]
+    apply_parallel_with(model, compute_levels(model))
+    errors = validate_schema(model)
+    if errors:
+        return errors
+    errors = validate_coherence(model, agents_dir=agents_dir,
+                                workflows_dir=workflows_dir)
+    if errors:
+        return errors
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    (workflows_dir / f"{name}.yaml").write_text(dump_workflow_yaml(model),
+                                                encoding="utf-8")
+    return []
+
+
+# ============================================================================
+# Validation
+# ============================================================================
+
+def load_schema(schema_path: Path = None) -> dict:
+    """Load workflow.schema.json."""
+    path = schema_path or DEFAULT_SCHEMA_PATH
+    with open(path) as f:
+        return json.load(f)
+
+
+def validate_schema(workflow: dict, schema: dict = None) -> list:
+    """Validate workflow dict against JSON Schema. Returns list of error messages (empty if valid)."""
+    schema = schema or load_schema()
+    validator = jsonschema.Draft7Validator(schema)
+    errors = []
+    for err in validator.iter_errors(workflow):
+        path = ".".join(str(p) for p in err.absolute_path) or "<root>"
+        errors.append(f"{path}: {err.message}")
+    return errors
+
+
+DEFAULT_AGENTS_DIR = REPO_ROOT_GUESS / "claude-setup" / "agents"
+
+DEFAULT_INVOCATIONS_DIR = (REPO_ROOT_GUESS / "claude-setup" / "workflow"
+                           / "templates" / "invocations")
+
+
+def create_agent(name: str, description: str, tools: str, model: str,
+                 prompt: str, agents_dir: Path = None,
+                 invocations_dir: Path = None) -> list:
+    """Scaffold claude-setup/agents/<name>.md + invocation template."""
+    agents_dir = agents_dir or DEFAULT_AGENTS_DIR
+    invocations_dir = invocations_dir or DEFAULT_INVOCATIONS_DIR
+    if not is_valid_slug(name):
+        return [f"invalid agent name: {name!r}"]
+    agent_md = (
+        f"---\nname: {name}\ndescription: {description}\n"
+        f"tools: {tools}\nmodel: {model}\n---\n\n{prompt}\n"
+    )
+    invocation_md = (
+        f"---\nagent: {name}\ngenerated: false\n---\n\n"
+        f"**{{{{ agent }}}}** [{{{{ model }}}}] · {description}\n"
+        f"{{{{ inputs_outputs_compact }}}}\n\n**Task** : {prompt}\n"
+    )
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    invocations_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / f"{name}.md").write_text(agent_md, encoding="utf-8")
+    (invocations_dir / f"{name}.md").write_text(invocation_md, encoding="utf-8")
+    return []
+
+
+def split_agent_md(text: str):
+    """Split an agent .md into (frontmatter_raw, body).
+
+    frontmatter_raw is the text BETWEEN the `---` fences (verbatim, fences
+    excluded); body is everything after the closing fence (leading blank lines
+    stripped). The frontmatter is kept as raw text — never re-parsed/re-dumped —
+    so rich YAML (literal `|` descriptions, block-sequence `tools:`) survives a
+    body-only edit untouched. No fence -> ("", text).
+    """
+    lines = text.split("\n")
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                fm = "\n".join(lines[1:i])
+                body = "\n".join(lines[i + 1:]).lstrip("\n")
+                return fm, body
+    return "", text
+
+
+def join_agent_md(frontmatter_raw: str, body: str) -> str:
+    """Reassemble an agent .md from raw frontmatter + body (inverse of split)."""
+    fm = frontmatter_raw.rstrip("\n")
+    body = body.rstrip("\n")
+    if fm:
+        return f"---\n{fm}\n---\n\n{body}\n"
+    return f"{body}\n"
+
+
+def _all_agent_names(agents_dir: Path) -> set:
+    """Set of agent names from <agents_dir>/*.md frontmatter."""
+    names = set()
+    for md_file in agents_dir.glob("*.md"):
+        names.add(md_file.stem)
+    return names
+
+
+def _detect_cycle(phases: list):
+    """Returns a description of a cycle if found in depends_on, None otherwise."""
+    graph = {p["id"]: p.get("depends_on", []) for p in phases}
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {pid: WHITE for pid in graph}
+
+    def dfs(node, path):
+        color[node] = GRAY
+        for nxt in graph.get(node, []):
+            if nxt not in graph:
+                continue  # caught by orphan check
+            if color[nxt] == GRAY:
+                return path + [nxt]
+            if color[nxt] == WHITE:
+                cycle = dfs(nxt, path + [nxt])
+                if cycle:
+                    return cycle
+        color[node] = BLACK
+        return None
+
+    for pid in graph:
+        if color[pid] == WHITE:
+            cycle = dfs(pid, [pid])
+            if cycle:
+                return " -> ".join(cycle)
+    return None
+
+
+def validate_coherence(workflow: dict, agents_dir: Path = None,
+                       workflows_dir: Path = None) -> list:
+    """Validate cross-references: agents exist, depends_on valid, conditions
+    used exist, workflow_call targets resolve."""
+    agents_dir = agents_dir or DEFAULT_AGENTS_DIR
+    workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
+    errors = []
+    known_agents = _all_agent_names(agents_dir)
+    known_phase_ids = {p["id"] for p in workflow.get("phases", [])}
+    known_groups = set(workflow.get("groups", {}).keys())
+    known_conditions = set(workflow.get("conditions", {}).keys())
+    known_workflows = (
+        {p.stem for p in workflows_dir.glob("*.yaml")}
+        if workflows_dir.is_dir() else set()
+    )
+
+    for phase in workflow.get("phases", []):
+        pid = phase["id"]
+        ptype = phase.get("type", "agent")
+
+        # group must be declared
+        if phase["group"] not in known_groups:
+            errors.append(f"phase '{pid}' references unknown group '{phase['group']}'")
+
+        # depends_on must reference existing phases
+        for dep in phase.get("depends_on", []):
+            if dep not in known_phase_ids:
+                errors.append(f"phase '{pid}' depends_on references unknown phase '{dep}'")
+
+        # parallel_with similarly
+        for par in phase.get("parallel_with", []):
+            if par not in known_phase_ids:
+                errors.append(f"phase '{pid}' parallel_with references unknown phase '{par}'")
+
+        # workflow_call type: requires `workflow` field pointing to an
+        # existing workflow file (≠ self).
+        if ptype == "workflow_call":
+            target = phase.get("workflow")
+            if not target:
+                errors.append(
+                    f"phase '{pid}' (type=workflow_call) is missing the 'workflow' field"
+                )
+            else:
+                this_workflow_name = (workflow.get("skill") or {}).get("name")
+                if target == this_workflow_name:
+                    errors.append(
+                        f"phase '{pid}' (workflow_call) cannot invoke its own workflow '{target}'"
+                    )
+                elif known_workflows and target not in known_workflows:
+                    errors.append(
+                        f"phase '{pid}' (workflow_call) references unknown workflow '{target}' "
+                        f"(no claude-setup/workflows/{target}.yaml)"
+                    )
+
+        # invocations
+        for inv in phase.get("invocations", []):
+            agent = inv["agent"]
+            if agent not in known_agents:
+                errors.append(f"phase '{pid}' invocation agent '{agent}' not found in {agents_dir}")
+
+            skip_if = inv.get("skip_if")
+            if skip_if and skip_if not in known_conditions:
+                errors.append(f"phase '{pid}' invocation '{agent}' references unknown condition '{skip_if}'")
+
+    # Cycle detection
+    cycle = _detect_cycle(workflow.get("phases", []))
+    if cycle:
+        errors.append(f"depends_on cycle detected: {cycle}")
+
+    # On-demand agents must reference existing agents
+    for od in workflow.get("on_demand_agents", []):
+        agent = od["agent"]
+        if agent not in known_agents:
+            errors.append(f"on_demand_agents: agent '{agent}' not found in {agents_dir}")
+
+    # io_ref par rôle : le namespace référencé doit être déclaré.
+    namespaces = workflow.get("namespaces", {})
+
+    def _check_io(io, where):
+        if io.get("path"):
+            return
+        role = io.get("role")
+        if not role:
+            errors.append(f"{where}: io_ref sans path ni role")
+            return
+        ns = role.split(":", 1)[0] if ":" in role else io.get("namespace", "")
+        if ns not in namespaces:
+            errors.append(
+                f"{where}: namespace '{ns}' (role '{role}') non déclaré dans namespaces"
+            )
+
+    for phase in workflow.get("phases", []):
+        pid = phase.get("id", "?")
+        for io in (phase.get("inputs") or []) + (phase.get("outputs") or []):
+            _check_io(io, f"phase {pid}")
+        for inv in phase.get("invocations", []) or []:
+            ag = inv.get("agent", "?")
+            for io in (inv.get("inputs") or []) + (inv.get("outputs") or []):
+                _check_io(io, f"phase {pid}/{ag}")
+
+    return errors
+
+
+# ============================================================================
+# DAG construction
+# ============================================================================
+
+class WorkflowDAG:
+    """Represents the DAG of phases with execution order and data flow."""
+
+    def __init__(self, phases: list):
+        self.phases = {p["id"]: p for p in phases}
+        self._build_edges()
+
+    def _build_edges(self):
+        """Build control-flow edges (depends_on) and data-flow edges (inputs/outputs)."""
+        # Control edges: child -> set(parents)
+        self.parents = {pid: set(p.get("depends_on", [])) for pid, p in self.phases.items()}
+
+        # parallel_with is symmetric; treated as no order constraint between them
+        self.parallel_with = {pid: set(p.get("parallel_with", [])) for pid, p in self.phases.items()}
+
+        # Output index: path -> (phase_id, invocation_agent)
+        self.output_index = {}
+        for pid, p in self.phases.items():
+            for inv in p.get("invocations", []):
+                for out in inv.get("outputs", []):
+                    self.output_index[out["path"]] = (pid, inv["agent"])
+
+    def topo_order(self) -> list:
+        """Topological sort respecting depends_on. parallel_with phases are siblings."""
+        # Kahn's algorithm
+        indeg = {pid: 0 for pid in self.phases}
+        for pid, parents in self.parents.items():
+            indeg[pid] = len(parents)
+
+        ready = sorted([pid for pid, d in indeg.items() if d == 0])
+        order = []
+        # children[parent] = list of children
+        children = {pid: [] for pid in self.phases}
+        for child, parents in self.parents.items():
+            for p in parents:
+                children[p].append(child)
+
+        while ready:
+            current = ready.pop(0)
+            order.append(current)
+            for child in children[current]:
+                indeg[child] -= 1
+                if indeg[child] == 0:
+                    ready.append(child)
+            ready.sort()
+
+        if len(order) != len(self.phases):
+            raise ValueError("Cycle detected; cannot produce topo order")
+        return order
+
+    def execution_levels(self) -> list:
+        """Group phases by execution level (level N depends on level N-1).
+
+        Considers both explicit depends_on edges and implicit dataflow edges
+        (a phase that consumes an output produced by another phase is implicitly
+        at a higher level than the producer).
+        """
+        # Build implicit parents from dataflow edges
+        implicit_parents = {pid: set() for pid in self.phases}
+        for prod_pid, _prod_agent, cons_pid, _cons_agent, _path in self.dataflow_edges():
+            implicit_parents[cons_pid].add(prod_pid)
+
+        level_of = {}
+        for pid in self.topo_order():
+            all_parents = self.parents[pid] | implicit_parents[pid]
+            if not all_parents:
+                level_of[pid] = 0
+            else:
+                level_of[pid] = 1 + max(level_of[p] for p in all_parents if p in level_of)
+
+        max_level = max(level_of.values()) if level_of else 0
+        levels = [[] for _ in range(max_level + 1)]
+        for pid, lvl in level_of.items():
+            levels[lvl].append(pid)
+        for lvl in levels:
+            lvl.sort()
+        return levels
+
+    def dataflow_edges(self) -> set:
+        """Returns set of (producer_phase, producer_agent, consumer_phase, consumer_agent, path)."""
+        edges = set()
+        for pid, p in self.phases.items():
+            for inv in p.get("invocations", []):
+                for inp in inv.get("inputs", []):
+                    path = inp["path"]
+                    if path in self.output_index:
+                        prod_pid, prod_agent = self.output_index[path]
+                        edges.add((prod_pid, prod_agent, pid, inv["agent"], path))
+        return edges
+
+
+def build_dag(workflow: dict) -> WorkflowDAG:
+    """Construct DAG from workflow dict."""
+    workflow = resolve_io_paths(workflow)
+    return WorkflowDAG(workflow.get("phases", []))
+
+
+def _paths_match(a: str, b: str) -> bool:
+    """True if paths a and b refer to the same data, allowing dir/file granularity.
+
+    A directory path (trailing '/') matches any path nested under it. So a dir
+    input `work/x/` is satisfied by a file output `work/x/a.json`, and a file
+    output `work/x/a.json` is consumed by a dir input `work/x/`.
+    """
+    if a == b:
+        return True
+    if a.endswith("/") and b.startswith(a):
+        return True
+    if b.endswith("/") and a.startswith(b):
+        return True
+    return False
+
+
+def check_dataflow_warnings(workflow: dict) -> list:
+    """Detect data-flow incoherences. Returns warnings (non-blocking)."""
+    workflow = resolve_io_paths(workflow)
+    warnings = []
+    dag = build_dag(workflow)
+
+    # Producer/consumer sets span BOTH phase-level and invocation-level I/O.
+    # (A prep script declares its artifacts as phase-level outputs; the check
+    # iterates invocation outputs in part 2, but a phase-level output is still a
+    # legitimate producer, and a phase-level input is a legitimate consumer.)
+    all_outputs = list(dag.output_index)
+    all_input_paths = []
+    for p in dag.phases.values():
+        all_outputs += [o["path"] for o in p.get("outputs", [])]
+        all_input_paths += [i["path"] for i in p.get("inputs", [])]
+        for inv in p.get("invocations", []):
+            all_input_paths += [i["path"] for i in inv.get("inputs", [])]
+    terminal_paths = {
+        out["path"]
+        for p in dag.phases.values()
+        for inv in p.get("invocations", [])
+        for out in inv.get("outputs", [])
+        if out.get("terminal")
+    }
+
+    # 1. Orphan inputs: required inputs with no producer (only flag generated artifacts
+    # under work/). Inputs marked `external: true` come from outside the agent DAG.
+    for pid, p in dag.phases.items():
+        for inv in p.get("invocations", []):
+            for inp in inv.get("inputs", []):
+                if inp.get("optional") or inp.get("external"):
+                    continue
+                path = inp["path"]
+                if not path.startswith(("work/",)):
+                    continue
+                if not any(_paths_match(path, o) for o in all_outputs):
+                    warnings.append(f"phase '{pid}' invocation '{inv['agent']}': input '{path}' has no producer")
+
+    # 2. Orphan outputs: outputs that no one reads (intermediate artifacts only).
+    # Outputs marked `terminal: true` are final artifacts (read by the hunter or
+    # the report phase), not intermediate dataflow.
+    for path, (pid, agent) in dag.output_index.items():
+        if path in terminal_paths:
+            continue
+        if any(_paths_match(path, i) for i in all_input_paths):
+            continue
+        if path.startswith("work/") and not path.endswith(("findings.md", "report.md")):
+            warnings.append(f"phase '{pid}' invocation '{agent}': output '{path}' has no consumer")
+
+    return warnings
+
+
+# ============================================================================
+# Snippet loader
+# ============================================================================
+
+from dataclasses import dataclass
+
+
+@dataclass
+class Snippet:
+    frontmatter: dict
+    body: str
+    path: Path
+
+
+def load_snippet(path: Path) -> Snippet:
+    """Load a markdown snippet with YAML frontmatter."""
+    text = Path(path).read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        raise ValueError(f"{path}: missing YAML frontmatter (expected '---' on line 1)")
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        raise ValueError(f"{path}: unterminated YAML frontmatter")
+    fm_text = text[4:end]
+    body = text[end + 5:]
+    frontmatter = yaml.safe_load(fm_text) or {}
+    return Snippet(frontmatter=frontmatter, body=body, path=Path(path))
+
+
+def _format_io_table(items: list) -> str:
+    """Format a list of {path, kind, optional?} as a markdown table."""
+    if not items:
+        return "_(aucun)_"
+    lines = ["| Path | Kind | Optional |", "|------|------|----------|"]
+    for it in items:
+        opt = "yes" if it.get("optional") else ""
+        lines.append(f"| `{it['path']}` | {it['kind']} | {opt} |")
+    return "\n".join(lines)
+
+
+def _format_io_compact(inputs: list, outputs: list) -> str:
+    """Format inputs/outputs as compact Reads/Writes lines.
+
+    Each item: `role-or-name` (kind[, optionnel]) → chemin résolu. The role is
+    back-ticked so the Lot 3 role<->prose check can detect it. A legend line is
+    appended when at least one item is optional."""
+    has_optional = any(i.get("optional") for i in (inputs or []) + (outputs or []))
+
+    def _item(io):
+        label = io.get("role") or (io.get("path", "").rstrip("/").split("/")[-1])
+        flags = io.get("kind", "")
+        if io.get("optional"):
+            flags += ", optionnel"
+        suffix = f" → {io['path']}" if io.get("path") else ""
+        return f"`{label}` ({flags}){suffix}"
+
+    parts = []
+    if inputs:
+        parts.append("- Reads : " + ", ".join(_item(i) for i in inputs))
+    if outputs:
+        parts.append("- Writes : " + ", ".join(_item(o) for o in outputs))
+    if has_optional:
+        parts.append("- _(optionnel = peut être absent)_")
+    return "\n".join(parts) if parts else "_(no I/O)_"
+
+
+def render_snippet(snippet: Snippet, invocation: dict) -> str:
+    """Render a snippet body with Jinja2, substituting inputs_table/outputs_table."""
+    env = jinja2.Environment(
+        undefined=jinja2.ChainableUndefined,
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
+    template = env.from_string(snippet.body)
+    context = {
+        "workspace": "<CWD>",
+        "inputs_table": _format_io_table(invocation.get("inputs", [])),
+        "outputs_table": _format_io_table(invocation.get("outputs", [])),
+        "inputs_outputs_compact": _format_io_compact(
+            invocation.get("inputs", []), invocation.get("outputs", [])
+        ),
+        **invocation,
+    }
+    return template.render(**context)
+
+
+# ============================================================================
+# Generator
+# ============================================================================
+
+def generate_skill_md(workflow_path: Path, output_path: Path,
+                     templates_dir: Path = None, agents_dir: Path = None) -> None:
+    """Generate the SKILL.md from workflow.yaml + snippets."""
+    templates_dir = templates_dir or (REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates")
+    invocations_dir = templates_dir / "invocations"
+
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+
+    # Validate first; fail loudly
+    schema_errors = validate_schema(workflow)
+    if schema_errors:
+        raise ValueError(f"Workflow invalid: {schema_errors}")
+
+    coherence_errors = validate_coherence(workflow, agents_dir=agents_dir)
+    if coherence_errors:
+        raise ValueError(f"Workflow coherence errors: {coherence_errors}")
+
+    # Résout les chemins dérivés (role+namespace) pour le rendu — sur une copie,
+    # le YAML source reste en rôles.
+    workflow = resolve_io_paths(workflow)
+
+    # Render each invocation snippet for each phase
+    phases_rendered = []
+    for phase in workflow.get("phases", []):
+        rendered_invocations = []
+        for inv in phase.get("invocations", []):
+            snippet_path = invocations_dir / f"{inv['agent']}.md"
+            if not snippet_path.exists():
+                # Generate a default skeleton on the fly
+                rendered_invocations.append(
+                    f"#### Invocation `{inv['agent']}`\n\n"
+                    f"_(snippet missing: `templates/invocations/{inv['agent']}.md`)_"
+                )
+                continue
+            snippet = load_snippet(snippet_path)
+            rendered = render_snippet(snippet, inv)
+            rendered_invocations.append(f"#### Invocation `{inv['agent']}`\n\n{rendered}")
+        phase["rendered_invocations"] = rendered_invocations
+        phases_rendered.append(phase)
+
+    # Load manual sections with insert_at support
+    ordered_sections = workflow.get("manual_sections", [])
+    sections_by_name = {ms["name"]: ms for ms in ordered_sections}
+    phase_ids = {p["id"] for p in workflow.get("phases", [])}
+
+    def _resolve_to_phase(name, visited=None):
+        """Resolve a section name to ('after_phase', phase_id) or 'end' or 'top'."""
+        visited = visited or set()
+        if name in visited:
+            return "end"  # cycle fallback
+        visited.add(name)
+        if name not in sections_by_name:
+            return "end"
+        insert_at = sections_by_name[name].get("insert_at", "end")
+        if insert_at == "end":
+            return "end"
+        if insert_at == "top":
+            return "top"
+        if insert_at.startswith("after:"):
+            target = insert_at[len("after:"):]
+            if target in phase_ids:
+                return ("after_phase", target)
+            # target is another section name — resolve transitively
+            return _resolve_to_phase(target, visited)
+        return "end"
+
+    manual_blocks_at_top = []
+    manual_blocks_at_end = []
+    manual_blocks_after_phase = {}
+
+    for ms in ordered_sections:
+        # ms["path"] is relative to repo root, no double-prefix
+        manual_path = REPO_ROOT_GUESS / ms["path"]
+        if not manual_path.exists():
+            continue
+        content = manual_path.read_text(encoding="utf-8")
+        resolution = _resolve_to_phase(ms["name"])
+        if resolution == "top":
+            manual_blocks_at_top.append(content)
+        elif isinstance(resolution, tuple) and resolution[0] == "after_phase":
+            manual_blocks_after_phase.setdefault(resolution[1], []).append(content)
+        else:
+            manual_blocks_at_end.append(content)
+
+    # Render top-level skeleton
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        autoescape=False,
+        keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    template = env.get_template("skill-skeleton.md.jinja")
+    output = template.render(
+        skill=workflow.get("skill", {"name": "unnamed", "description": ""}),
+        phases=phases_rendered,
+        phase_count=len(phases_rendered),
+        groups=workflow.get("groups", {}),
+        group_count=len(workflow.get("groups", {})),
+        brainstormings=workflow.get("brainstormings", []),
+        manual_blocks_at_top=manual_blocks_at_top,
+        manual_blocks_at_end=manual_blocks_at_end,
+        manual_blocks_after_phase=manual_blocks_after_phase,
+        # keep legacy key for backward compat with test fixtures
+        manual_blocks=manual_blocks_at_end,
+        on_demand_agents=workflow.get("on_demand_agents", []),
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
+
+
+DEFAULT_GROUP_COLORS = {
+    "passive-recon": "#14532d",
+    "active-collection": "#1e3a5f",
+    "static-analysis": "#5c3a00",
+    "consolidation": "#3b0764",
+    "active-exploit": "#5b1a1a",
+    # Default for unknown groups
+    "g1": "#1e3a5f",
+    "g2": "#5c3a00",
+}
+
+
+def _node_id_filter(s: str) -> str:
+    """Sanitize a string for use as a Mermaid node ID."""
+    return s.replace("/", "_").replace(".", "_").replace("-", "_")
+
+
+def _phase_inputs(phase: dict) -> set:
+    paths = set()
+    for inv in phase.get("invocations", []) or []:
+        for inp in inv.get("inputs", []) or []:
+            paths.add(inp["path"])
+    for inp in phase.get("inputs", []) or []:
+        paths.add(inp["path"])
+    return paths
+
+
+def _phase_outputs(phase: dict) -> set:
+    paths = set()
+    for inv in phase.get("invocations", []) or []:
+        for out in inv.get("outputs", []) or []:
+            paths.add(out["path"])
+    for out in phase.get("outputs", []) or []:
+        paths.add(out["path"])
+    return paths
+
+
+def _shorten_artifact(path: str) -> str:
+    """Shorten an artifact path for display on an edge label."""
+    # Trim trailing slash, keep last 2 path segments when nested deeply
+    p = path.rstrip("/")
+    parts = p.split("/")
+    if len(parts) <= 2:
+        return p
+    return ".../" + "/".join(parts[-2:])
+
+
+def build_edge_labels(workflow: dict) -> dict:
+    """For each (parent_id, child_id) depends_on pair, produce an edge label string.
+
+    The label is the main artifact flowing from parent to child (i.e., output of
+    parent that appears in child's inputs). Returns dict keyed by "parent->child"
+    so Jinja can look it up. Pairs without dataflow get no entry (plain arrow).
+    """
+    phases_by_id = {p["id"]: p for p in workflow.get("phases", [])}
+    labels = {}
+    for child in workflow.get("phases", []):
+        child_inputs = _phase_inputs(child)
+        if not child_inputs:
+            continue
+        for dep_id in child.get("depends_on", []) or []:
+            parent = phases_by_id.get(dep_id)
+            if not parent:
+                continue
+            shared = sorted(_phase_outputs(parent) & child_inputs)
+            if not shared:
+                continue
+            if len(shared) == 1:
+                labels[f"{dep_id}->{child['id']}"] = _shorten_artifact(shared[0])
+            else:
+                # Pick the most specific (longest) and annotate count
+                main = max(shared, key=len)
+                labels[f"{dep_id}->{child['id']}"] = (
+                    f"{_shorten_artifact(main)} +{len(shared) - 1}"
+                )
+    return labels
+
+
+def _resolve_group_colors(workflow: dict) -> dict:
+    group_colors = {**DEFAULT_GROUP_COLORS}
+    for gname in workflow.get("groups", {}):
+        if gname not in group_colors:
+            group_colors[gname] = "#444444"
+    return group_colors
+
+
+def build_phase_agent_nodes(workflow: dict) -> list:
+    """For dataflow: collect (phase, agent) nodes that participate in the graph.
+
+    Each entry: {node_id, phase_id, phase_name, agent, group}
+    """
+    nodes = []
+    seen = set()
+    for phase in workflow.get("phases", []):
+        pid = phase["id"]
+        group = phase.get("group", "")
+        invocations = phase.get("invocations", []) or []
+        if invocations:
+            for inv in invocations:
+                agent = inv["agent"]
+                key = (pid, agent)
+                if key in seen:
+                    continue
+                seen.add(key)
+                nodes.append({
+                    "node_id": f"{pid}_{_node_id_filter(agent)}",
+                    "phase_id": pid,
+                    "phase_name": phase.get("name", pid),
+                    "agent": agent,
+                    "group": group,
+                })
+        else:
+            # main_agent / script phases — represent as a single node keyed by phase id
+            agent_label = phase.get("type", "phase")
+            key = (pid, agent_label)
+            if key in seen:
+                continue
+            seen.add(key)
+            nodes.append({
+                "node_id": f"{pid}_{_node_id_filter(agent_label)}",
+                "phase_id": pid,
+                "phase_name": phase.get("name", pid),
+                "agent": agent_label,
+                "group": group,
+            })
+    return nodes
+
+
+def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
+    """Build a dataflow view of the workflow.
+
+    Walks each phase looking at BOTH invocation-level (inputs/outputs) and
+    phase-level (script + main_agent) inputs/outputs. Supports multiple
+    producers for the same path (e.g., T4-INGESTER and T5-OUTSIDER both
+    produce a shared output).
+
+    `mode`:
+      - "internal" (default): only keep files that have BOTH a producer and a
+        consumer inside the workflow (the actual inter-phase dataflow).
+      - "all": include external inputs (no producer) and terminal outputs
+        (no consumer in the workflow).
+
+    Returns dict with: phase_agents, file_paths, producer_edges,
+    consumer_edges, file_categories (path -> "internal"|"external"|"terminal").
+    """
+    phase_agents = build_phase_agent_nodes(workflow)
+    nodes_by_key = {(n["phase_id"], n["agent"]): n for n in phase_agents}
+
+    producer_edges = set()
+    consumer_edges = set()
+    file_paths = set()
+
+    for phase in workflow.get("phases", []):
+        pid = phase["id"]
+        invocations = phase.get("invocations", []) or []
+        # Invocation-level I/O (agent phases)
+        for inv in invocations:
+            agent = inv["agent"]
+            node = nodes_by_key.get((pid, agent))
+            if not node:
+                continue
+            node_id = node["node_id"]
+            for out in inv.get("outputs", []) or []:
+                producer_edges.add((pid, agent, node_id, out["path"]))
+                file_paths.add(out["path"])
+            for inp in inv.get("inputs", []) or []:
+                consumer_edges.add((pid, agent, node_id, inp["path"]))
+                file_paths.add(inp["path"])
+
+        # Phase-level I/O (script + main_agent phases without invocations,
+        # or in addition to invocations when both are declared)
+        agent_label = phase.get("type", "phase")
+        node = nodes_by_key.get((pid, agent_label))
+        if node and (phase.get("inputs") or phase.get("outputs")):
+            node_id = node["node_id"]
+            for out in phase.get("outputs", []) or []:
+                producer_edges.add((pid, agent_label, node_id, out["path"]))
+                file_paths.add(out["path"])
+            for inp in phase.get("inputs", []) or []:
+                consumer_edges.add((pid, agent_label, node_id, inp["path"]))
+                file_paths.add(inp["path"])
+
+    # Classify each path: internal (has both producer and consumer),
+    # external (consumed only) or terminal (produced only).
+    produced = {e[3] for e in producer_edges}
+    consumed = {e[3] for e in consumer_edges}
+    file_categories = {}
+    for path in file_paths:
+        has_prod = path in produced
+        has_cons = path in consumed
+        if has_prod and has_cons:
+            file_categories[path] = "internal"
+        elif has_cons:
+            file_categories[path] = "external"
+        else:
+            file_categories[path] = "terminal"
+
+    # Filter by mode
+    if mode == "internal":
+        kept_paths = {p for p, c in file_categories.items() if c == "internal"}
+    else:
+        kept_paths = set(file_paths)
+
+    producer_edges = {e for e in producer_edges if e[3] in kept_paths}
+    consumer_edges = {e for e in consumer_edges if e[3] in kept_paths}
+    file_paths = kept_paths
+    file_categories = {p: c for p, c in file_categories.items() if p in kept_paths}
+
+    # Keep only phase-agent nodes that still have at least one edge after filtering
+    active_nodes = {e[2] for e in producer_edges} | {e[2] for e in consumer_edges}
+    phase_agents_filtered = [n for n in phase_agents if n["node_id"] in active_nodes]
+
+    return {
+        "phase_agents": phase_agents_filtered,
+        "file_paths": sorted(file_paths),
+        "producer_edges": sorted(producer_edges),
+        "consumer_edges": sorted(consumer_edges),
+        "file_categories": file_categories,
+    }
+
+
+def build_phase_descriptions(workflow: dict) -> dict:
+    """Map phase_id -> cleaned description text for hover tooltips."""
+    out = {}
+    for phase in workflow.get("phases", []):
+        desc = (phase.get("description") or "").strip()
+        # Compact whitespace (YAML > folded paragraphs)
+        desc = " ".join(desc.split())
+        out[phase["id"]] = desc
+    return out
+
+
+def build_phase_agents_map(workflow: dict) -> dict:
+    """Map phase_id -> list of agent names invoked by that phase."""
+    out = {}
+    for phase in workflow.get("phases", []):
+        agents = [inv["agent"] for inv in phase.get("invocations", []) or []]
+        out[phase["id"]] = agents
+    return out
+
+
+def build_phase_meta(workflow: dict) -> dict:
+    """Map phase_id -> {name, type, description} for the click-through panel."""
+    desc = build_phase_descriptions(workflow)
+    out = {}
+    for phase in workflow.get("phases", []):
+        pid = phase["id"]
+        out[pid] = {
+            "name": phase.get("name", pid),
+            "type": phase.get("type", ""),
+            "description": desc.get(pid, ""),
+        }
+    return out
+
+
+def build_agent_docs(workflow: dict, agents_dir: Path = None) -> dict:
+    """For each agent referenced by the workflow, return its markdown doc.
+
+    {agent_name: {description, model, tools, body}}
+    body is the raw markdown (frontmatter stripped) — rendered client-side.
+    """
+    agents_dir = agents_dir or DEFAULT_AGENTS_DIR
+    referenced = set()
+    for phase in workflow.get("phases", []):
+        for inv in phase.get("invocations", []) or []:
+            referenced.add(inv["agent"])
+    for od in workflow.get("on_demand_agents", []) or []:
+        referenced.add(od["agent"])
+
+    docs = {}
+    for agent in sorted(referenced):
+        md_path = agents_dir / f"{agent}.md"
+        if not md_path.exists():
+            continue
+        try:
+            snippet = load_snippet(md_path)
+        except ValueError:
+            # No frontmatter — treat whole file as body
+            docs[agent] = {
+                "description": "", "model": "", "tools": [],
+                "body": md_path.read_text(encoding="utf-8"),
+            }
+            continue
+        fm = snippet.frontmatter or {}
+        tools = fm.get("tools") or []
+        if isinstance(tools, str):
+            tools = [tools]
+        docs[agent] = {
+            "description": (fm.get("description") or "").strip(),
+            "model": fm.get("model") or "",
+            "tools": tools,
+            "body": snippet.body.strip(),
+        }
+    return docs
+
+
+def build_legend(workflow: dict, kind: str = "workflow") -> list:
+    """Return list of legend entries for the given diagram kind.
+
+    Each entry: {label, color, description, is_file?}
+    """
+    group_colors = _resolve_group_colors(workflow)
+    entries = []
+    for gname, gdata in workflow.get("groups", {}).items():
+        entries.append({
+            "label": gname,
+            "color": group_colors[gname],
+            "description": (gdata.get("description") or "").strip(),
+        })
+    if kind == "dataflow":
+        entries.append({
+            "label": "Fichier (artefact)",
+            "color": "#1e293b",
+            "description": "Fichier produit / consommé entre phases",
+            "is_file": True,
+        })
+    return entries
+
+
+def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> str:
+    """Render the cartography mermaid string from a workflow dict."""
+    templates_dir = templates_dir or (REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates")
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
+    env.filters["node_id"] = _node_id_filter
+    template = env.get_template("cartography.mermaid.jinja")
+    return template.render(
+        phases=workflow.get("phases", []),
+        groups=workflow.get("groups", {}),
+        group_colors=_resolve_group_colors(workflow),
+    )
+
+
+def generate_mermaid_cartography(workflow_path: Path, output_path: Path,
+                                  templates_dir: Path = None) -> None:
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+    output = render_cartography_mermaid(workflow, templates_dir=templates_dir)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
+
+
+def build_dataflow_fragments(workflow: dict, mode: str = "internal") -> dict:
+    """Return per-node / per-edge mermaid fragments so JS can reconstruct the
+    diagram with an arbitrary subset of nodes (used for the click-to-focus
+    interaction).
+
+    {
+      "nodes": { node_id: { "fragment": "...", "type": "phase"|"file" } },
+      "edges": [ { "from": node_id, "to": node_id, "fragment": "..." } ],
+      "classdefs": [ "classDef file ...", "classDef passive-recon ..." ]
+    }
+    """
+    workflow = resolve_io_paths(workflow)
+    graph = build_dataflow_graph(workflow, mode=mode)
+    group_colors = _resolve_group_colors(workflow)
+
+    nodes = {}
+    for pa in graph["phase_agents"]:
+        # Mermaid markdown-string label: bold name, italic agent
+        label = f"`**{pa['phase_name']}**\n*{pa['agent']}*`"
+        nodes[pa["node_id"]] = {
+            "fragment": f'{pa["node_id"]}["{label}"]:::{pa["group"]}',
+            "type": "phase",
+        }
+    for path in graph["file_paths"]:
+        nid = _node_id_filter(path)
+        nodes[nid] = {
+            "fragment": f'{nid}[/"{path}"/]:::file',
+            "type": "file",
+        }
+
+    edges = []
+    for prod_pid, prod_agent, prod_node_id, path in graph["producer_edges"]:
+        file_nid = _node_id_filter(path)
+        edges.append({
+            "from": prod_node_id, "to": file_nid,
+            "fragment": f'{prod_node_id} --> {file_nid}',
+        })
+    for cons_pid, cons_agent, cons_node_id, path in graph["consumer_edges"]:
+        file_nid = _node_id_filter(path)
+        edges.append({
+            "from": file_nid, "to": cons_node_id,
+            "fragment": f'{file_nid} --> {cons_node_id}',
+        })
+
+    classdefs = [
+        "classDef file fill:#1e293b,stroke:#64748b,stroke-dasharray:4 3,color:#cbd5e1,font-style:italic",
+    ]
+    for gname in workflow.get("groups", {}):
+        classdefs.append(
+            f"classDef {gname} fill:{group_colors[gname]},stroke:#94a3b8,stroke-width:1px,color:#f1f5f9"
+        )
+
+    return {"nodes": nodes, "edges": edges, "classdefs": classdefs}
+
+
+def render_dataflow_mermaid(workflow: dict, mode: str = "internal",
+                            templates_dir: Path = None) -> str:
+    """Render the dataflow (agents↔files) mermaid string from a workflow dict."""
+    templates_dir = templates_dir or (REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates")
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
+    env.filters["node_id"] = _node_id_filter
+    template = env.get_template("dataflow.mermaid.jinja")
+    workflow = resolve_io_paths(workflow)
+    graph = build_dataflow_graph(workflow, mode=mode)
+    return template.render(
+        phase_agents=graph["phase_agents"],
+        file_paths=graph["file_paths"],
+        producer_edges=graph["producer_edges"],
+        consumer_edges=graph["consumer_edges"],
+        file_categories=graph["file_categories"],
+        groups=workflow.get("groups", {}),
+        group_colors=_resolve_group_colors(workflow),
+    )
+
+
+def generate_mermaid_dataflow(workflow_path: Path, output_path: Path,
+                              templates_dir: Path = None,
+                              mode: str = "internal") -> None:
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+    output = render_dataflow_mermaid(workflow, mode=mode, templates_dir=templates_dir)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
+
+
+def _group_on_demand_agents(on_demand: list) -> list:
+    """Group on_demand agents by primary trigger family.
+
+    Returns a list of (group_label, [agents]) pairs, preserving discovery
+    order of groups. Trigger classification:
+      - any 'hook:*' trigger → 'Hook-triggered'
+      - 'skill:*' or 'manual' only → 'Manual / skill'
+      - 'session-end' → 'Session lifecycle'
+      - fallback → 'Manual / skill'
+    """
+    groups = {}  # label -> list
+    order = []
+    for od in on_demand or []:
+        triggers = od.get("triggered_by") or []
+        if any(t.startswith("hook:") for t in triggers):
+            label = "Hook-triggered"
+        elif "session-end" in triggers:
+            label = "Session lifecycle"
+        else:
+            label = "Manual / skill"
+        if label not in groups:
+            groups[label] = []
+            order.append(label)
+        groups[label].append(od)
+    return [(label, groups[label]) for label in order]
+
+
+def build_on_demand_drawer_data(workflow: dict) -> dict:
+    """Build phase_agents + phase_meta + tooltips for the on-demand tab so
+    that clicking a node opens the same drawer used by the workflow tab.
+
+    Each on_demand agent is a 'fake phase' keyed by ondemand_<agent_node_id>.
+    """
+    phase_agents = {}
+    phase_meta = {}
+    tooltips = {}
+    for od in workflow.get("on_demand_agents", []) or []:
+        agent = od["agent"]
+        key = f"ondemand_{_node_id_filter(agent)}"
+        phase_agents[key] = [agent]
+        when = (od.get("when") or "").strip()
+        triggers = od.get("triggered_by") or []
+        meta_desc_parts = []
+        if when:
+            meta_desc_parts.append(f"**When**: {when}")
+        if triggers:
+            meta_desc_parts.append(f"**Triggered by**: {', '.join(triggers)}")
+        phase_meta[key] = {
+            "name": agent,
+            "type": "on-demand",
+            "description": "\n\n".join(meta_desc_parts),
+        }
+        tooltips[key] = when or (od.get("description") or "").strip()
+    return {
+        "phase_agents": phase_agents,
+        "phase_meta": phase_meta,
+        "tooltips": tooltips,
+    }
+
+
+def generate_mermaid_on_demand(workflow_path: Path, output_path: Path,
+                                templates_dir: Path = None) -> None:
+    """Render the on-demand agents tab as a mermaid flowchart (one node per
+    agent, grouped by trigger family). Returns nothing — writes to disk."""
+    templates_dir = templates_dir or (REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates")
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
+    env.filters["node_id"] = _node_id_filter
+    template = env.get_template("on-demand.mermaid.jinja")
+    output = template.render(
+        groups_items=_group_on_demand_agents(workflow.get("on_demand_agents", [])),
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
+
+
+def generate_cartography_texte(workflow_path: Path, output_path: Path,
+                                templates_dir: Path = None) -> None:
+    """Generate a text/markdown cartography from workflow.yaml using DAG execution levels."""
+    templates_dir = templates_dir or (REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates")
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+    dag = build_dag(workflow)
+
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(templates_dir)),
+        autoescape=False,
+        keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    template = env.get_template("cartography-texte.md.jinja")
+    output = template.render(
+        phases=workflow.get("phases", []),
+        groups=workflow.get("groups", {}),
+        execution_levels=dag.execution_levels(),
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(output, encoding="utf-8")
+
+
+def check_drift(workflow_path: Path, skill_path: Path,
+                templates_dir: Path = None, agents_dir: Path = None) -> list:
+    """Compare actual SKILL.md vs what would be generated. Returns list of drift messages."""
+    if not skill_path.exists():
+        return [f"{skill_path}: does not exist (run bb-workflow generate)"]
+
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        generate_skill_md(workflow_path, tmp_path,
+                          templates_dir=templates_dir, agents_dir=agents_dir)
+        actual = skill_path.read_text(encoding="utf-8")
+        expected = tmp_path.read_text(encoding="utf-8")
+        if actual == expected:
+            return []
+        diff = list(difflib.unified_diff(
+            actual.splitlines(keepends=True),
+            expected.splitlines(keepends=True),
+            fromfile=str(skill_path),
+            tofile="generated",
+            n=2,
+        ))
+        return [f"SKILL.md differs from generated:\n{''.join(diff[:50])}"]
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _strip_mermaid_fences(content: str) -> str:
+    """Remove ```mermaid ... ``` fences if present."""
+    stripped = content.strip()
+    if stripped.startswith("```mermaid"):
+        stripped = stripped[len("```mermaid"):].lstrip("\n")
+    if stripped.endswith("```"):
+        stripped = stripped[:-3].rstrip()
+    return stripped
+
+
+def wrap_mermaid_in_html(mermaid_content, output_path: Path,
+                          template_path: Path = None,
+                          libs_dir: Path = None,
+                          skill: dict = None,
+                          workflow_selector_html: str = "") -> None:
+    """Wrap one or several mermaid diagrams in a standalone HTML (libs inlined).
+
+    Accepts:
+      - str: single diagram (renders without tabs, default tab id "diagram")
+      - list of (label, mermaid_content) tuples: tabbed UI in given order
+      - list of dicts {slug?, label, content, tooltips?, legend?}: rich tabbed UI
+      - dict[label -> mermaid_content]: tabbed UI (order = insertion)
+
+    Each diagram dict can carry `tooltips` (mapping node id -> hover text) and
+    `legend` (list of {label, color, description, is_file?}). They are injected
+    as JSON into the HTML and read by the wrapper at runtime.
+    """
+    import urllib.request
+
+    # Normalize input → list[dict(slug, label, content, tooltips, legend)]
+    diagrams = []
+    if isinstance(mermaid_content, str):
+        diagrams.append({
+            "slug": "diagram", "label": "Diagramme",
+            "content": _strip_mermaid_fences(mermaid_content),
+            "tooltips": {}, "legend": [],
+        })
+    elif isinstance(mermaid_content, dict):
+        for label, content in mermaid_content.items():
+            diagrams.append({
+                "slug": _slug(label), "label": label,
+                "content": _strip_mermaid_fences(content),
+                "tooltips": {}, "legend": [],
+            })
+    else:
+        for item in mermaid_content:
+            if isinstance(item, dict):
+                diagrams.append({
+                    "slug": item.get("slug") or _slug(item["label"]),
+                    "label": item["label"],
+                    "content": _strip_mermaid_fences(item["content"]),
+                    "content_type": item.get("content_type"),
+                    "content_html": item.get("content_html"),
+                    "tooltips": item.get("tooltips") or {},
+                    "legend": item.get("legend") or [],
+                    "graphs": item.get("graphs") or {},
+                    "default_mode": item.get("default_mode"),
+                    "agent_docs": item.get("agent_docs") or {},
+                    "phase_agents": item.get("phase_agents") or {},
+                    "phase_meta": item.get("phase_meta") or {},
+                })
+            else:
+                label, content = item
+                diagrams.append({
+                    "slug": _slug(label), "label": label,
+                    "content": _strip_mermaid_fences(content),
+                    "tooltips": {}, "legend": [],
+                })
+
+    libs_dir = libs_dir or Path("/tmp")
+    template_path = template_path or (
+        REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates" / "html-wrapper.html"
+    )
+
+    mermaid_lib_path = libs_dir / "mermaid.min.js"
+    panzoom_lib_path = libs_dir / "svg-pan-zoom.min.js"
+    marked_lib_path = libs_dir / "marked.min.js"
+
+    if not mermaid_lib_path.exists():
+        urllib.request.urlretrieve(
+            "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js",
+            mermaid_lib_path,
+        )
+    if not panzoom_lib_path.exists():
+        urllib.request.urlretrieve(
+            "https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js",
+            panzoom_lib_path,
+        )
+    if not marked_lib_path.exists():
+        urllib.request.urlretrieve(
+            "https://cdn.jsdelivr.net/npm/marked@12/marked.min.js",
+            marked_lib_path,
+        )
+
+    html = template_path.read_text(encoding="utf-8")
+    html = html.replace("/*__PANZOOM_LIB__*/", panzoom_lib_path.read_text(encoding="utf-8"))
+    html = html.replace("/*__MERMAID_LIB__*/", mermaid_lib_path.read_text(encoding="utf-8"))
+    html = html.replace("/*__MARKED_LIB__*/", marked_lib_path.read_text(encoding="utf-8"))
+
+    # Build per-tab HTML fragments
+    single = len(diagrams) == 1
+    tabs_html = "".join(
+        f'<button class="tab{" active" if i == 0 else ""}" data-tab="{d["slug"]}">{d["label"]}</button>'
+        for i, d in enumerate(diagrams)
+    )
+    if single:
+        tabs_html = f'<style>.tabs{{display:none}}</style>{tabs_html}'
+
+    def _panel_inner(d):
+        # HTML panels (e.g. Details) inject their content directly,
+        # bypassing the mermaid canvas + spinner.
+        if d.get("content_type") == "html":
+            return d.get("content_html", "")
+        return '<div class="canvas"><div class="spinner">rendu en cours…</div></div>'
+
+    panels_html = "".join(
+        f'<div class="panel{" active" if i == 0 else ""}" data-panel="{d["slug"]}">'
+        f'{_panel_inner(d)}'
+        f'</div>'
+        for i, d in enumerate(diagrams)
+    )
+    sources_html = "".join(
+        f'<div id="src-{d["slug"]}" style="display:none">{d["content"]}</div>'
+        for d in diagrams
+        if d.get("content_type") != "html"
+    )
+    # JSON metadata for tooltips + legend (one entry per diagram, keyed by slug)
+    meta_payload = {}
+    for d in diagrams:
+        entry = {"tooltips": d["tooltips"], "legend": d["legend"]}
+        if d.get("graphs"):
+            entry["graphs"] = d["graphs"]
+            entry["default_mode"] = d.get("default_mode") or next(iter(d["graphs"]))
+            entry["header"] = "flowchart LR"
+        if d.get("agent_docs"):
+            entry["agent_docs"] = d["agent_docs"]
+            entry["phase_agents"] = d["phase_agents"]
+            entry["phase_meta"] = d["phase_meta"]
+        meta_payload[d["slug"]] = entry
+    meta_json = json.dumps(meta_payload, ensure_ascii=False)
+    meta_html = (
+        f'<script id="diagram-meta" type="application/json">{meta_json}</script>'
+    )
+
+    if "<!--__TABS__-->" in html:
+        html = html.replace("<!--__TABS__-->", tabs_html)
+        html = html.replace("<!--__PANELS__-->", panels_html)
+        html = html.replace(
+            "<!--__SOURCES__-->",
+            sources_html + "\n" + meta_html,
+        )
+    elif "<!--__MERMAID_CONTENT__-->" in html:
+        html = html.replace(
+            "<!--__MERMAID_CONTENT__-->",
+            "\n".join(d["content"] for d in diagrams
+                      if d.get("content_type") != "html"),
+        )
+    else:
+        injected = "".join(
+            f"<div class='mermaid'>{d['content']}</div>"
+            for d in diagrams if d.get("content_type") != "html"
+        )
+        html = html.replace("</body>", f"{injected}</body>")
+    html = html.replace("<!--__WORKFLOW_SELECTOR__-->", workflow_selector_html or "")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(html, encoding="utf-8")
+
+
+def _slug(label: str) -> str:
+    return (
+        label.lower()
+        .strip()
+        .replace(" ", "-")
+        .replace("/", "-")
+        .replace(".", "-")
+    )
+
+
+# ============================================================================
+# CLI
+# ============================================================================
+
+def _validate_one(name: str, workflow_path: Path) -> tuple:
+    """Run schema + coherence + dataflow checks on a single workflow.
+
+    Returns (errors_count, warnings_count). Prints findings prefixed with the
+    workflow name.
+    """
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+    schema_errors = validate_schema(workflow)
+    coherence_errors = validate_coherence(workflow)
+    warnings = check_dataflow_warnings(workflow)
+    for e in schema_errors:
+        print(f"  [{name}] SCHEMA: {e}", file=sys.stderr)
+    for e in coherence_errors:
+        print(f"  [{name}] COHERENCE: {e}", file=sys.stderr)
+    for w in warnings:
+        print(f"  [{name}] WARNING: {w}", file=sys.stderr)
+    total_errors = len(schema_errors) + len(coherence_errors)
+    if total_errors == 0:
+        print(f"✅ [{name}] valid ({workflow_path})")
+    else:
+        print(f"❌ [{name}] {total_errors} error(s), {len(warnings)} warning(s)",
+              file=sys.stderr)
+    return (total_errors, len(warnings))
+
+
+def cmd_validate(args):
+    """Validate workflows. With --workflow NAME|PATH validates one;
+    otherwise iterates every discovered workflow."""
+    if args.workflow:
+        try:
+            name, workflow_path = resolve_workflow(args.workflow)
+        except FileNotFoundError as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 1
+        targets = [(name, workflow_path)]
+    else:
+        targets = discover_workflows()
+        if not targets:
+            print("❌ No workflows found (looked in "
+                  f"{DEFAULT_WORKFLOWS_DIR})", file=sys.stderr)
+            return 1
+    total_errors = 0
+    for name, p in targets:
+        errs, _ = _validate_one(name, p)
+        total_errors += errs
+    return 1 if total_errors else 0
+
+
+def cmd_check(args):
+    """Detect drift between generated SKILL.md and what would be generated now.
+    With --workflow NAME|PATH checks one; otherwise checks all."""
+    if args.workflow:
+        try:
+            name, workflow_path = resolve_workflow(args.workflow)
+        except FileNotFoundError as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 1
+        targets = [(name, workflow_path)]
+    else:
+        targets = discover_workflows()
+        if not targets:
+            print("❌ No workflows found", file=sys.stderr)
+            return 1
+    any_drift = False
+    for name, workflow_path in targets:
+        with open(workflow_path) as f:
+            wf = yaml.safe_load(f)
+        skill_name = (wf.get("skill") or {}).get("name", name)
+        skill_path = Path(args.skill) if (args.skill and len(targets) == 1) else (
+            workflow_output_paths(skill_name)["skill"]
+        )
+        drift = check_drift(workflow_path, skill_path)
+        if drift:
+            any_drift = True
+            for d in drift:
+                print(f"[{name}] {d}", file=sys.stderr)
+            print(f"❌ [{name}] Drift detected. Run: bb-workflow generate "
+                  f"--workflow {name}", file=sys.stderr)
+        else:
+            print(f"✅ [{name}] no drift")
+    return 1 if any_drift else 0
+
+
+def build_workflow_selector_html(all_workflows: list, current_name: str) -> str:
+    """Top-of-page strip listing every workflow as a tab; current is active."""
+    if not all_workflows:
+        return ""
+    parts = []
+    for name, _ in all_workflows:
+        active = " active" if name == current_name else ""
+        parts.append(
+            f'<a class="wf-tab{active}" href="{_h_escape(name)}.html">'
+            f'{_h_escape(name)}</a>'
+        )
+    parts.append('<a class="wf-tab wf-index" href="index.html">Index</a>')
+    return "".join(parts)
+
+
+def build_details_panel_html(workflow: dict) -> str:
+    """HTML content for the 'Details' tab: skill desc + stats + groups + agents."""
+    sk = workflow.get("skill") or {}
+    title = sk.get("title") or f"/{sk.get('name','')} — {sk.get('name','')}"
+    desc = (sk.get("description") or "").strip()
+    phases = workflow.get("phases") or []
+    agents_used = sorted({
+        inv["agent"]
+        for phase in phases
+        for inv in phase.get("invocations") or []
+    })
+    on_demand = workflow.get("on_demand_agents") or []
+    groups = list((workflow.get("groups") or {}).keys())
+
+    def chip_list(items):
+        return "".join(f"<span>{_h_escape(i)}</span>" for i in items) or "<em>—</em>"
+
+    return f"""
+    <div class="details-pane">
+      <h2>{_h_escape(title)}</h2>
+      <div class="desc">{_h_escape(desc)}</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Phases</div>
+          <div class="stat-value">{len(phases)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Agents (DAG)</div>
+          <div class="stat-value">{len(agents_used)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">On-demand</div>
+          <div class="stat-value">{len(on_demand)}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Groupes</div>
+          <div class="stat-value">{len(groups)}</div>
+        </div>
+      </div>
+      <div class="stat" style="margin-bottom:12px">
+        <div class="stat-label">Groupes</div>
+        <div class="group-list">{chip_list(groups)}</div>
+      </div>
+      <div class="stat" style="margin-bottom:12px">
+        <div class="stat-label">Agents utilisés dans le DAG</div>
+        <div class="agent-list">{chip_list(agents_used)}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Agents on-demand</div>
+        <div class="agent-list">{chip_list(od["agent"] for od in on_demand)}</div>
+      </div>
+      <p class="meta-line">Source : <code>claude-setup/workflows/{_h_escape(sk.get('name',''))}.yaml</code> · généré par <code>bb-workflow generate</code></p>
+    </div>
+    """
+
+
+def _generate_one(name: str, workflow_path: Path,
+                  output_skill_override: Path = None,
+                  all_workflows: list = None) -> None:
+    """Generate all artifacts for a single workflow."""
+    with open(workflow_path) as f:
+        workflow = yaml.safe_load(f)
+    skill_name = (workflow.get("skill") or {}).get("name", name)
+    paths = workflow_output_paths(skill_name)
+    output_skill = output_skill_override or paths["skill"]
+
+    print(f"[{skill_name}] SKILL.md → {output_skill}")
+    generate_skill_md(workflow_path, output_skill)
+
+    print(f"[{skill_name}] cartography-texte.md → {paths['carto_texte']}")
+    generate_cartography_texte(workflow_path, paths["carto_texte"])
+
+    print(f"[{skill_name}] cartography.html (Workflow + Dataflow + On-demand) → {paths['carto_html']}")
+    generate_mermaid_cartography(workflow_path, paths["carto_mermaid"])
+    generate_mermaid_dataflow(workflow_path, paths["dataflow_mermaid"], mode="internal")
+    generate_mermaid_on_demand(workflow_path, paths["on_demand_mermaid"])
+
+    phase_desc = build_phase_descriptions(workflow)
+    phase_agents = build_phase_agent_nodes(workflow)
+    workflow_tooltips = {pid: d for pid, d in phase_desc.items() if d}
+    agent_docs = build_agent_docs(workflow)
+    phase_agents_map = build_phase_agents_map(workflow)
+    phase_meta = build_phase_meta(workflow)
+    on_demand_data = build_on_demand_drawer_data(workflow)
+    dataflow_tooltips = {
+        pa["node_id"]: phase_desc.get(pa["phase_id"], "")
+        for pa in phase_agents
+        if phase_desc.get(pa["phase_id"])
+    }
+    dataflow_graphs = {
+        "compact": build_dataflow_fragments(workflow, mode="internal"),
+        "complet": build_dataflow_fragments(workflow, mode="all"),
+    }
+
+    selector_html = build_workflow_selector_html(all_workflows or [], skill_name)
+    details_html = build_details_panel_html(workflow)
+
+    wrap_mermaid_in_html(
+        [
+            {
+                "slug": "details",
+                "label": "Details",
+                "content": "",
+                "content_type": "html",
+                "content_html": details_html,
+                "tooltips": {},
+                "legend": [],
+            },
+            {
+                "slug": "workflow",
+                "label": "Workflow",
+                "content": paths["carto_mermaid"].read_text(),
+                "tooltips": workflow_tooltips,
+                "legend": build_legend(workflow, kind="workflow"),
+                "agent_docs": agent_docs,
+                "phase_agents": phase_agents_map,
+                "phase_meta": phase_meta,
+            },
+            {
+                "slug": "dataflow",
+                "label": "Dataflow",
+                "content": paths["dataflow_mermaid"].read_text(),
+                "tooltips": dataflow_tooltips,
+                "legend": build_legend(workflow, kind="dataflow"),
+                "graphs": dataflow_graphs,
+                "default_mode": "compact",
+            },
+            {
+                "slug": "on-demand",
+                "label": "On-demand",
+                "content": paths["on_demand_mermaid"].read_text(),
+                "tooltips": on_demand_data["tooltips"],
+                "legend": [{
+                    "label": "Agent on-demand",
+                    "color": "#1e293b",
+                    "description": "Agent appelable manuellement ou via skill/hook (hors DAG principal). Click pour ouvrir la doc.",
+                }],
+                "agent_docs": agent_docs,
+                "phase_agents": on_demand_data["phase_agents"],
+                "phase_meta": on_demand_data["phase_meta"],
+            },
+        ],
+        paths["carto_html"],
+        skill=workflow.get("skill") or {},
+        workflow_selector_html=selector_html,
+    )
+
+    paths["carto_mermaid"].unlink(missing_ok=True)
+    paths["dataflow_mermaid"].unlink(missing_ok=True)
+    paths["on_demand_mermaid"].unlink(missing_ok=True)
+
+
+def generate_workflows_index(workflows: list, output_path: Path) -> None:
+    """Build docs/architecture-cartography/index.html listing every workflow
+    with its skill metadata + counts + link to its individual cartography."""
+    cards_html = []
+    for name, workflow_path in workflows:
+        with open(workflow_path) as f:
+            wf = yaml.safe_load(f)
+        sk = wf.get("skill") or {}
+        skill_name = sk.get("name", name)
+        title = sk.get("title") or f"/{skill_name} — {skill_name}"
+        desc = (sk.get("description") or "").strip()
+        phase_count = len(wf.get("phases") or [])
+        agent_count = len({
+            inv["agent"]
+            for phase in wf.get("phases") or []
+            for inv in phase.get("invocations") or []
+        })
+        on_demand_count = len(wf.get("on_demand_agents") or [])
+        group_chips = " ".join(
+            f'<span class="chip">{_h_escape(g)}</span>'
+            for g in (wf.get("groups") or {}).keys()
+        )
+        cards_html.append(f"""
+        <a class="card" href="{_h_escape(skill_name)}.html">
+          <div class="card-title">{_h_escape(title)}</div>
+          <div class="card-desc">{_h_escape(desc)}</div>
+          <div class="card-meta">
+            <span class="chip">{phase_count} phase(s)</span>
+            <span class="chip">{agent_count} agent(s) DAG</span>
+            <span class="chip">{on_demand_count} on-demand</span>
+            {group_chips}
+          </div>
+        </a>""")
+
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>awok — workflows</title>
+<style>
+:root {{
+  --bg: #0b1120; --panel: #0f172a; --border: #243049;
+  --txt: #e2e8f0; --dim: #94a3b8; --accent: #38bdf8;
+  --accent-soft: rgba(56,189,248,0.15);
+}}
+* {{ box-sizing: border-box; }}
+body {{
+  margin: 0; padding: 32px;
+  background: var(--bg); color: var(--txt);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+h1 {{ margin: 0 0 4px; font-size: 22px; font-weight: 600; }}
+.subtitle {{ color: var(--dim); margin: 0 0 28px; font-size: 13px; }}
+.subtitle code {{ background: #1e293b; padding: 1px 5px; border-radius: 4px; }}
+.grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 18px;
+}}
+.card {{
+  display: block; text-decoration: none;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 18px 20px;
+  transition: border-color 0.15s, transform 0.15s;
+  color: var(--txt);
+}}
+.card:hover {{
+  border-color: var(--accent); transform: translateY(-1px);
+}}
+.card-title {{
+  font-size: 15px; font-weight: 600; color: var(--accent);
+  margin-bottom: 8px;
+}}
+.card-desc {{
+  font-size: 13px; color: var(--txt); margin-bottom: 14px;
+  white-space: pre-line; min-height: 60px;
+}}
+.card-meta {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+.chip {{
+  background: #1e293b; color: var(--dim);
+  font-size: 11px; padding: 2px 8px; border-radius: 4px;
+}}
+footer {{
+  margin-top: 32px; color: var(--dim); font-size: 12px;
+}}
+footer code {{ background: #1e293b; padding: 1px 5px; border-radius: 4px; }}
+</style>
+</head>
+<body>
+<h1>awok — workflows ({len(workflows)})</h1>
+<p class="subtitle">Cliquez un workflow pour ouvrir sa cartographie · généré par <code>bb-workflow generate</code></p>
+<div class="grid">
+{"".join(cards_html)}
+</div>
+<footer>
+  Pour ajouter un workflow : créer <code>claude-setup/workflows/&lt;name&gt;.yaml</code>
+  puis <code>bb-workflow generate</code>.
+</footer>
+</body>
+</html>
+"""
+    output_path.write_text(html, encoding="utf-8")
+
+
+def _h_escape(s: str) -> str:
+    if s is None:
+        return ""
+    return (s.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def cmd_generate(args):
+    """Generate SKILL.md + cartography for one or all workflows.
+
+    --workflow NAME|PATH targets one; otherwise iterates discover_workflows().
+    --output-skill is only honored when a single workflow is targeted.
+    """
+    if args.workflow:
+        try:
+            name, workflow_path = resolve_workflow(args.workflow)
+        except FileNotFoundError as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 1
+        targets = [(name, workflow_path)]
+    else:
+        targets = discover_workflows()
+        if not targets:
+            print("❌ No workflows found (looked in "
+                  f"{DEFAULT_WORKFLOWS_DIR})", file=sys.stderr)
+            return 1
+
+    override = Path(args.output_skill) if args.output_skill else None
+    if override and len(targets) > 1:
+        print("❌ --output-skill requires --workflow (single workflow only)",
+              file=sys.stderr)
+        return 1
+
+    # Legacy dataflow.html cleanup (single-diagram artifact pre-multi-tab)
+    legacy_dataflow_html = REPO_ROOT_GUESS / "docs" / "architecture-cartography" / "dataflow.html"
+    if legacy_dataflow_html.exists():
+        legacy_dataflow_html.unlink()
+        print(f"(removed legacy {legacy_dataflow_html.name})")
+
+    # Discover the full set once so each cartography can render the cross-nav
+    # workflow selector.
+    all_workflows = discover_workflows()
+    for name, workflow_path in targets:
+        _generate_one(name, workflow_path,
+                      output_skill_override=override,
+                      all_workflows=all_workflows)
+
+    # Always regenerate the index from ALL discovered workflows (not just the
+    # ones generated in this run) so it stays consistent.
+    index_path = REPO_ROOT_GUESS / "docs" / "architecture-cartography" / "index.html"
+    generate_workflows_index(all_workflows, index_path)
+    print(f"[index] {index_path} ({len(all_workflows)} workflow(s))")
+
+    print(f"✅ {len(targets)} workflow(s) generated.")
+    return 0
+
+
+def cmd_migrate_from_skill(args):
+    """Prepare inputs for a Claude sub-agent to migrate SKILL.md to workflow.yaml + snippets."""
+    skill_path = Path(args.skill) if args.skill else (
+        REPO_ROOT_GUESS / "claude-setup" / "skills" / "main" / "SKILL.md"
+    )
+    output_dir = Path(args.output_dir) if args.output_dir else (
+        REPO_ROOT_GUESS / "claude-setup" / "workflow"
+    )
+
+    if not skill_path.exists():
+        print(f"❌ SKILL.md not found: {skill_path}", file=sys.stderr)
+        return 1
+
+    skill_content = skill_path.read_text(encoding="utf-8")
+    lines = skill_content.count("\n")
+
+    print(f"📄 Source: {skill_path} ({lines} lines)")
+    print(f"📁 Output: {output_dir}")
+    print()
+    print("Run this prompt with a Claude sub-agent (Task tool, model=opus):")
+    print()
+    print("=" * 70)
+    print(f"""
+You are migrating a Claude Code SKILL.md to a YAML workflow + markdown snippets.
+
+INPUT: {skill_path} ({lines} lines)
+OUTPUT TARGETS:
+  - {output_dir}/workflow.yaml (DAG structure, NOT prompts)
+  - {output_dir}/templates/invocations/<agent>.md (one per agent invocation)
+  - {output_dir}/manual/<section>.md (sections to preserve as-is: Manifeste,
+    Notes importantes, Multi-cycle)
+
+SCHEMA REFERENCE: {output_dir}/workflow.schema.json
+EXISTING WORKFLOW: {output_dir}/workflow.yaml (extend, don't overwrite)
+
+INSTRUCTIONS:
+1. Parse SKILL.md to identify phases (sections that match "Phase N", "T-N", or "BRAINSTORMING").
+2. For each phase, extract:
+   - id (T0a, T2, etc.), name, group (infer from purpose), type (agent/script/external/main_agent)
+   - depends_on (sequence in SKILL.md)
+   - parallel_with (explicit "(parallèle)" mentions)
+   - invocations: agent name, model, background flag, inputs/outputs (from "Inputs:" / "Output:" prose)
+3. For each invocation, create a snippet at templates/invocations/<agent>.md with:
+   - frontmatter: agent, generated: false
+   - body: the prompt from SKILL.md verbatim (the text after "prompt: |"), but
+     substitute Inputs/Output prose with {{{{ inputs_table }}}} / {{{{ outputs_table }}}}
+4. Preserve as manual_sections the parts that aren't generative (Manifeste Management,
+   Notes importantes, 11b. Multi-cycle).
+5. After writing, run: bb-workflow validate
+6. Then: bb-workflow generate --output-skill /tmp/SKILL-regen.md
+7. Compare /tmp/SKILL-regen.md with the original. Iterate until semantic equivalence.
+
+CONSTRAINTS:
+- Don't paraphrase prompts. Copy them verbatim.
+- Don't merge invocations of different agents.
+- If unsure about a field, leave it out (better partial than wrong).
+- Brainstormings have their own block; don't model them as phases.
+""")
+    print("=" * 70)
+    return 0
+
+
+def rename_agent(old: str, new: str,
+                 workflow_path: Path = None,
+                 snippets_dir: Path = None,
+                 agents_dir: Path = None) -> dict:
+    """Rename an agent across every workflow YAML, snippets, and agents/.
+
+    When workflow_path is None, the rename is applied to every workflow
+    discovered under workflows/. Passing an explicit path scopes the rename
+    to that single workflow (used by tests).
+    """
+    snippets_dir = snippets_dir or (REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates" / "invocations")
+    agents_dir = agents_dir or (REPO_ROOT_GUESS / "claude-setup" / "agents")
+
+    if workflow_path is None:
+        workflow_paths = [p for _, p in discover_workflows()]
+    else:
+        workflow_paths = [Path(workflow_path)]
+
+    changes = {"yaml": 0, "snippets": 0, "agents": 0}
+
+    # 1. Update each workflow YAML — count occurrences before replace
+    yaml_occurrences = 0
+    for wp in workflow_paths:
+        text = wp.read_text(encoding="utf-8")
+        n = text.count(f"agent: {old}")
+        yaml_occurrences += n
+        new_text = text.replace(f"agent: {old}", f"agent: {new}")
+        if new_text != text:
+            wp.write_text(new_text, encoding="utf-8")
+    changes["yaml"] = yaml_occurrences
+
+    # 2. Rename snippet file + update its frontmatter
+    old_snippet = Path(snippets_dir) / f"{old}.md"
+    new_snippet = Path(snippets_dir) / f"{new}.md"
+    if old_snippet.exists():
+        content = old_snippet.read_text(encoding="utf-8")
+        content = content.replace(f"agent: {old}", f"agent: {new}")
+        new_snippet.write_text(content, encoding="utf-8")
+        old_snippet.unlink()
+        changes["snippets"] = 1
+
+    # 3. Rename agent file + update its frontmatter name
+    old_agent_file = Path(agents_dir) / f"{old}.md"
+    new_agent_file = Path(agents_dir) / f"{new}.md"
+    if old_agent_file.exists():
+        content = old_agent_file.read_text(encoding="utf-8")
+        content = content.replace(f"name: {old}", f"name: {new}")
+        new_agent_file.write_text(content, encoding="utf-8")
+        old_agent_file.unlink()
+        changes["agents"] = 1
+
+    return changes
+
+
+def cmd_rename_agent(args):
+    changes = rename_agent(args.old, args.new)
+    print(f"Renamed '{args.old}' -> '{args.new}':")
+    print(f"   YAML invocations updated: {changes['yaml']}")
+    print(f"   Snippet renamed: {changes['snippets']}")
+    print(f"   Agent file renamed: {changes['agents']}")
+    print("\nRun 'bb-workflow generate' to apply.")
+    return 0
+
+
+def cmd_assist(args):
+    """Prepare prompt for sub-agent to help with workflow modifications."""
+    change_desc = args.change_desc
+    workflow_name = getattr(args, "workflow", None)
+    if not workflow_name:
+        all_wf = discover_workflows()
+        workflow_name = all_wf[0][0] if all_wf else "demo"
+    try:
+        _, workflow_path = resolve_workflow(workflow_name)
+    except FileNotFoundError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        return 1
+    snippets_dir = REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates" / "invocations"
+    agents_dir = REPO_ROOT_GUESS / "claude-setup" / "agents"
+    available_workflows = [name for name, _ in discover_workflows()]
+
+    print(f"📝 Change requested on workflow '{workflow_name}': {change_desc}")
+    print()
+    print("Run this prompt with a Claude sub-agent (Task tool, model=opus):")
+    print()
+    print("=" * 70)
+    print(f"""
+You are assisting with a modification on the awok workflow
+**{workflow_name}**.
+
+CONTEXT:
+- Workflow YAML (edit this): {workflow_path}
+- Snippets dir (SHARED across all workflows): {snippets_dir}
+- Agents dir (SHARED): {agents_dir}
+- Schema (SHARED): {DEFAULT_SCHEMA_PATH}
+- Other workflows available for `type: workflow_call` chaining: {', '.join(w for w in available_workflows if w != workflow_name) or '(none)'}
+- Doc: docs/dev/bb-workflow.md
+
+WORKFLOW STRUCTURE TO KEEP IN MIND:
+- `skill: {{name, description, title}}` is REQUIRED at top of YAML.
+- `groups: {{ <gname>: {{description, risk}} }}` declares the color buckets.
+- `phases:` is the DAG. Each phase has:
+    id (^[A-Z][A-Z0-9-]*$), name, group, type
+    type ∈ {{agent (default), script, external, main_agent, workflow_call}}
+    depends_on, parallel_with, triggers (optional)
+    invocations: [{{agent, model, description, inputs, outputs, ...}}]
+    For type=script: `cmd: |` block.
+    For type=workflow_call: `workflow: <other-workflow-name>` (≠ self).
+- `on_demand_agents:` (optional) lists agents callable hors-DAG with
+   {{agent, description, model, triggered_by[], when}}.
+- `manual_sections:` (optional) injects raw .md fragments into the generated SKILL.
+
+CHANGE REQUESTED: {change_desc}
+
+INSTRUCTIONS:
+1. Read the workflow YAML at {workflow_path} and skim related snippets in
+   {snippets_dir} (one file per referenced agent). Cross-check existing agent
+   files in {agents_dir} to verify agent names.
+2. Propose the YAML edits + any new snippet files needed.
+3. For each NEW agent invocation, create a snippet at
+   {snippets_dir}/<agent>.md with this frontmatter style:
+
+     ---
+     agent: <name>
+     generated: false        # editable by hand, generator won't overwrite
+     ---
+
+     **{{{{ agent }}}}** [{{{{ model }}}}]{{% if background %}} (bg){{% endif %}} · One-line role.
+     {{{{ inputs_outputs_compact }}}}
+
+     **Task** : 1-3 sentences describing what the agent does.
+
+   Available placeholders (Jinja2):
+     {{{{ inputs_outputs_compact }}}}   ← compact "in: a, b · out: c" (preferred)
+     {{{{ inputs_table }}}}              ← verbose markdown table of inputs
+     {{{{ outputs_table }}}}             ← verbose markdown table of outputs
+     {{{{ agent }}}}, {{{{ model }}}}, {{{{ background }}}}, etc.
+
+4. Run: bb-workflow validate --workflow {workflow_name}    (must pass)
+5. Run: bb-workflow generate --workflow {workflow_name}    (must succeed)
+6. Show a diff summary of what changed (git diff on
+   {workflow_path}, the SKILL.md, and any new snippets).
+7. DO NOT commit. The hunter reviews and commits.
+
+CONSTRAINTS:
+- Keep `generated: false` in snippet frontmatter (preserve manual edits).
+- Match agent names to existing files in {agents_dir} — if an agent doesn't
+  exist yet, flag it explicitly to the hunter (creating an agent is a
+  separate task, not part of `assist`).
+- Preserve idempotency: re-running `bb-workflow generate` must produce
+  identical output.
+- If the change naturally splits into "needs a new agent" + "needs a new
+  workflow", STOP and propose the structural decision before editing.
+""")
+    print("=" * 70)
+    return 0
+
+
+def cmd_new_phase(args):
+    """Interactive wizard for adding a new phase. Prepares prompt for a sub-agent."""
+    workflow_name = getattr(args, "workflow", None)
+    if not workflow_name:
+        all_wf = discover_workflows()
+        workflow_name = all_wf[0][0] if all_wf else "demo"
+    try:
+        _, workflow_path = resolve_workflow(workflow_name)
+    except FileNotFoundError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        return 1
+    available = [name for name, _ in discover_workflows()]
+    print(f"New phase wizard for workflow: {workflow_name}")
+    print("Run this prompt with a Claude sub-agent:")
+    print()
+    print("=" * 70)
+    print(f"""
+You are helping a hunter add a new phase to the awok workflow
+**{workflow_name}** (file: {workflow_path}).
+
+WORKFLOWS DIR: {DEFAULT_WORKFLOWS_DIR}
+SCHEMA: {DEFAULT_SCHEMA_PATH}
+Available workflows for workflow_call targets: {', '.join(available)}
+
+INTERVIEW the hunter to fill the following:
+1. Phase id (must match ^[A-Z][A-Z0-9-]*$, e.g., T7, TR-x)
+2. Human-readable name
+3. Group (must be declared in the target workflow's `groups:` section)
+4. Type:
+   - agent: one or more agent invocations (default)
+   - script: a shell command (cmd: |)
+   - external: tool run outside the pipeline; only outputs are declared
+   - main_agent: orchestration step done by Claude itself (no sub-agent)
+   - workflow_call: dispatch another workflow as a skill
+5. depends_on (list of existing phase ids in this workflow, or none)
+6. parallel_with (optional)
+7. Triggers? (event-based, optional)
+8. If type=agent: which agents, with what inputs/outputs
+   If type=workflow_call: which target workflow (the `workflow:` field).
+                          Must be one of: {', '.join(available)} (≠ self).
+
+After collecting the answers:
+1. Insert the new phase block in {workflow_path} at the right position
+   (after its depends_on).
+2. For each NEW agent invocation: create a snippet at
+   claude-setup/workflow/templates/invocations/<agent>.md (frontmatter + body
+   with placeholders for inputs_outputs_compact).
+3. Run: bb-workflow validate --workflow {workflow_name}
+4. Run: bb-workflow generate --workflow {workflow_name}
+5. Show the hunter what changed (git diff).
+6. DO NOT commit. Hunter reviews.
+""")
+    print("=" * 70)
+    return 0
+
+
+def _read_static(templates_dir: Path) -> str:
+    """Assemble the editor HTML with CSS inlined. JS is served as ES modules
+    from /editor/<name>.js so editor.js and the bun tests share one source."""
+    base = templates_dir / "webedit"
+    html = (base / "editor.html").read_text(encoding="utf-8")
+    css = (base / "editor.css").read_text(encoding="utf-8")
+    return html.replace("/*__EDITOR_CSS__*/", css)
+
+
+_EDITOR_JS_RE = re.compile(r"^[a-z][a-z0-9-]*\.js$")
+
+
+def _editor_js_bytes(templates_dir: Path, filename: str):
+    """Return (bytes, ok) for a webedit JS module; ok=False if name unsafe/absent."""
+    if not _EDITOR_JS_RE.match(filename):
+        return (b"", False)
+    fp = templates_dir / "webedit" / filename
+    if not fp.is_file():
+        return (b"", False)
+    return (fp.read_bytes(), True)
+
+
+_MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
+
+
+def _mermaid_lib_bytes() -> bytes:
+    """Return the mermaid.min.js bytes, caching a download under /tmp.
+
+    Mirrors the cartography generator's vendoring so the editor can render
+    diagrams client-side without bundling a 3 MB file into the repo.
+    """
+    cache = Path(tempfile.gettempdir()) / "bb-workflow-mermaid.min.js"
+    if not cache.exists():
+        import urllib.request
+        urllib.request.urlretrieve(_MERMAID_CDN, cache)
+    return cache.read_bytes()
+
+
+def make_edit_handler(workflows_dir: Path, agents_dir: Path,
+                      templates_dir: Path):
+    """Build a request handler class bound to the given dirs."""
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):  # silence per-request logging
+            pass
+
+        def _json(self, code, obj):
+            body = json.dumps(obj).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _html(self, code, text):
+            body = text.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _body(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n) or b"{}")
+
+        def do_GET(self):
+            self._guard(self._route_get)
+
+        def do_POST(self):
+            self._guard(self._route_post)
+
+        def do_PUT(self):
+            self._guard(self._route_put)
+
+        def _guard(self, route):
+            try:
+                route()
+            except Exception as exc:  # local dev tool: surface as JSON 500
+                self._json(500, {"error": str(exc)})
+
+        def _js(self, code, body_bytes):
+            self.send_response(code)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+
+        def _route_get(self):
+            p = urllib.parse.urlparse(self.path).path
+            if p == "/":
+                return self._html(200, _read_static(templates_dir))
+            if p == "/editor/mermaid.min.js":
+                return self._js(200, _mermaid_lib_bytes())
+            if p.startswith("/editor/") and p.endswith(".js"):
+                data, ok = _editor_js_bytes(templates_dir, p.rsplit("/", 1)[-1])
+                return self._js(200, data) if ok else self._json(404, {"error": "not found"})
+            if p == "/api/workflows":
+                return self._json(200, [n for n, _ in
+                                        discover_workflows(workflows_dir)])
+            if p == "/api/agents":
+                return self._json(200, sorted(_all_agent_names(agents_dir)))
+            if p.startswith("/api/agent/"):
+                agent = p.rsplit("/", 1)[-1]
+                if not is_valid_slug(agent):
+                    return self._json(400, {"error": "bad name"})
+                fp = agents_dir / f"{agent}.md"
+                if not fp.exists():
+                    return self._json(404, {"error": "not found"})
+                fm, body = split_agent_md(fp.read_text())
+                return self._json(200, {"frontmatter": fm, "body": body})
+            if p.startswith("/api/workflow/"):
+                name = p.rsplit("/", 1)[-1]
+                if not is_valid_slug(name):
+                    return self._json(400, {"error": "bad name"})
+                fp = workflows_dir / f"{name}.yaml"
+                if not fp.exists():
+                    return self._json(404, {"error": "not found"})
+                model = yaml.safe_load(fp.read_text())
+                return self._json(200, {"model": model,
+                                        "levels": compute_levels(model)})
+            if p.startswith("/api/invocation/"):
+                agent = p.rsplit("/", 1)[-1]
+                if not is_valid_slug(agent):
+                    return self._json(400, {"error": "bad name"})
+                fp = (templates_dir / "invocations" / f"{agent}.md")
+                text = fp.read_text() if fp.exists() else ""
+                return self._json(200, {"prompt": text})
+            return self._json(404, {"error": "unknown route"})
+
+        def _route_post(self):
+            p = urllib.parse.urlparse(self.path).path
+            data = self._body()
+            if p == "/api/view":
+                levels = compute_levels(data)
+                return self._json(200, {
+                    "levels": levels,
+                    "columns": derive_columns(data, levels),
+                    "parallel_with": derive_parallel_with(data, levels),
+                    "edges": build_edges(data),
+                    "errors": validate_schema(data),
+                })
+            if p == "/api/preview":
+                try:
+                    dataflow = render_dataflow_mermaid(data, templates_dir=templates_dir)
+                except Exception:
+                    dataflow = ""  # incomplete model mid-edit: skip dataflow
+                return self._json(200, {
+                    "mermaid": render_cartography_mermaid(data, templates_dir),
+                    "dataflow": dataflow,
+                })
+            if p == "/api/workflow":
+                name = data.get("name", "")
+                if not is_valid_slug(name):
+                    return self._json(400, {"errors": ["bad name"]})
+                src = data.get("from")
+                if src and is_valid_slug(src) and (workflows_dir / f"{src}.yaml").exists():
+                    base = yaml.safe_load((workflows_dir / f"{src}.yaml").read_text())
+                    model = clone_workflow(base, name)
+                else:
+                    model = blank_workflow(name)
+                errs = save_workflow(name, model, workflows_dir, agents_dir)
+                return self._json(200 if not errs else 422,
+                                  {"errors": errs, "name": name})
+            if p == "/api/agent":
+                errs = create_agent(
+                    data.get("name", ""), data.get("description", ""),
+                    data.get("tools", ""), data.get("model", "inherit"),
+                    data.get("prompt", ""), agents_dir,
+                    templates_dir / "invocations")
+                return self._json(200 if not errs else 400, {"errors": errs})
+            return self._json(404, {"error": "unknown route"})
+
+        def _route_put(self):
+            p = urllib.parse.urlparse(self.path).path
+            if p.startswith("/api/workflow/"):
+                name = p.rsplit("/", 1)[-1]
+                if not is_valid_slug(name):
+                    return self._json(400, {"errors": ["bad name"]})
+                data = self._body()
+                errs = save_workflow(name, data.get("model", {}),
+                                     workflows_dir, agents_dir)
+                return self._json(200 if not errs else 422, {"errors": errs})
+            if p.startswith("/api/invocation/"):
+                agent = p.rsplit("/", 1)[-1]
+                if not is_valid_slug(agent):
+                    return self._json(400, {"error": "bad name"})
+                (templates_dir / "invocations" / f"{agent}.md").write_text(
+                    self._body().get("prompt", ""), encoding="utf-8")
+                return self._json(200, {"ok": True})
+            if p.startswith("/api/agent/"):
+                agent = p.rsplit("/", 1)[-1]
+                if not is_valid_slug(agent):
+                    return self._json(400, {"error": "bad name"})
+                fp = agents_dir / f"{agent}.md"
+                if not fp.exists():
+                    return self._json(404, {"error": "not found"})
+                fm, _ = split_agent_md(fp.read_text())
+                fp.write_text(join_agent_md(fm, self._body().get("body", "")),
+                              encoding="utf-8")
+                return self._json(200, {"ok": True})
+            return self._json(404, {"error": "unknown route"})
+
+    return _Handler
+
+
+def cmd_edit(args):
+    """Serve the local web editor."""
+    workflows_dir = DEFAULT_WORKFLOWS_DIR
+    agents_dir = DEFAULT_AGENTS_DIR
+    templates_dir = REPO_ROOT_GUESS / "claude-setup" / "workflow" / "templates"
+    handler = make_edit_handler(workflows_dir, agents_dir, templates_dir)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    host, port = srv.server_address
+    url = f"http://{host}:{port}/"
+    open_url = url
+    if args.workflow and is_valid_slug(args.workflow):
+        open_url += f"?workflow={args.workflow}"
+    print(f"bb-workflow editor on {url}  (Ctrl-C pour arrêter)")
+    # Prefetch mermaid in the background so the first Dataflow render is instant.
+    # ThreadingHTTPServer means this never blocks request serving; offline just
+    # leaves the Dataflow tab degrading to text.
+    def _prefetch():
+        try:
+            _mermaid_lib_bytes()
+        except Exception:
+            pass
+    threading.Thread(target=_prefetch, daemon=True).start()
+    if not args.no_browser:
+        try:
+            webbrowser.open(open_url)
+        except Exception:
+            pass
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print("\narrêt.")
+    finally:
+        srv.server_close()
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="awok",
+        description="awok — Agentic Workflow Orchestration Kompiler")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_val = sub.add_parser("validate", help="Validate workflow.yaml")
+    p_val.add_argument("workflow", nargs="?", default=None)
+    p_val.set_defaults(func=cmd_validate)
+
+    p_gen = sub.add_parser("generate", help="Generate SKILL.md + cartography")
+    p_gen.add_argument("--workflow", default=None)
+    p_gen.add_argument("--output-skill", default=None)
+    p_gen.set_defaults(func=cmd_generate)
+
+    p_check = sub.add_parser("check", help="Detect drift between SKILL.md and YAML")
+    p_check.add_argument("--workflow", default=None)
+    p_check.add_argument("--skill", default=None)
+    p_check.set_defaults(func=cmd_check)
+
+    p_mig = sub.add_parser("migrate-from-skill", help="Prepare migration of SKILL.md to YAML+snippets")
+    p_mig.add_argument("--skill", default=None)
+    p_mig.add_argument("--output-dir", default=None)
+    p_mig.set_defaults(func=cmd_migrate_from_skill)
+
+    p_ren = sub.add_parser("rename-agent", help="Rename an agent across YAML/snippets/agents")
+    p_ren.add_argument("old")
+    p_ren.add_argument("new")
+    p_ren.set_defaults(func=cmd_rename_agent)
+
+    p_assist = sub.add_parser("assist", help="Get help from a sub-agent for workflow modifications")
+    p_assist.add_argument("change_desc", help="Description of the change to make")
+    p_assist.add_argument("--workflow", default=None,
+                          help="Workflow name or path (default: main)")
+    p_assist.set_defaults(func=cmd_assist)
+
+    p_new = sub.add_parser("new-phase", help="Interactive wizard for adding a phase")
+    p_new.add_argument("--interactive", action="store_true")
+    p_new.add_argument("--workflow", default=None,
+                       help="Target workflow name or path (default: main)")
+    p_new.set_defaults(func=cmd_new_phase)
+
+    p_edit = sub.add_parser("edit", help="Serve the local web editor")
+    p_edit.add_argument("--workflow", default=None,
+                        help="Workflow to open first (optional)")
+    p_edit.add_argument("--port", type=int, default=0,
+                        help="Port (0 = auto)")
+    p_edit.add_argument("--no-browser", action="store_true")
+    p_edit.set_defaults(func=cmd_edit)
+
+    args = parser.parse_args()
+    sys.exit(args.func(args))
+
+
+if __name__ == "__main__":
+    main()
