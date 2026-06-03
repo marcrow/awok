@@ -10,14 +10,14 @@ description: |
 
 # /onboard — repo cartography
 
-> ⚠️ Ce fichier est **GÉNÉRÉ** depuis `src/workflows/onboard.yaml`.
-> Ne pas éditer à la main. Pour modifier : éditer le YAML puis `bb-workflow generate`.
+> ⚠️ This file is **GENERATED** from `src/workflows/onboard.yaml`.
+> Do not edit by hand. To change it: edit the YAML then run `bb-workflow generate`.
 >
-> Convention implicite : chaque invocation d'agent `<name>` instruit Claude de lire
-> `~/.claude/agents/<name>.md` (ses instructions complètes). Ne pas re-mentionner
-> dans chaque snippet.
+> Implicit convention: each agent invocation `<name>` instructs Claude to read
+> `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
+> every snippet.
 
-Pipeline en 7 phases, organisées en 3 groupes :
+Pipeline of 7 phases, organized into 3 groups:
 `scan` (Cheap initial scan of the target repo), `explore` (Parallel exploration of the codebase), `synthesize` (Synthesis of the deliverables).
 
 
@@ -135,15 +135,15 @@ mkdir -p work/onboard
 
 ---
 
-## Agents on-demand (hors pipeline)
+## On-demand agents (outside the pipeline)
 
-Ces agents sont disponibles mais ne sont **pas** invoqués automatiquement dans le pipeline.
+These agents are available but are **not** invoked automatically in the pipeline.
 
 ### `deep-diver` [sonnet]
 > Zoom into one specific module/subsystem on demand and produce a focused
 > deep-dive note, after the cartography is done.
 
-**Quand l'invoquer** : The user wants to drill into a specific module after reading the architecture doc.
+**When to invoke it**: The user wants to drill into a specific module after reading the architecture doc.
 
 
 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>bb-workflow editor</title>
@@ -8,17 +8,17 @@
 <body>
   <header id="topbar">
     <select id="wf-select"></select>
-    <button id="wf-new">+ nouveau</button>
-    <button id="wf-clone">dupliquer</button>
+    <button id="wf-new">+ new</button>
+    <button id="wf-clone">duplicate</button>
     <button id="add-phase">+ phase</button>
     <button id="add-agent">+ agent</button>
-    <button id="wf-save">💾 enregistrer</button>
+    <button id="wf-save">💾 save</button>
     <span id="status"></span>
   </header>
   <nav id="tabs">
-    <button class="tab active" data-tab="grid">Grille</button>
+    <button class="tab active" data-tab="grid">Grid</button>
     <button class="tab" data-tab="dataflow">Dataflow</button>
-    <button class="tab" data-tab="settings">Réglages</button>
+    <button class="tab" data-tab="settings">Settings</button>
     <button class="tab" data-tab="yaml">YAML</button>
   </nav>
   <main>
@@ -28,7 +28,7 @@
         <div id="grid"></div>
       </div>
     </section>
-    <section id="panel-dataflow" class="panel"><div id="dataflow-render" class="mermaid-out">(ouvre cet onglet pour charger le diagramme)</div></section>
+    <section id="panel-dataflow" class="panel"><div id="dataflow-render" class="mermaid-out">(open this tab to load the diagram)</div></section>
     <section id="panel-settings" class="panel"><div id="settings"></div></section>
     <section id="panel-yaml" class="panel"><pre id="yaml-src"></pre></section>
   </main>

@@ -155,7 +155,7 @@ def test_generate_cartography_texte(bbw_module, tmp_path):
     bbw_module.generate_cartography_texte(workflow_yaml, output)
     content = output.read_text()
     assert "T1" in content and "T4" in content
-    assert "Niveau 0" in content
+    assert "Level 0" in content
     assert "g1" in content
 
 

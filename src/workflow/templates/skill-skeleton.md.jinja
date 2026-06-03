@@ -6,14 +6,14 @@ description: |
 
 # {{ skill.title or ('/' ~ skill.name ~ ' — ' ~ skill.name) }}
 
-> ⚠️ Ce fichier est **GÉNÉRÉ** depuis `src/workflows/{{ skill.name }}.yaml`.
-> Ne pas éditer à la main. Pour modifier : éditer le YAML puis `bb-workflow generate`.
+> ⚠️ This file is **GENERATED** from `src/workflows/{{ skill.name }}.yaml`.
+> Do not edit by hand. To change it: edit the YAML then run `bb-workflow generate`.
 >
-> Convention implicite : chaque invocation d'agent `<name>` instruit Claude de lire
-> `~/.claude/agents/<name>.md` (ses instructions complètes). Ne pas re-mentionner
-> dans chaque snippet.
+> Implicit convention: each agent invocation `<name>` instructs Claude to read
+> `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
+> every snippet.
 
-Pipeline en {{ phase_count }} phases, organisées en {{ group_count }} groupes :
+Pipeline of {{ phase_count }} phases, organized into {{ group_count }} groups:
 {% for gname, g in groups.items() %}`{{ gname }}` ({{ g.description }}){% if not loop.last %}, {% endif %}{% endfor %}.
 
 {% for block in manual_blocks_at_top|default([]) %}
@@ -36,7 +36,7 @@ Pipeline en {{ phase_count }} phases, organisées en {{ group_count }} groupes :
 ```
 
 {% elif phase.type == 'external' %}
-_Outil externe hors pipeline. Outputs attendus :_{% for out in phase.outputs|default([]) %} `{{ out.path }}` ({{ out.kind }}){% if not loop.last %},{% endif %}{% endfor %}.
+_External tool outside the pipeline. Expected outputs:_{% for out in phase.outputs|default([]) %} `{{ out.path }}` ({{ out.kind }}){% if not loop.last %},{% endif %}{% endfor %}.
 
 {% elif phase.type == 'main_agent' %}
 {% if phase.invocations %}
@@ -46,11 +46,11 @@ _Outil externe hors pipeline. Outputs attendus :_{% for out in phase.outputs|def
 {% endif %}
 
 {% elif phase.type == 'workflow_call' %}
-> 🔗 **Cette phase dispatche un autre workflow** : `/{{ phase.workflow }}`.
+> 🔗 **This phase dispatches another workflow**: `/{{ phase.workflow }}`.
 >
-> Lance-le via le **Skill tool** (`skill: {{ phase.workflow }}`). Le workflow cible
-> s'exécute dans le même target/cwd ; ses outputs sont à lire dans son arborescence
-> habituelle. Reviens à `/{{ skill.name }}` une fois `/{{ phase.workflow }}` complet.
+> Launch it via the **Skill tool** (`skill: {{ phase.workflow }}`). The target
+> workflow runs in the same target/cwd; read its outputs from its usual tree.
+> Return to `/{{ skill.name }}` once `/{{ phase.workflow }}` is complete.
 
 {% else %}
 {% for inv_block in phase.rendered_invocations %}
@@ -70,19 +70,19 @@ _Outil externe hors pipeline. Outputs attendus :_{% for out in phase.outputs|def
 {% if on_demand_agents %}
 ---
 
-## Agents on-demand (hors pipeline)
+## On-demand agents (outside the pipeline)
 
-Ces agents sont disponibles mais ne sont **pas** invoqués automatiquement dans le pipeline.
+These agents are available but are **not** invoked automatically in the pipeline.
 {% for od in on_demand_agents %}
 
 ### `{{ od.agent }}`{% if od.model %} [{{ od.model }}]{% endif %}
 
 > {{ od.description|trim|replace('\n', '\n> ') }}
 
-{% if od.when %}**Quand l'invoquer** : {{ od.when }}
+{% if od.when %}**When to invoke it**: {{ od.when }}
 
 {% endif %}
-{% if od.triggered_by %}**Déclenché par** : {{ od.triggered_by|join(', ') }}
+{% if od.triggered_by %}**Triggered by**: {{ od.triggered_by|join(', ') }}
 
 {% endif %}
 {% endfor %}
@@ -91,13 +91,13 @@ Ces agents sont disponibles mais ne sont **pas** invoqués automatiquement dans 
 {% if brainstormings %}
 ---
 
-## Brainstormings du pipeline
+## Pipeline brainstormings
 
 {% for bs in brainstormings %}
-- **`{{ bs.id }}`** ({{ bs.protocol }}, {{ bs.timebox_minutes }} min) — {% if bs.after_phase %}après `{{ bs.after_phase }}`{% endif %}{% if bs.before_phase %}, avant `{{ bs.before_phase }}`{% endif %}.
+- **`{{ bs.id }}`** ({{ bs.protocol }}, {{ bs.timebox_minutes }} min) — {% if bs.after_phase %}after `{{ bs.after_phase }}`{% endif %}{% if bs.before_phase %}, before `{{ bs.before_phase }}`{% endif %}.
 {% endfor %}
 
-Voir le protocole commun ci-dessus.
+See the shared protocol above.
 {% endif %}
 
 {% for block in manual_blocks_at_end|default([]) %}

@@ -50,7 +50,7 @@ export function fieldCheckbox(label, checked, onChange){
 const IO_KINDS = ["json","jsonl","md","text","yaml","dir","sqlite","binary"];
 const IO_FLAGS = ["optional","external","terminal"];
 
-const IO_FLAG_HELP = "optional = le fichier peut manquer · external = produit hors workflow (outil externe…), masque l'alerte « pas de producteur » · terminal = artefact final lu en sortie, masque l'alerte « pas de consommateur »";
+const IO_FLAG_HELP = "optional = the file may be missing · external = produced outside the workflow (external tool…), hides the « no producer » warning · terminal = final artifact read on output, hides the « no consumer » warning";
 
 export function ioRefEditor(label, items, onChange){
   const wrap = document.createElement("div"); wrap.className = "ioref-editor";
@@ -91,7 +91,7 @@ export function ioRefEditor(label, items, onChange){
 
 const TRIGGER_ON = ["file_appears","file_changes","event","db_event","threshold_reached"];
 const TRIGGER_KEYS = ["path","type","source","condition"];
-const TRIGGER_HELP = "Déclenche la phase quand : un fichier apparaît/change (renseigne path), un event survient (type/source), un event de base de données (type), ou un seuil atteint (condition). Laisse vide les champs non pertinents pour le type choisi.";
+const TRIGGER_HELP = "Triggers the phase when: a file appears/changes (fill in path), an event occurs (type/source), a database event happens (type), or a threshold is reached (condition). Leave empty the fields not relevant to the chosen type.";
 
 export function triggerEditor(label, items, onChange){
   const wrap = document.createElement("div"); wrap.className = "trigger-editor";

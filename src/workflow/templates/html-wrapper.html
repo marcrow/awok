@@ -546,8 +546,8 @@ body {
   <div class="tabs" id="tabs"><!--__TABS__--></div>
   <div class="controls">
     <span id="mode-switch" class="mode-switch" style="display:none"></span>
-    <button onclick="resetZoom()" title="Réinitialiser le zoom">Reset</button>
-    <button onclick="toggleFullscreen()" title="Basculer en plein écran">Plein écran</button>
+    <button onclick="resetZoom()" title="Reset zoom">Reset</button>
+    <button onclick="toggleFullscreen()" title="Toggle fullscreen">Fullscreen</button>
   </div>
 </div>
 
@@ -557,10 +557,10 @@ body {
 
 <div class="drawer-backdrop" id="drawer-backdrop"></div>
 <aside class="drawer" id="drawer" aria-hidden="true">
-  <div class="drawer-resizer" id="drawer-resizer" title="Glisser pour redimensionner"></div>
+  <div class="drawer-resizer" id="drawer-resizer" title="Drag to resize"></div>
   <div class="drawer-header">
     <div class="drawer-title" id="drawer-title"></div>
-    <button class="drawer-close" id="drawer-close" title="Fermer (Échap)">✕</button>
+    <button class="drawer-close" id="drawer-close" title="Close (Esc)">✕</button>
   </div>
   <div class="drawer-body" id="drawer-body"></div>
 </aside>
@@ -666,13 +666,13 @@ async function renderTab(tabId, force = false) {
   if (!canvas) return;
   const src = getSourceFor(tabId).trim();
   if (!src) {
-    canvas.innerHTML = '<div class="err">Aucun contenu mermaid.</div>';
+    canvas.innerHTML = '<div class="err">No mermaid content.</div>';
     rendered[tabId] = true;
     return;
   }
   try {
     const { svg } = await mermaid.render(`graph-${tabId}`, src);
-    canvas.innerHTML = svg + '<div class="hint">molette = zoom · drag = pan</div>';
+    canvas.innerHTML = svg + '<div class="hint">scroll = zoom · drag = pan</div>';
     const svgEl = canvas.querySelector('svg');
     if (svgEl && window.svgPanZoom) {
       svgEl.removeAttribute('width');
@@ -697,7 +697,7 @@ async function renderTab(tabId, force = false) {
     renderFocusBanner(tabId);
     rendered[tabId] = true;
   } catch (e) {
-    canvas.innerHTML = '<div class="err">Erreur de rendu :\n\n' + (e && e.message ? e.message : String(e)) + '</div>';
+    canvas.innerHTML = '<div class="err">Render error:\n\n' + (e && e.message ? e.message : String(e)) + '</div>';
     rendered[tabId] = true;
   }
 }
@@ -818,14 +818,14 @@ function openAgentDrawer(tabId, phaseId) {
     if (phaseInfo.description) {
       html += `<div class="md-body">${marked.parse(phaseInfo.description)}</div>`;
     }
-    html += `<p class="drawer-empty">Cette phase est pilotée par le main agent (pas d'agent dédié à documenter).</p>`;
+    html += `<p class="drawer-empty">This phase is driven by the main agent (no dedicated agent to document).</p>`;
   } else {
     phaseAgents.forEach((agent, idx) => {
       const doc = agentDocs[agent];
       if (idx > 0) html += '<hr class="agent-section-sep">';
       html += `<div class="agent-section-name">Agent : ${escapeHtml(agent)}</div>`;
       if (!doc) {
-        html += `<p class="drawer-empty">Documentation introuvable pour cet agent.</p>`;
+        html += `<p class="drawer-empty">Documentation not found for this agent.</p>`;
         return;
       }
       const chips = [];
@@ -910,8 +910,8 @@ function renderFocusBanner(tabId) {
   banner.className = 'focus-banner';
   banner.innerHTML =
     `<span class="focus-icon">⊙</span>
-     <span class="focus-text">Focus : <strong>${escapeHtml(title)}</strong></span>
-     <button class="focus-clear" title="Retour à la vue complète">✕</button>`;
+     <span class="focus-text">Focus: <strong>${escapeHtml(title)}</strong></span>
+     <button class="focus-clear" title="Back to full view">✕</button>`;
   banner.querySelector('.focus-clear').addEventListener('click', () => {
     focusedNode[tabId] = null;
     rerenderTab(tabId);
@@ -929,7 +929,7 @@ function renderLegend(tabId) {
   wrap.className = 'legend';
   wrap.innerHTML =
     `<div class="legend-header">
-      <span>Légende</span>
+      <span>Legend</span>
       <span class="legend-toggle">▾</span>
     </div>
     <div class="legend-body">
@@ -973,7 +973,7 @@ function renderModeSwitch(tabId) {
   }
   if (!activeModes[tabId]) activeModes[tabId] = meta.default_mode || modes[0];
   wrap.style.display = 'inline-flex';
-  wrap.innerHTML = '<span class="mode-switch-label">Vue</span>' +
+  wrap.innerHTML = '<span class="mode-switch-label">View</span>' +
     modes.map(m =>
       `<button class="mode-btn${m === activeModes[tabId] ? ' active' : ''}" data-mode="${escapeHtml(m)}">${escapeHtml(m)}</button>`
     ).join('');

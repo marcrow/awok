@@ -1,9 +1,19 @@
 // Pure DOM builders — no innerHTML of user data, no inline handlers.
-export function makeCard(phase) {
+export function makeCard(phase, color) {
   const el = document.createElement("div");
   el.className = "phase-card";
   el.draggable = true;
   el.dataset.id = phase.id;
+  // Group color: left accent + faint background tint so groups are
+  // distinguishable at a glance in the grid (mirrors the cartography colors).
+  if (color) {
+    el.dataset.group = phase.group || "";
+    el.style.borderLeftColor = color;
+    el.style.borderLeftWidth = "4px";
+    // Opaque tint over the card base color (#121a24) — must stay opaque so the
+    // dependency edges (drawn in the SVG layer behind #grid) don't show through.
+    el.style.background = "color-mix(in srgb, " + color + " 22%, #121a24)";
+  }
   const pid = document.createElement("div");
   pid.className = "pid";
   pid.textContent = phase.id + " ";
