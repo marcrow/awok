@@ -59,7 +59,8 @@
       "type": "object",
       "additionalProperties": { "type": "string" },
       "description": "Carte namespace logique -> chemin de base. Un io_ref avec role 'ns:nom' résout en '<namespaces[ns]>/nom.<ext>'."
-    }
+    },
+    "opportunistic": { "$ref": "#/definitions/opportunistic" }
   },
   "definitions": {
     "phase": {
@@ -81,7 +82,8 @@
         "cmd": { "type": "string" },
         "invocations": { "type": "array", "items": { "$ref": "#/definitions/invocation" } },
         "inputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
-        "outputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } }
+        "outputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
+        "opportunistic": { "$ref": "#/definitions/opportunistic" }
       }
     },
     "invocation": {
@@ -169,6 +171,20 @@
         },
         "when": { "type": "string" }
       }
+    },
+    "opportunistic": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "when": { "type": "string" },
+            "examples": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
     }
   }
 }
