@@ -5,6 +5,7 @@
 ## Overview
 
 7 phases, organized into 3 groups.
+> 🧭 Opportunistic workflow: the orchestrator may launch ad-hoc sub-agents (except phases marked ⛔).
 
 ## Groups
 
@@ -42,6 +43,8 @@ Level 3: O5-GETTING-STARTED
 - Group: `explore`
 - Type: `agent`- Depends on: O0-INVENTORY- Parallel with: O1-STRUCTURE, O3-FLOW- Invocations:
   - `deps-auditor` (sonnet)
+- 🧭 Opportunistic autonomy: A dependency looks old / abandoned.
+
 ### O3-FLOW — Flow tracing
 
 - Group: `explore`
@@ -52,6 +55,8 @@ Level 3: O5-GETTING-STARTED
 - Group: `synthesize`
 - Type: `agent`- Depends on: O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS- Invocations:
   - `architecture-writer` (opus)
+- ⛔ Opportunism locked
+
 ### O5-GETTING-STARTED — Getting-started guide
 
 - Group: `synthesize`

@@ -4030,13 +4030,13 @@ _script_`"]:::scan
 O1-STRUCTURE["`**Structure mapping**
 *O1-STRUCTURE*
 _agent · sonnet_`"]:::explore
-O2-DEPS["`**Dependency audit**
+O2-DEPS["`**🧭 Dependency audit**
 *O2-DEPS*
 _agent · sonnet_`"]:::explore
 O3-FLOW["`**Flow tracing**
 *O3-FLOW*
 _agent · sonnet_`"]:::explore
-O4-ARCHITECTURE["`**Architecture synthesis**
+O4-ARCHITECTURE["`**⛔ Architecture synthesis**
 *O4-ARCHITECTURE*
 _agent · opus_`"]:::synthesize
 O5-GETTING-STARTED["`**Getting-started guide**
@@ -4059,10 +4059,14 @@ _agent · sonnet_`"]:::synthesize
 
     O4-ARCHITECTURE --> O5-GETTING-STARTED
 
+    class O2-DEPS opportunistic
+    class O4-ARCHITECTURE opp_locked
 classDef scan fill:#1e3a5f,stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
 classDef explore fill:#14532d,stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
 classDef synthesize fill:#5c3a00,stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
-classDef workflow_call fill:#312e81,stroke:#a78bfa,stroke-width:2px,color:#ede9fe</div><div id="src-dataflow" style="display:none">flowchart LR
+classDef workflow_call fill:#312e81,stroke:#a78bfa,stroke-width:2px,color:#ede9fe
+classDef opportunistic stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5 4
+classDef opp_locked stroke:#6b7280,stroke-width:1px,color:#9ca3af</div><div id="src-dataflow" style="display:none">flowchart LR
 O0-INVENTORY_repo_inventory["`**Inventory**
 *repo-inventory*`"]:::scan
 OG-GITSTATS_script["`**Git history stats**

@@ -9,6 +9,11 @@ skill:
   title: "/onboard — repo cartography"
 namespaces:
   work: work/onboard
+opportunistic:
+  enabled: true
+  when: When an explorer surfaces a signal the planned reduce won't chase.
+  examples:
+    - "detected framework/CMS → ad-hoc specialised recon"
 groups:
   scan:
     description: Cheap initial scan of the target repo
@@ -76,6 +81,10 @@ phases:
     group: explore
     type: agent
     depends_on: [O0-INVENTORY]
+    opportunistic:
+      when: A dependency looks old / abandoned.
+      examples:
+        - "old dependency → ad-hoc agent that looks up known CVEs"
     invocations:
       - agent: deps-auditor
         model: sonnet
@@ -102,6 +111,7 @@ phases:
     group: synthesize
     type: agent
     depends_on: [O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS]
+    opportunistic: false
     invocations:
       - agent: architecture-writer
         model: opus

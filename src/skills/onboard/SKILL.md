@@ -20,6 +20,22 @@ description: |
 Pipeline of 7 phases, organized into 3 groups:
 `scan` (Cheap initial scan of the target repo), `explore` (Parallel exploration of the codebase), `synthesize` (Synthesis of the deliverables).
 
+---
+
+## 🧭 Opportunistic autonomy
+
+This workflow permits **scoped improvisation**. Beyond the planned work, you (the
+orchestrator) may **author and launch an ad-hoc sub-agent** whenever you spot a
+signal the planned agents do not cover.
+
+- **How**: the `Task` tool, `subagent_type: general-purpose` (or `Explore`), with a
+  prompt you write yourself from context. These agents do not exist in
+  `src/agents/` — you create them on the fly.
+- **When**: When an explorer surfaces a signal the planned reduce won't chase.
+- **Mode**: usually in the **background**, unless the result is needed to continue the current phase.
+- **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
+- **Scope**: all phases, except those marked ⛔.
+- **Examples**: detected framework/CMS → ad-hoc specialised recon
 
 ---
 
@@ -79,6 +95,8 @@ mkdir -p work/onboard
 ### O2-DEPS — Dependency audit
 > `explore` · agent · ⇐ O0-INVENTORY · ∥ O1-STRUCTURE, O3-FLOW
 
+> 🧭 **Opportunistic lead here.** A dependency looks old / abandoned. — e.g. old dependency → ad-hoc agent that looks up known CVEs
+
 #### Invocation `deps-auditor`
 
 
@@ -106,6 +124,8 @@ mkdir -p work/onboard
 
 ### O4-ARCHITECTURE — Architecture synthesis
 > `synthesize` · agent · ⇐ O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS
+
+> ⛔ **No opportunistic autonomy here.** If the need is compelling, ask the user.
 
 #### Invocation `architecture-writer`
 

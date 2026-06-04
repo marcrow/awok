@@ -302,6 +302,9 @@ phases:
     group: g
     opportunistic:
       when: PHASE_WHEN_TXT
+    invocations:
+      - agent: deps-auditor
+        model: sonnet
   - id: T2
     name: Second
     group: g
@@ -316,3 +319,6 @@ phases:
     assert "Opportunistic workflow" in text          # header mention
     assert "Opportunistic autonomy" in text and "PHASE_WHEN_TXT" in text
     assert "Opportunism locked" in text
+    # the marker line must not glue onto the preceding invocation line
+    assert "(sonnet)- 🧭" not in text
+    assert "\n- 🧭 Opportunistic autonomy" in text

@@ -42,10 +42,12 @@ Level {{ loop.index0 }}: {{ level|join(' || ') }}
   - `{{ inv.agent }}` ({{ inv.model|default('inherit') }}){% if inv.background %} [bg]{% endif %}
 {% endfor %}
 {%- endif %}
-{%- if phase._opp and phase._opp.mark == 'opportunistic' %}
-- 🧭 Opportunistic autonomy{% if phase._opp.when %}: {{ phase._opp.when|trim }}{% endif %}
-{%- elif phase._opp and phase._opp.mark == 'locked' %}
+{% if phase._opp and phase._opp.mark == 'opportunistic' %}
+
+- 🧭 Opportunistic autonomy{{ (': ' ~ phase._opp.when|trim) if phase._opp.when else '' }}
+{% elif phase._opp and phase._opp.mark == 'locked' %}
+
 - ⛔ Opportunism locked
-{%- endif %}
+{% endif %}
 
 {% endfor %}
