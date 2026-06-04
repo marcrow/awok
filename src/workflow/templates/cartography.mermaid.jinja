@@ -9,7 +9,9 @@ flowchart TB
 {%- if phase.type -%}{%- set _ = meta_parts.append(phase.type) -%}{%- endif -%}
 {%- if inv0 and inv0.model -%}{%- set _ = meta_parts.append(inv0.model) -%}{%- endif -%}
 {%- set opp_prefix = '' -%}
-{%- if phase._opp and phase._opp.mark == 'opportunistic' -%}{%- set opp_prefix = '🧭 ' -%}{%- elif phase._opp and phase._opp.mark == 'locked' -%}{%- set opp_prefix = '⛔ ' -%}{%- endif -%}
+{%- if phase._opp and phase._opp.mark == 'opportunistic' -%}{%- set opp_prefix = '🧭 ' -%}
+{%- elif phase._opp and phase._opp.mark == 'locked' -%}{%- set opp_prefix = '⛔ ' -%}
+{%- endif -%}
 {%- if phase.type == 'workflow_call' -%}
     {{ phase.id }}[["`🔗 **{{ phase.name }}**{% if show_id %}
 *{{ phase.id }}*{% endif %}
@@ -25,17 +27,17 @@ _{{ meta_parts|join(' · ') }}_{% endif %}`"]:::{{ phase.group }}
     {{ dep }} --> {{ phase.id }}
 {%- endfor %}
 {% endfor %}
-{% for phase in phases -%}
+{%- for phase in phases -%}
 {%- if phase._opp and phase._opp.mark == 'opportunistic' %}
     class {{ phase.id }} opportunistic
 {%- elif phase._opp and phase._opp.mark == 'locked' %}
     class {{ phase.id }} opp_locked
 {%- endif %}
-{% endfor %}
+{%- endfor %}
 {% for gname in groups -%}
     classDef {{ gname }} fill:{{ group_colors[gname] }},stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
 {% endfor -%}
     classDef workflow_call fill:#312e81,stroke:#a78bfa,stroke-width:2px,color:#ede9fe
-    classDef opportunistic stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5 4
-    classDef opp_locked stroke:#6b7280,stroke-width:1px,color:#9ca3af
+classDef opportunistic stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5 4
+classDef opp_locked stroke:#6b7280,stroke-width:1px,color:#9ca3af
 ```

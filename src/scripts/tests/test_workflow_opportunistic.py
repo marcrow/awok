@@ -273,8 +273,8 @@ def test_mermaid_marks_opportunistic_and_locked(bbw_module):
     assert "classDef opp_locked" in out
     assert "class T1 opportunistic" in out
     assert "class T2 opp_locked" in out
-    assert "🧭" in out
-    assert "⛔" in out
+    assert "**🧭 First**" in out
+    assert "**⛔ Second**" in out
 
 
 def test_mermaid_unmarked_when_no_opportunistic(bbw_module):
