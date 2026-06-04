@@ -1651,10 +1651,12 @@ def generate_cartography_texte(workflow_path: Path, output_path: Path,
         lstrip_blocks=True,
     )
     template = env.get_template("cartography-texte.md.jinja")
+    opportunistic_global = resolve_opportunistic(workflow)
     output = template.render(
         phases=workflow.get("phases", []),
         groups=workflow.get("groups", {}),
         execution_levels=dag.execution_levels(),
+        opportunistic_global=opportunistic_global,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")

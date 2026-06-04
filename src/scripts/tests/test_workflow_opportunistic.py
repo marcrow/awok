@@ -283,3 +283,36 @@ def test_mermaid_unmarked_when_no_opportunistic(bbw_module):
     out = bbw_module.render_cartography_mermaid(wf)
     assert "class T1 opportunistic" not in out
     assert "class T1 opp_locked" not in out
+
+
+# --- Task 6: cartography texte ---
+
+def test_texte_marks_phases(bbw_module, tmp_path):
+    wf_yaml = """schema_version: 1
+skill:
+  name: demo
+  description: d
+opportunistic:
+  enabled: true
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: First
+    group: g
+    opportunistic:
+      when: PHASE_WHEN_TXT
+  - id: T2
+    name: Second
+    group: g
+    opportunistic: false
+"""
+    wf_path = tmp_path / "wf.yaml"
+    wf_path.write_text(wf_yaml)
+    out = tmp_path / "carto.md"
+    bbw_module.generate_cartography_texte(workflow_path=wf_path, output_path=out,
+                                          templates_dir=TEMPLATES_DIR)
+    text = out.read_text()
+    assert "Opportunistic workflow" in text          # header mention
+    assert "Opportunistic autonomy" in text and "PHASE_WHEN_TXT" in text
+    assert "Opportunism locked" in text

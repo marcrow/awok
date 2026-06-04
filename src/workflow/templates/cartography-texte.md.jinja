@@ -5,6 +5,9 @@
 ## Overview
 
 {{ phases|length }} phases, organized into {{ groups|length }} groups.
+{% if opportunistic_global and opportunistic_global.enabled %}
+> 🧭 Opportunistic workflow: the orchestrator may launch ad-hoc sub-agents (except phases marked ⛔).
+{% endif %}
 
 ## Groups
 
@@ -38,6 +41,11 @@ Level {{ loop.index0 }}: {{ level|join(' || ') }}
 {% for inv in phase.invocations %}
   - `{{ inv.agent }}` ({{ inv.model|default('inherit') }}){% if inv.background %} [bg]{% endif %}
 {% endfor %}
+{%- endif %}
+{%- if phase._opp and phase._opp.mark == 'opportunistic' %}
+- 🧭 Opportunistic autonomy{% if phase._opp.when %}: {{ phase._opp.when|trim }}{% endif %}
+{%- elif phase._opp and phase._opp.mark == 'locked' %}
+- ⛔ Opportunism locked
 {%- endif %}
 
 {% endfor %}
