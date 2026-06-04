@@ -54,8 +54,11 @@ Examples: {{ opportunistic_global.examples|join('; ') }}
 > ⛔ **No opportunistic autonomy here.** If the need is compelling, ask the user.
 
 {% elif phase._opp and phase._opp.note_kind == 'full' %}
-> 🧭 **Opportunistic autonomy — permitted on this phase.** You may author and launch an ad-hoc sub-agent (`Task` tool, `general-purpose`/`Explore`, with a prompt you write from context) when you spot a signal the planned agents don't cover — usually in the background. A sub-agent cannot itself spawn sub-agents, so after reading the planned sub-agent's report it is up to you to launch the follow-up.{% if phase._opp.when %} {{ phase._opp.when|trim }}{% endif %}
-{% if phase._opp.examples %}> Examples: {{ phase._opp.examples|join('; ') }}{% endif %}
+> 🧭 **Opportunistic autonomy — permitted on this phase.** You may author and launch an ad-hoc sub-agent (`Task` tool, `general-purpose`/`Explore`, with a prompt you write from context) when you spot a signal the planned agents don't cover — usually in the background. A sub-agent cannot itself spawn sub-agents, so after reading the planned sub-agent's report it is up to you to launch the follow-up.{{ (' ' ~ phase._opp.when|trim) if phase._opp.when else '' }}
+{% if phase._opp.examples %}
+>
+> Examples: {{ phase._opp.examples|join('; ') }}
+{% endif %}
 
 {% elif phase._opp and phase._opp.note_kind == 'short' %}
 > 🧭 **Opportunistic lead here.** {{ phase._opp.when|trim }}{% if phase._opp.examples %} — e.g. {{ phase._opp.examples|join('; ') }}{% endif %}

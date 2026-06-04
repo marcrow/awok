@@ -226,3 +226,32 @@ def test_skill_no_global_section_when_disabled(bbw_module, tmp_path):
     wf = OPP_WF.replace("  enabled: true", "  enabled: false")
     text = _gen_skill(bbw_module, tmp_path, wf)
     assert "## 🧭 Opportunistic autonomy" not in text
+
+
+FULL_WF = """schema_version: 1
+skill:
+  name: demo
+  description: d
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: First
+    group: g
+    opportunistic:
+      enabled: true
+      when: FULL_WHEN_MARKER
+      examples:
+        - FULL_EXAMPLE_MARKER
+    invocations:
+      - agent: test-agent
+"""
+
+
+def test_skill_renders_full_grant_note(bbw_module, tmp_path):
+    # No top-level opportunistic → global off → a phase enable yields note_kind 'full'.
+    text = _gen_skill(bbw_module, tmp_path, FULL_WF)
+    assert "Opportunistic autonomy — permitted on this phase" in text
+    assert "FULL_WHEN_MARKER" in text
+    assert "> Examples: FULL_EXAMPLE_MARKER" in text          # examples on their own blockquote line
+    assert "FULL_WHEN_MARKER> Examples" not in text           # not glued to the when text
