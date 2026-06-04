@@ -155,6 +155,64 @@ Claude de lancer `/<autre-workflow>` via le Skill tool, puis de revenir.
 - SKILL.md → bloc "🔗 Cette phase dispatche `/<target>`"
 - Cartography mermaid → node violet pour distinguer du flux principal
 
+## Autonomie opportuniste : `opportunistic`
+
+Donne à l'**orchestrateur** (le main agent) une licence cadrée pour **fabriquer
+et lancer un subagent ad hoc** (via le `Task` tool, `general-purpose`/`Explore`,
+avec un prompt rédigé à la volée) quand il repère un signal que les agents
+planifiés ne couvrent pas — p.ex. sur `O2-DEPS` d'`onboard`, repérer une dep
+ancienne et lancer une recherche de CVE ; en pentest, détecter un CMS et lancer
+une recon spécialisée.
+
+awok n'a pas de runtime : c'est une **instruction injectée dans le SKILL.md**,
+scopée à la phase. Le pouvoir de spawn appartient au main agent seul — un
+subagent ne peut pas lui-même spawner (limite de nesting Claude Code = 1), donc
+la licence s'exerce à la couture d'orchestration, après le retour du subagent
+planifié.
+
+`opportunistic` vaut `bool | objet`, à deux niveaux :
+
+```yaml
+# top-level (défaut du workflow)
+opportunistic:
+  enabled: true
+  when: |
+    Quand tu repères un signal que les agents planifiés ne traitent pas.
+  examples:
+    - "techno/CMS détecté → recon spécialisée"
+
+phases:
+  - id: O2-DEPS
+    opportunistic:                 # override : guidage ciblé → 🧭
+      when: "Une dépendance paraît ancienne/abandonnée."
+      examples: ["dep ancienne → subagent qui cherche les CVE"]
+  - id: O4-ARCHITECTURE
+    opportunistic: false           # verrou (reduce déterministe) → ⛔
+```
+
+Résolution : `false` verrouille ; `true`/objet active ; absent hérite du défaut
+global. `false` est le seul moyen de désactiver.
+
+| `phase.opportunistic` | global | phase active ? | rendu |
+|---|---|---|---|
+| `false` | (peu importe) | non (verrou) | `⛔ Pas d'autonomie opportuniste ici` |
+| `true` / objet | (peu importe) | oui | note 🧭 (full si global off, short si global on + guidage) |
+| absent | activé | oui (hérité) | couvert par la section globale |
+| absent | off | non | — |
+
+**Rendu** :
+- SKILL.md → section globale "🧭 Opportunistic autonomy" (si défaut global activé)
+  + notes par phase (🧭 piste / ⛔ verrou)
+- Cartography (mermaid + texte) → 🧭 sur les phases à contenu propre, ⛔ sur les verrous
+
+**Warnings de cohérence** : `opportunistic` sur une phase `workflow_call` (sans
+effet) ; `opportunistic: false` alors que le défaut global est off (redondant) ;
+objet global désactivé sans aucune phase qui l'active (config morte).
+
+**vs `on_demand_agents`** : ceux-ci sont hors-DAG, déclenchés par `when:`/
+`triggered_by:` (hooks, skills) ; `opportunistic` est dans le DAG, rattaché à une
+phase, et les agents sont fabriqués à la volée (pas pré-écrits dans `src/agents/`).
+
 ## Modèle I/O — comment les fichiers arrivent aux agents
 
 > Modèle complet (qui sait quoi / produit quoi / vérifie quoi) + schéma :

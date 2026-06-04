@@ -93,6 +93,52 @@ phases:
 - In the SKILL.md → a block "🔗 This phase dispatches another workflow" with an instruction
 - In the mermaid cartography → a node with a purple border to distinguish it
 
+### Opportunistic phases: `opportunistic` field
+
+Grants the **main orchestrator** a scoped licence to *author and dispatch ad-hoc
+sub-agents* (via the `Task` tool, `general-purpose`/`Explore`, with a prompt
+written on the fly) when it spots something the planned agents don't cover —
+e.g. on `onboard`'s `O2-DEPS`, noticing an old dependency and spinning up an
+ad-hoc CVE lookup; in pentest recon, detecting WordPress and launching
+specialised recon.
+
+awok has no runtime, so this is purely **instructions injected into `SKILL.md`**,
+scoped to the phase. The spawning power belongs to the main agent only — a
+sub-agent cannot itself spawn sub-agents (Claude Code nesting limit = 1), so the
+licence is exercised at the orchestration seam, after the planned sub-agent
+returns.
+
+`opportunistic` is `bool | object`, available at two levels:
+
+```yaml
+# top-level (workflow-wide default)
+opportunistic:
+  enabled: true
+  when: |
+    When you spot a signal the planned agents don't cover.
+  examples:
+    - "detected tech/CMS → specialised recon"
+
+phases:
+  - id: O2-DEPS
+    opportunistic:                 # override: adds targeted guidance → 🧭
+      when: "A dependency looks old / abandoned."
+      examples: ["old dependency → ad-hoc agent that looks up known CVEs"]
+  - id: O4-ARCHITECTURE
+    opportunistic: false           # lock a deterministic reduce → ⛔
+```
+
+Resolution: a phase with `opportunistic: false` is locked; `true`/object is
+enabled; absent inherits the global default. `false` is the only way to disable.
+
+Rendering: a global "🧭 Opportunistic autonomy" section (when the global default
+is on) + per-phase notes (🧭 lead / ⛔ locked). The cartography marks 🧭 phases
+that carry their own content and ⛔ locked phases.
+
+**vs `on_demand_agents`**: those are out-of-DAG agents triggered by `when:`/
+`triggered_by:` (hooks, skills); `opportunistic` is in-DAG, attached to a phase,
+and the agents are authored on the fly rather than pre-written in `src/agents/`.
+
 ### Add or modify a pipeline phase
 
 > **Modular workflow**: each workflow is defined in

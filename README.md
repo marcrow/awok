@@ -19,6 +19,10 @@ out — and awok *compiles* it into the artifacts that drive it:
   on-demand agents), and
 - an index of every workflow you've defined.
 
+It can also encode **opportunistic autonomy zones** — phases where the
+orchestrator is licensed to author and launch ad-hoc sub-agents to handle the
+unexpected (e.g. pentest recon), kept visible and bounded in the cartography.
+
 Crucially, awok **compiles — it does not execute.** The generated skill is run by
 Claude Code (a main agent plus Task sub-agents) with a human in the loop. That
 compile-only stance is what separates awok from execution engines like CrewAI,
