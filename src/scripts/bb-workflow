@@ -407,6 +407,73 @@ def validate_schema(workflow: dict, schema: dict = None) -> list:
     return errors
 
 
+def _normalize_opp(raw):
+    """Normalize an `opportunistic` value (bool|dict|None) into a dict
+    {enabled, when, examples} or None if the key was absent."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return {"enabled": raw, "when": None, "examples": []}
+    if isinstance(raw, dict):
+        return {
+            "enabled": bool(raw.get("enabled", True)),
+            "when": raw.get("when"),
+            "examples": list(raw.get("examples") or []),
+        }
+    # Unknown type: treat as absent (schema validation catches it separately).
+    return None
+
+
+def resolve_opportunistic(workflow: dict) -> dict:
+    """Combine the top-level `opportunistic` default with each phase override.
+
+    Mutates each phase in place, setting phase['_opp'] with precomputed render
+    decisions. Returns the resolved global dict {enabled, when, examples}.
+    """
+    g = _normalize_opp(workflow.get("opportunistic"))
+    global_enabled = bool(g["enabled"]) if g else False
+    g_when = g["when"] if g else None
+    g_examples = g["examples"] if g else []
+
+    for phase in workflow.get("phases", []):
+        p = _normalize_opp(phase.get("opportunistic"))
+        if p is None:
+            enabled = global_enabled
+            explicitly_disabled = False
+            has_guidance = False
+            when, examples = g_when, g_examples
+        else:
+            enabled = p["enabled"]
+            explicitly_disabled = (p["enabled"] is False)
+            has_guidance = enabled and (p["when"] is not None or bool(p["examples"]))
+            when = p["when"] if p["when"] is not None else g_when
+            examples = p["examples"] if p["examples"] else g_examples
+
+        needs_full_grant = enabled and not global_enabled
+
+        if explicitly_disabled and global_enabled:
+            mark, note_kind = "locked", "locked"
+        elif needs_full_grant:
+            mark, note_kind = "opportunistic", "full"
+        elif enabled and global_enabled and has_guidance:
+            mark, note_kind = "opportunistic", "short"
+        else:
+            mark, note_kind = None, None
+
+        phase["_opp"] = {
+            "enabled": enabled,
+            "explicitly_disabled": explicitly_disabled,
+            "needs_full_grant": needs_full_grant,
+            "has_guidance": has_guidance,
+            "mark": mark,
+            "note_kind": note_kind,
+            "when": when,
+            "examples": examples,
+        }
+
+    return {"enabled": global_enabled, "when": g_when, "examples": g_examples}
+
+
 def create_agent(name: str, description: str, tools: str, model: str,
                  prompt: str, agents_dir: Path = None,
                  invocations_dir: Path = None) -> list:
