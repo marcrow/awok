@@ -1000,6 +1000,8 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
     # aussi ; le chemin generate CLI doit le faire également).
     apply_parallel_with(workflow, compute_levels(workflow))
 
+    opportunistic_global = resolve_opportunistic(workflow)
+
     # Render each invocation snippet for each phase
     phases_rendered = []
     for phase in workflow.get("phases", []):
@@ -1085,6 +1087,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         # keep legacy key for backward compat with test fixtures
         manual_blocks=manual_blocks_at_end,
         on_demand_agents=workflow.get("on_demand_agents", []),
+        opportunistic_global=opportunistic_global,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

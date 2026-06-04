@@ -19,6 +19,26 @@ Pipeline of {{ phase_count }} phases, organized into {{ group_count }} groups:
 {% for block in manual_blocks_at_top|default([]) %}
 {{ block }}
 {% endfor %}
+{% if opportunistic_global and opportunistic_global.enabled %}
+---
+
+## 🧭 Opportunistic autonomy
+
+This workflow permits **scoped improvisation**. Beyond the planned work, you (the
+orchestrator) may **author and launch an ad-hoc sub-agent** whenever you spot a
+signal the planned agents do not cover.
+
+- **How**: the `Task` tool, `subagent_type: general-purpose` (or `Explore`), with a
+  prompt you write yourself from context. These agents do not exist in
+  `src/agents/` — you create them on the fly.
+{% if opportunistic_global.when %}- **When**: {{ opportunistic_global.when|trim }}
+{% endif %}- **Mode**: usually in the **background**, unless the result is needed to continue the current phase.
+- **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
+- **Scope**: all phases, except those marked ⛔.
+{% if opportunistic_global.examples %}
+Examples: {{ opportunistic_global.examples|join('; ') }}
+{% endif %}
+{% endif %}
 
 ---
 
@@ -30,6 +50,17 @@ Pipeline of {{ phase_count }} phases, organized into {{ group_count }} groups:
 
 {% if phase.description %}{{ phase.description }}{% endif %}
 
+{% if phase._opp and phase._opp.note_kind == 'locked' %}
+> ⛔ **No opportunistic autonomy here.** If the need is compelling, ask the user.
+
+{% elif phase._opp and phase._opp.note_kind == 'full' %}
+> 🧭 **Opportunistic autonomy — permitted on this phase.** You may author and launch an ad-hoc sub-agent (`Task` tool, `general-purpose`/`Explore`, with a prompt you write from context) when you spot a signal the planned agents don't cover — usually in the background. A sub-agent cannot itself spawn sub-agents, so after reading the planned sub-agent's report it is up to you to launch the follow-up.{% if phase._opp.when %} {{ phase._opp.when|trim }}{% endif %}
+{% if phase._opp.examples %}> Examples: {{ phase._opp.examples|join('; ') }}{% endif %}
+
+{% elif phase._opp and phase._opp.note_kind == 'short' %}
+> 🧭 **Opportunistic lead here.** {{ phase._opp.when|trim }}{% if phase._opp.examples %} — e.g. {{ phase._opp.examples|join('; ') }}{% endif %}
+
+{% endif %}
 {% if phase.type == 'script' %}
 ```bash
 {{ phase.cmd }}

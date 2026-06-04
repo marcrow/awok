@@ -149,3 +149,80 @@ def test_no_warnings_on_clean_workflow(bbw_module):
     wf["phases"][0]["opportunistic"] = {"when": "w"}
     w = bbw_module.check_opportunistic_warnings(wf)
     assert w == []
+
+
+# --- Task 4: SKILL.md rendering ---
+
+def _gen_skill(bbw_module, tmp_path, wf_yaml):
+    """Generate a SKILL.md from an inline YAML string; return its text."""
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(TEMPLATES_DIR / "skill-skeleton.md.jinja",
+                templates_dir / "skill-skeleton.md.jinja")
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+    wf_path = workflow_dir / "workflow.yaml"
+    wf_path.write_text(wf_yaml)
+    out = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(workflow_path=wf_path, output_path=out,
+                                 templates_dir=templates_dir, agents_dir=agents_dir)
+    return out.read_text()
+
+
+OPP_WF = """schema_version: 1
+skill:
+  name: demo
+  description: d
+opportunistic:
+  enabled: true
+  when: GLOBAL_WHEN_MARKER
+  examples:
+    - GLOBAL_EXAMPLE_MARKER
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: First
+    group: g
+    opportunistic:
+      when: PHASE_WHEN_MARKER
+      examples:
+        - PHASE_EXAMPLE_MARKER
+    invocations:
+      - agent: test-agent
+  - id: T2
+    name: Second
+    group: g
+    opportunistic: false
+    invocations:
+      - agent: test-agent
+"""
+
+
+def test_skill_renders_global_section(bbw_module, tmp_path):
+    text = _gen_skill(bbw_module, tmp_path, OPP_WF)
+    assert "## 🧭 Opportunistic autonomy" in text
+    assert "GLOBAL_WHEN_MARKER" in text
+    assert "GLOBAL_EXAMPLE_MARKER" in text
+
+
+def test_skill_renders_phase_short_note(bbw_module, tmp_path):
+    text = _gen_skill(bbw_module, tmp_path, OPP_WF)
+    assert "Opportunistic lead here" in text
+    assert "PHASE_WHEN_MARKER" in text
+
+
+def test_skill_renders_locked_note(bbw_module, tmp_path):
+    text = _gen_skill(bbw_module, tmp_path, OPP_WF)
+    assert "No opportunistic autonomy here" in text
+    assert "ask the user" in text
+
+
+def test_skill_no_global_section_when_disabled(bbw_module, tmp_path):
+    wf = OPP_WF.replace("  enabled: true", "  enabled: false")
+    text = _gen_skill(bbw_module, tmp_path, wf)
+    assert "## 🧭 Opportunistic autonomy" not in text
