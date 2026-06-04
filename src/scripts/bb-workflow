@@ -834,6 +834,39 @@ def check_dataflow_warnings(workflow: dict) -> list:
     return warnings
 
 
+def check_opportunistic_warnings(workflow: dict) -> list:
+    """Non-blocking coherence checks for the `opportunistic` field."""
+    warnings = []
+    raw_global = workflow.get("opportunistic")
+    g = _normalize_opp(raw_global)
+    global_enabled = bool(g["enabled"]) if g else False
+    any_phase_enabled = False
+
+    for phase in workflow.get("phases", []):
+        pid = phase.get("id", "?")
+        raw = phase.get("opportunistic")
+        p = _normalize_opp(raw)
+        if p and p["enabled"]:
+            any_phase_enabled = True
+        if raw is not None and phase.get("type") == "workflow_call":
+            warnings.append(
+                f"phase '{pid}': 'opportunistic' on a workflow_call phase has no "
+                f"effect (opportunism belongs to the called workflow)"
+            )
+        if p is not None and p["enabled"] is False and not global_enabled:
+            warnings.append(
+                f"phase '{pid}': 'opportunistic: false' is redundant (no global "
+                f"opportunistic default to disable)"
+            )
+
+    if raw_global is not None and not global_enabled and not any_phase_enabled:
+        warnings.append(
+            "opportunistic: global default is disabled and no phase enables it "
+            "(dead config)"
+        )
+    return warnings
+
+
 def check_skill_name_matches_filename(workflow: dict, workflow_path) -> list:
     """Warn when the workflow filename stem differs from skill.name.
 
@@ -1846,6 +1879,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     coherence_errors = validate_coherence(workflow)
     warnings = check_dataflow_warnings(workflow)
     warnings += check_skill_name_matches_filename(workflow, workflow_path)
+    warnings += check_opportunistic_warnings(workflow)
     for e in schema_errors:
         print(f"  [{name}] SCHEMA: {e}", file=sys.stderr)
     for e in coherence_errors:

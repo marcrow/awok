@@ -118,3 +118,34 @@ def test_resolve_global_off_phase_false_is_inert(bbw_module):
     g, opp = _resolved(bbw_module, wf)
     assert opp["T1"]["mark"] is None           # nothing to lock when global off
     assert opp["T1"]["note_kind"] is None
+
+
+# --- Task 3: coherence warnings ---
+
+def test_warn_opportunistic_on_workflow_call(bbw_module):
+    wf = _base_wf(opportunistic={"enabled": True})
+    wf["phases"][0]["type"] = "workflow_call"
+    wf["phases"][0]["workflow"] = "other"
+    wf["phases"][0]["opportunistic"] = True
+    w = bbw_module.check_opportunistic_warnings(wf)
+    assert any("workflow_call" in x and "T1" in x for x in w)
+
+
+def test_warn_redundant_disable_when_global_off(bbw_module):
+    wf = _base_wf()
+    wf["phases"][0]["opportunistic"] = False
+    w = bbw_module.check_opportunistic_warnings(wf)
+    assert any("redundant" in x and "T1" in x for x in w)
+
+
+def test_warn_dead_global_config(bbw_module):
+    wf = _base_wf(opportunistic={"enabled": False})
+    w = bbw_module.check_opportunistic_warnings(wf)
+    assert any("dead config" in x for x in w)
+
+
+def test_no_warnings_on_clean_workflow(bbw_module):
+    wf = _base_wf(opportunistic={"enabled": True})
+    wf["phases"][0]["opportunistic"] = {"when": "w"}
+    w = bbw_module.check_opportunistic_warnings(wf)
+    assert w == []
