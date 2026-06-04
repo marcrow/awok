@@ -1444,6 +1444,7 @@ def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> st
         keep_trailing_newline=True,
     )
     env.filters["node_id"] = _node_id_filter
+    resolve_opportunistic(workflow)
     template = env.get_template("cartography.mermaid.jinja")
     return template.render(
         phases=workflow.get("phases", []),

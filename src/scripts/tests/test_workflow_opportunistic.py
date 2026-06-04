@@ -256,3 +256,30 @@ def test_skill_renders_full_grant_note(bbw_module, tmp_path):
     assert "FULL_WHEN_MARKER" in text
     assert "> Examples: FULL_EXAMPLE_MARKER" in text          # examples on their own blockquote line
     assert "FULL_WHEN_MARKER> Examples" not in text           # not glued to the when text
+
+
+# --- Task 5: cartography mermaid ---
+
+def test_mermaid_marks_opportunistic_and_locked(bbw_module):
+    wf = _base_wf(opportunistic={"enabled": True})
+    wf["phases"] = [
+        {"id": "T1", "name": "First", "group": "g",
+         "opportunistic": {"when": "w"}},
+        {"id": "T2", "name": "Second", "group": "g",
+         "opportunistic": False},
+    ]
+    out = bbw_module.render_cartography_mermaid(wf)
+    assert "classDef opportunistic" in out
+    assert "classDef opp_locked" in out
+    assert "class T1 opportunistic" in out
+    assert "class T2 opp_locked" in out
+    assert "🧭" in out
+    assert "⛔" in out
+
+
+def test_mermaid_unmarked_when_no_opportunistic(bbw_module):
+    wf = _base_wf()
+    wf["phases"] = [{"id": "T1", "name": "First", "group": "g"}]
+    out = bbw_module.render_cartography_mermaid(wf)
+    assert "class T1 opportunistic" not in out
+    assert "class T1 opp_locked" not in out
