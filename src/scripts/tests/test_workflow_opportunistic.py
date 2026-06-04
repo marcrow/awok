@@ -214,6 +214,7 @@ def test_skill_renders_phase_short_note(bbw_module, tmp_path):
     text = _gen_skill(bbw_module, tmp_path, OPP_WF)
     assert "Opportunistic lead here" in text
     assert "PHASE_WHEN_MARKER" in text
+    assert "PHASE_EXAMPLE_MARKER\n\n" in text   # short note is followed by a blank line, not glued
 
 
 def test_skill_renders_locked_note(bbw_module, tmp_path):

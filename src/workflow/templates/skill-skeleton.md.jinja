@@ -36,7 +36,7 @@ signal the planned agents do not cover.
 - **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
 - **Scope**: all phases, except those marked ⛔.
 {% if opportunistic_global.examples %}
-Examples: {{ opportunistic_global.examples|join('; ') }}
+- **Examples**: {{ opportunistic_global.examples|join('; ') }}
 {% endif %}
 {% endif %}
 
@@ -61,7 +61,7 @@ Examples: {{ opportunistic_global.examples|join('; ') }}
 {% endif %}
 
 {% elif phase._opp and phase._opp.note_kind == 'short' %}
-> 🧭 **Opportunistic lead here.** {{ phase._opp.when|trim }}{% if phase._opp.examples %} — e.g. {{ phase._opp.examples|join('; ') }}{% endif %}
+> 🧭 **Opportunistic lead here.** {{ phase._opp.when|trim }}{{ (' — e.g. ' ~ phase._opp.examples|join('; ')) if phase._opp.examples else '' }}
 
 {% endif %}
 {% if phase.type == 'script' %}
