@@ -92,3 +92,8 @@ pre{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace}
 .opp-badge.opp-locked{ opacity:.85; }
 .opp-resolved{ margin-top:8px; padding:6px 8px; border-radius:4px;
   background:#0e1620; color:#cbd5e1; font-size:12px; }
+/* stringListEditor rows — mirror the ioref/trigger list editors */
+.stringlist-row{display:flex;gap:4px;align-items:center;margin-top:4px}
+.stringlist-row input{flex:1 1 90px;min-width:70px}
+.stringlist-add{margin-top:6px;font-size:11px}
+.stringlist-del{background:none;border:none;color:#a55;cursor:pointer}

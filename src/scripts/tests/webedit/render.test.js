@@ -192,11 +192,13 @@ test("resolvedOppLabel maps the /api/view block", () => {
     B: { mark: "locked", note_kind: "locked", enabled: false },
     C: { mark: null, note_kind: null, enabled: true },
     D: { mark: null, note_kind: null, enabled: false },
+    E: { mark: "opportunistic", note_kind: "full", enabled: true },
   } };
   expect(resolvedOppLabel(v, "A")).toContain("Targeted lead");
   expect(resolvedOppLabel(v, "B")).toContain("Locked");
   expect(resolvedOppLabel(v, "C")).toContain("Inherited");
   expect(resolvedOppLabel(v, "D")).toBe("Off");
+  expect(resolvedOppLabel(v, "E")).toContain("Full grant");
   expect(resolvedOppLabel(v, "missing")).toBe("");
 });
 

@@ -284,6 +284,15 @@ def test_build_opportunistic_view_global_off(bbw_module):
     assert view["phases"]["A"] == {"mark": None, "note_kind": None, "enabled": False}
 
 
+def test_build_opportunistic_view_full_grant(bbw_module):
+    # global off + a phase that enables → full grant (note_kind 'full')
+    wf = _base_wf()
+    wf["phases"] = [{"id": "A", "name": "a", "group": "g", "opportunistic": True}]
+    view = bbw_module.build_opportunistic_view(wf)
+    assert view["global_enabled"] is False
+    assert view["phases"]["A"] == {"mark": "opportunistic", "note_kind": "full", "enabled": True}
+
+
 # --- Task 5: cartography mermaid ---
 
 def test_mermaid_marks_opportunistic_and_locked(bbw_module):
