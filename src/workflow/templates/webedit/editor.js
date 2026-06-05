@@ -1,10 +1,12 @@
 // Single source of truth for pure helpers — shared with the bun tests
 // (src/scripts/tests/webedit import the same files).
 import { computeDropDepends, safeDropDepends, blockedDependents,
-         buildNotice, renderEdges, aggregateInvocationIo, applyPhaseGroup } from "./editlogic.js";
+         buildNotice, renderEdges, aggregateInvocationIo, applyPhaseGroup,
+         opportunisticMode, opportunisticGuidance, setOpportunistic,
+         globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel } from "./editlogic.js";
 import { makeCard, section, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
-         ioRefEditor, triggerEditor } from "./formfields.js";
+         ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
 
 const $ = s => document.querySelector(s);
 const api = (m, p, b) => fetch(p, {method:m, headers:{'Content-Type':'application/json'},
@@ -113,7 +115,8 @@ function makeRow(ids,i,byId,isNew,colors){
   label.textContent = isNew ? `Lvl ${i+1} (drop here)` : `Lvl ${i+1}`;
   row.appendChild(label);
   ids.forEach(id=>{
-    const card=makeCard(byId[id], (colors||{})[byId[id].group]);
+    const oppMark=(state.view&&state.view.opportunistic&&state.view.opportunistic.phases[id]||{}).mark;
+    const card=makeCard(byId[id], (colors||{})[byId[id].group], oppMark);
     if(id===state.selected) card.classList.add("selected");
     card.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",id));
     card.addEventListener("click",()=>selectPhase(id));
@@ -165,6 +168,7 @@ function selectPhase(id){
 
   const tabs=[
     {key:"general", label:"General", render:b=>tabGeneral(b,p,id)},
+    {key:"autonomy", label:"🧭 Autonomy", render:b=>tabAutonomy(b,p,id)},
     {key:"deps", label:"Dependencies", render:b=>tabDeps(b,p)},
     {key:"files", label:"Files", render:b=>tabFiles(b,p)},
     {key:"triggers", label:"Triggers", render:b=>tabTriggers(b,p)},
@@ -211,6 +215,26 @@ function tabGeneral(body,p,id){
     const w=fieldSelect("workflow", p.workflow||"", ["", ...(state.workflows||[]).filter(n=>n!==state.name)], v=>{ if(v) p.workflow=v; else delete p.workflow; refreshView(); });
     w.appendChild(helpIcon("Workflow to invoke as a sub-step (must exist in src/workflows/).")); mk(w);
   }
+}
+function tabAutonomy(body,p,id){
+  const mk=(node)=>body.appendChild(node);
+  const mode=opportunisticMode(p);
+  const g=opportunisticGuidance(p);
+  const modeR=fieldSelect("mode", mode, ["inherit","enabled","locked"], v=>{
+    setOpportunistic(p, v, g.when, g.examples);
+    refreshView().then(()=>selectPhase(id));
+  });
+  modeR.appendChild(helpIcon("inherit = use the workflow's global default · enabled = the main agent may author & launch an ad-hoc sub-agent here (a sub-agent cannot itself spawn — you do it after the planned one returns) · locked = explicitly forbid it on this deterministic/sensitive phase."));
+  mk(modeR);
+  if(mode==="enabled"){
+    const w=fieldTextarea("when", g.when, v=>{ setOpportunistic(p,"enabled",v,g.examples); refreshView().then(()=>selectPhase(id)); });
+    w.appendChild(helpIcon("When to improvise here (e.g. 'a dependency looks old / abandoned').")); mk(w);
+    mk(stringListEditor("examples", g.examples, arr=>{ setOpportunistic(p,"enabled",g.when,arr); refreshView().then(()=>selectPhase(id)); }));
+  }
+  const prev=document.createElement("div"); prev.className="opp-resolved";
+  const label=resolvedOppLabel(state.view&&state.view.opportunistic, id);
+  prev.textContent="Resolved: "+(label||"—");
+  mk(prev);
 }
 function tabDeps(body,p){
   const lvl=state.view.levels[p.id]||0;
@@ -474,6 +498,14 @@ function renderSettings(){
     root.appendChild(box);
   });
   const addO=document.createElement("button"); addO.textContent="+ on-demand agent"; addO.addEventListener("click",()=>{ m.on_demand_agents.push({agent:(state.agents||[])[0]||"",description:""}); renderSettings(); }); root.appendChild(addO);
+  sec("opportunistic (global default)");
+  const gs=globalOpportunisticState(m);
+  const enR=fieldCheckbox("enable by default", gs.enabled, v=>{ setGlobalOpportunistic(m, v, gs.when, gs.examples); renderSettings(); refreshView(); });
+  enR.appendChild(helpIcon("When on, every phase is an autonomy zone by default (override or lock per phase in the 🧭 Autonomy tab). The main agent may author ad-hoc sub-agents to handle the unexpected.")); root.appendChild(enR);
+  if(gs.enabled){
+    root.appendChild(fieldTextarea("when", gs.when, v=>{ setGlobalOpportunistic(m, true, v, gs.examples); refreshView(); }));
+    root.appendChild(stringListEditor("examples", gs.examples, arr=>{ setGlobalOpportunistic(m, true, gs.when, arr); refreshView(); }));
+  }
 }
 
 async function save(){
