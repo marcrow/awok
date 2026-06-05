@@ -258,6 +258,32 @@ def test_skill_renders_full_grant_note(bbw_module, tmp_path):
     assert "FULL_WHEN_MARKER> Examples" not in text           # not glued to the when text
 
 
+# --- Web editor: /api/view opportunistic block ---
+
+def test_build_opportunistic_view(bbw_module):
+    wf = _base_wf(opportunistic={"enabled": True})
+    wf["phases"] = [
+        {"id": "A", "name": "a", "group": "g", "opportunistic": {"when": "w"}},
+        {"id": "B", "name": "b", "group": "g", "opportunistic": False},
+        {"id": "C", "name": "c", "group": "g"},
+    ]
+    view = bbw_module.build_opportunistic_view(wf)
+    assert view["global_enabled"] is True
+    assert view["phases"]["A"] == {"mark": "opportunistic", "note_kind": "short", "enabled": True}
+    assert view["phases"]["B"] == {"mark": "locked", "note_kind": "locked", "enabled": False}
+    assert view["phases"]["C"] == {"mark": None, "note_kind": None, "enabled": True}
+    # the caller's model is not mutated (no _opp leaks onto the source dict)
+    assert "_opp" not in wf["phases"][0]
+
+
+def test_build_opportunistic_view_global_off(bbw_module):
+    wf = _base_wf()
+    wf["phases"] = [{"id": "A", "name": "a", "group": "g"}]
+    view = bbw_module.build_opportunistic_view(wf)
+    assert view["global_enabled"] is False
+    assert view["phases"]["A"] == {"mark": None, "note_kind": None, "enabled": False}
+
+
 # --- Task 5: cartography mermaid ---
 
 def test_mermaid_marks_opportunistic_and_locked(bbw_module):

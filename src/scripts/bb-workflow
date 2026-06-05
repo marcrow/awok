@@ -474,6 +474,23 @@ def resolve_opportunistic(workflow: dict) -> dict:
     return {"enabled": global_enabled, "when": g_when, "examples": g_examples}
 
 
+def build_opportunistic_view(model: dict) -> dict:
+    """Editor view block: the resolved opportunistic state per phase plus the
+    global flag. Resolves on a deep copy so the caller's model is untouched."""
+    import copy
+    m = copy.deepcopy(model)
+    g = resolve_opportunistic(m)
+    phases = {}
+    for ph in m.get("phases", []):
+        opp = ph.get("_opp") or {}
+        phases[ph.get("id")] = {
+            "mark": opp.get("mark"),
+            "note_kind": opp.get("note_kind"),
+            "enabled": bool(opp.get("enabled", False)),
+        }
+    return {"global_enabled": bool(g["enabled"]), "phases": phases}
+
+
 def create_agent(name: str, description: str, tools: str, model: str,
                  prompt: str, agents_dir: Path = None,
                  invocations_dir: Path = None) -> list:
@@ -2712,6 +2729,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                     "parallel_with": derive_parallel_with(data, levels),
                     "edges": build_edges(data),
                     "errors": validate_schema(data),
+                    "opportunistic": build_opportunistic_view(data),
                 })
             if p == "/api/preview":
                 try:
