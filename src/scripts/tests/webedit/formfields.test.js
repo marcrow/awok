@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { parseHTML } from "linkedom";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
-         ioRefEditor, triggerEditor, resolveIoPath } from "../../../workflow/templates/webedit/formfields.js";
+         ioRefEditor, triggerEditor, resolveIoPath, stringListEditor } from "../../../workflow/templates/webedit/formfields.js";
 
 function dom(){ const { document } = parseHTML("<!DOCTYPE html><body></body>"); globalThis.document = document; return document; }
 function ev(node){ return new node.ownerDocument.defaultView.Event("change"); }
@@ -128,4 +128,22 @@ test("triggerEditor lists, adds, reflects 'on'", () => {
   expect(node.querySelector("select[data-k=on]").value).toBe("file_appears");
   node.querySelector(".trigger-add").dispatchEvent(click(node));
   expect(changed.length).toBe(2);
+});
+
+test("stringListEditor renders, adds, deletes, drops empties", () => {
+  dom();
+  const items = ["old dep → CVE", ""]; let got = null;
+  const node = stringListEditor("examples", items, v => got = v);
+  expect(node.querySelectorAll(".stringlist-row").length).toBe(2);
+  // add a row
+  node.querySelector(".stringlist-add").dispatchEvent(click(node));
+  expect(node.querySelectorAll(".stringlist-row").length).toBe(3);
+  // fill the new row and fire change
+  const inputs = node.querySelectorAll(".stringlist-row input");
+  inputs[2].value = "WordPress → recon"; inputs[2].dispatchEvent(ev(inputs[2]));
+  // emit drops the empty middle row, trims, keeps order
+  expect(got).toEqual(["old dep → CVE", "WordPress → recon"]);
+  // delete the first row
+  node.querySelector(".stringlist-row .stringlist-del").dispatchEvent(click(node));
+  expect(node.querySelectorAll(".stringlist-row").length).toBe(2);
 });

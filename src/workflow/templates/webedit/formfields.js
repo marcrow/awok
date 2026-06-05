@@ -127,6 +127,33 @@ export function ioRefEditor(label, items, onChange, namespaces){
   return wrap;
 }
 
+// A list of plain strings (add/remove rows). Emits the trimmed, non-empty
+// values on every change — simpler than ioRefEditor (no kind, no flags).
+export function stringListEditor(label, items, onChange){
+  const wrap = document.createElement("div"); wrap.className = "stringlist-editor";
+  const head = document.createElement("label"); head.textContent = label; wrap.appendChild(head);
+  const list = (items || []).map(x => String(x));
+  const emit = () => onChange(list.map(s => s.trim()).filter(Boolean));
+  const body = document.createElement("div"); wrap.appendChild(body);
+  function render(){
+    body.replaceChildren();
+    list.forEach((val, idx) => {
+      const r = document.createElement("div"); r.className = "stringlist-row";
+      const i = document.createElement("input"); i.type = "text"; i.value = val;
+      i.addEventListener("change", () => { list[idx] = i.value; emit(); });
+      r.appendChild(i);
+      const del = document.createElement("button"); del.className = "stringlist-del"; del.textContent = "✕";
+      del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
+      r.appendChild(del);
+      body.appendChild(r);
+    });
+  }
+  const add = document.createElement("button"); add.className = "stringlist-add"; add.textContent = "+ " + label;
+  add.addEventListener("click", () => { list.push(""); render(); emit(); });
+  render(); wrap.appendChild(add);
+  return wrap;
+}
+
 const TRIGGER_ON = ["file_appears","file_changes","event","db_event","threshold_reached"];
 const TRIGGER_KEYS = ["path","type","source","condition"];
 const TRIGGER_HELP = "Triggers the phase when: a file appears/changes (fill in path), an event occurs (type/source), a database event happens (type), or a threshold is reached (condition). Leave empty the fields not relevant to the chosen type.";
