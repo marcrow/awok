@@ -12,6 +12,13 @@ Plus, en transverse :
 **Source de vérité = YAML.** Ne pas éditer les `SKILL.md` à la main : la prochaine
 régénération les écrase. Le pre-commit hook bloque les commits si drift détecté.
 
+> **Vocabulaire & exécution.** Ce document couvre la **compilation**. Pour la
+> **sémantique d'exécution** (awok n'a pas de runtime ; **action** = bloc unitaire,
+> **stage** = ligne/niveau dérivé de `depends_on`, **group** = bande transverse ;
+> chaînage par fichiers ; motif fan-out → reduce), voir
+> [`execution-model.md`](execution-model.md). Note : le YAML dit encore `phases:` —
+> lis « phase » comme « action ».
+
 ## Commandes
 
 Sans `--workflow` → la commande s'applique à **tous** les workflows découverts.
@@ -303,9 +310,9 @@ Le JS est servi en modules ES sous `/editor/*.js` (source unique partagée avec
 les tests bun) ; le rendu est anti-XSS (DOM construit, pas d'`innerHTML` de
 données).
 
-- **Grille** : lignes = enchaînement (niveaux de `depends_on`, recalculés),
-  colonnes dans une ligne = parallélisme. Les **liens de dépendance** sont
-  tracés (overlay SVG).
+- **Grille** : lignes = enchaînement (niveaux de `depends_on`, recalculés ; une
+  ligne = une **stage**), colonnes dans une ligne = parallélisme. Les **liens de
+  dépendance** sont tracés (overlay SVG).
 - **Drag & drop** d'une carte vers une ligne → `depends_on` = phases de la
   ligne précédente, affinable au panneau. Anti-cycle (impossible de dépendre
   d'une phase qui dépend de soi ; une vignette explique si un drop est

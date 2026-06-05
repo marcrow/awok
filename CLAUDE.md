@@ -281,6 +281,24 @@ overrides ENGINE_ROOT only.
 
 ## Workflow conventions (read before modifying)
 
+### Vocabulary: action / stage / group
+
+Three distinct axes (see `docs/dev/execution-model.md` for the full execution model):
+
+| Term | What it is | Declared? |
+|---|---|---|
+| **action** | The unit block of work: one agent, one script, one direct main-agent action, or one `workflow_call`. The thing you edit. | Yes |
+| **stage** | The "row" / depth level: actions at the same topological distance from a root. A *reading* of the DAG, not a container. | **No — derived** from `depends_on` |
+| **group** | The transverse colored band (e.g. `scan`/`explore`/`synthesize`). A semantic category that may span several stages. | Yes |
+
+Key facts: an action is a single unit (no intra-action ordering); order exists
+**only between actions** via `depends_on`; a stage is never declared (it is
+recomputed from the edges, and describes graph shape, not timing).
+
+> ⚠️ **Transition note**: the YAML/code still call the action block `phase`
+> (`phases:` key, `phase` identifiers). **Read "phase" as "action".** The rename
+> to `action`/`stage` is planned but not yet applied.
+
 ### Single source: workflows/<name>.yaml generates its SKILL.md
 
 | File | Status | Role |
