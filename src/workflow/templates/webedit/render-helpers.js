@@ -1,5 +1,5 @@
 // Pure DOM builders — no innerHTML of user data, no inline handlers.
-export function makeCard(phase, color) {
+export function makeCard(phase, color, oppMark) {
   const el = document.createElement("div");
   el.className = "phase-card";
   el.draggable = true;
@@ -17,6 +17,13 @@ export function makeCard(phase, color) {
   const pid = document.createElement("div");
   pid.className = "pid";
   pid.textContent = phase.id + " ";
+  if (oppMark === "opportunistic" || oppMark === "locked") {
+    const ob = document.createElement("span");
+    ob.className = "opp-badge " + (oppMark === "locked" ? "opp-locked" : "opp-on");
+    ob.textContent = oppMark === "locked" ? "⛔" : "🧭";
+    ob.title = oppMark === "locked" ? "opportunism locked" : "opportunistic autonomy";
+    pid.appendChild(ob);
+  }
   const badge = document.createElement("span");
   badge.className = "badge";
   badge.textContent = phase.type || "agent";

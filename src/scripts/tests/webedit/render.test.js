@@ -199,3 +199,13 @@ test("resolvedOppLabel maps the /api/view block", () => {
   expect(resolvedOppLabel(v, "D")).toBe("Off");
   expect(resolvedOppLabel(v, "missing")).toBe("");
 });
+
+test("makeCard shows the opportunistic / locked badge from oppMark", () => {
+  const { document } = parseHTML("<!DOCTYPE html><body></body>"); globalThis.document = document;
+  const a = makeCard({ id: "A", name: "a", type: "agent" }, null, "opportunistic");
+  expect(a.querySelector(".opp-badge.opp-on").textContent).toBe("🧭");
+  const b = makeCard({ id: "B", name: "b", type: "agent" }, null, "locked");
+  expect(b.querySelector(".opp-badge.opp-locked").textContent).toBe("⛔");
+  const c = makeCard({ id: "C", name: "c", type: "agent" }, null, null);
+  expect(c.querySelector(".opp-badge")).toBeNull();
+});

@@ -86,3 +86,9 @@ pre{white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace}
 #settings{max-width:640px}
 #settings input,#settings select,#settings textarea{width:100%;background:#121a24;color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px}
 #settings button{margin-top:6px;background:#121a24;color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;cursor:pointer}
+/* opportunistic markers on grid cards */
+.opp-badge{ margin-left:4px; font-size:11px; vertical-align:middle; }
+.opp-badge.opp-on{ filter:saturate(1.3); }
+.opp-badge.opp-locked{ opacity:.85; }
+.opp-resolved{ margin-top:8px; padding:6px 8px; border-radius:4px;
+  background:#0e1620; color:#cbd5e1; font-size:12px; }
