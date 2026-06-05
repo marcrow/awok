@@ -2,7 +2,9 @@ import { test, expect } from "bun:test";
 import { parseHTML } from "linkedom";
 import { makeCard, section, helpNote, helpIcon } from "../../../workflow/templates/webedit/render-helpers.js";
 import { computeDropDepends, renderEdges, descendantIds, safeDropDepends,
-         blockedDependents, buildNotice, aggregateInvocationIo, applyPhaseGroup } from "../../../workflow/templates/webedit/editlogic.js";
+         blockedDependents, buildNotice, aggregateInvocationIo, applyPhaseGroup,
+         opportunisticMode, opportunisticGuidance, setOpportunistic,
+         globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel } from "../../../workflow/templates/webedit/editlogic.js";
 
 test("applyPhaseGroup auto-defines a brand-new group (keeps workflow coherent)", () => {
   const model = { groups: { setup: { description: "x" } } };
@@ -142,4 +144,58 @@ test("buildNotice renders title + lines as inert text", () => {
   expect(document.querySelector("img")).toBeNull();
   expect(node.querySelector(".notice-title").textContent).toBe("Déplacement bloqué");
   expect(node.querySelectorAll(".notice-line").length).toBe(2);
+});
+
+test("opportunisticMode maps raw value to UI mode", () => {
+  expect(opportunisticMode({})).toBe("inherit");
+  expect(opportunisticMode({ opportunistic: false })).toBe("locked");
+  expect(opportunisticMode({ opportunistic: true })).toBe("enabled");
+  expect(opportunisticMode({ opportunistic: { when: "x" } })).toBe("enabled");
+});
+
+test("opportunisticGuidance reads object guidance", () => {
+  expect(opportunisticGuidance({})).toEqual({ when: "", examples: [] });
+  expect(opportunisticGuidance({ opportunistic: true })).toEqual({ when: "", examples: [] });
+  expect(opportunisticGuidance({ opportunistic: { when: "w", examples: ["e"] } }))
+    .toEqual({ when: "w", examples: ["e"] });
+});
+
+test("setOpportunistic serializes minimally", () => {
+  let p = { opportunistic: { when: "x" } };
+  setOpportunistic(p, "inherit"); expect("opportunistic" in p).toBe(false);
+  p = {}; setOpportunistic(p, "locked"); expect(p.opportunistic).toBe(false);
+  p = {}; setOpportunistic(p, "enabled", "", []); expect(p.opportunistic).toBe(true);
+  p = {}; setOpportunistic(p, "enabled", "  w  ", ["a", " ", "b"]);
+  expect(p.opportunistic).toEqual({ when: "w", examples: ["a", "b"] });
+  p = {}; setOpportunistic(p, "enabled", "", ["only"]);
+  expect(p.opportunistic).toEqual({ examples: ["only"] });
+});
+
+test("globalOpportunisticState reads the top-level value", () => {
+  expect(globalOpportunisticState({})).toEqual({ enabled: false, when: "", examples: [] });
+  expect(globalOpportunisticState({ opportunistic: true })).toEqual({ enabled: true, when: "", examples: [] });
+  expect(globalOpportunisticState({ opportunistic: { enabled: true, when: "w", examples: ["e"] } }))
+    .toEqual({ enabled: true, when: "w", examples: ["e"] });
+  expect(globalOpportunisticState({ opportunistic: false }).enabled).toBe(false);
+});
+
+test("setGlobalOpportunistic keeps enabled:true in object form", () => {
+  let m = {}; setGlobalOpportunistic(m, false); expect("opportunistic" in m).toBe(false);
+  m = {}; setGlobalOpportunistic(m, true, "", []); expect(m.opportunistic).toBe(true);
+  m = {}; setGlobalOpportunistic(m, true, "w", ["e"]);
+  expect(m.opportunistic).toEqual({ enabled: true, when: "w", examples: ["e"] });
+});
+
+test("resolvedOppLabel maps the /api/view block", () => {
+  const v = { phases: {
+    A: { mark: "opportunistic", note_kind: "short", enabled: true },
+    B: { mark: "locked", note_kind: "locked", enabled: false },
+    C: { mark: null, note_kind: null, enabled: true },
+    D: { mark: null, note_kind: null, enabled: false },
+  } };
+  expect(resolvedOppLabel(v, "A")).toContain("Targeted lead");
+  expect(resolvedOppLabel(v, "B")).toContain("Locked");
+  expect(resolvedOppLabel(v, "C")).toContain("Inherited");
+  expect(resolvedOppLabel(v, "D")).toBe("Off");
+  expect(resolvedOppLabel(v, "missing")).toBe("");
 });

@@ -100,3 +100,71 @@ export function renderEdges(svg, edges, pos) {
     svg.appendChild(line);
   }
 }
+
+// --- opportunistic field helpers (pure) -----------------------------------
+// The authoritative resolution lives in Python (resolve_opportunistic); these
+// helpers only read/write the raw model value and label the server-resolved view.
+
+// Per-phase UI mode from the raw model value.
+export function opportunisticMode(phase) {
+  const o = phase ? phase.opportunistic : undefined;
+  if (o === false) return "locked";
+  if (o === undefined || o === null) return "inherit";
+  return "enabled"; // true or object
+}
+
+// Per-phase guidance (when/examples) currently stored on the phase.
+export function opportunisticGuidance(phase) {
+  const o = phase ? phase.opportunistic : undefined;
+  if (o && typeof o === "object") {
+    return { when: o.when || "", examples: Array.isArray(o.examples) ? o.examples.slice() : [] };
+  }
+  return { when: "", examples: [] };
+}
+
+// Write the per-phase opportunistic value from (mode, when, examples).
+// inherit -> delete key; locked -> false; enabled -> true (no guidance) or
+// { when?, examples? } (object, only non-empty keys). Mutates `phase`.
+export function setOpportunistic(phase, mode, when, examples) {
+  if (mode === "inherit") { delete phase.opportunistic; return; }
+  if (mode === "locked") { phase.opportunistic = false; return; }
+  const w = (when || "").trim();
+  const ex = (examples || []).map(s => String(s).trim()).filter(Boolean);
+  const obj = {};
+  if (w) obj.when = w;
+  if (ex.length) obj.examples = ex;
+  phase.opportunistic = Object.keys(obj).length ? obj : true;
+}
+
+// Global default state read from the model's top-level opportunistic.
+export function globalOpportunisticState(model) {
+  const o = model ? model.opportunistic : undefined;
+  const enabled = o === true || (o && typeof o === "object" && o.enabled !== false);
+  const when = (o && typeof o === "object" && o.when) || "";
+  const examples = (o && typeof o === "object" && Array.isArray(o.examples)) ? o.examples.slice() : [];
+  return { enabled: !!enabled, when, examples };
+}
+
+// Write the global default. enabled=false -> delete; enabled -> true (no
+// guidance) or { enabled:true, when?, examples? }. Mutates `model`.
+export function setGlobalOpportunistic(model, enabled, when, examples) {
+  if (!enabled) { delete model.opportunistic; return; }
+  const w = (when || "").trim();
+  const ex = (examples || []).map(s => String(s).trim()).filter(Boolean);
+  if (!w && !ex.length) { model.opportunistic = true; return; }
+  const o = { enabled: true };
+  if (w) o.when = w;
+  if (ex.length) o.examples = ex;
+  model.opportunistic = o;
+}
+
+// Human label for the resolved preview, read from the /api/view block.
+export function resolvedOppLabel(viewOpp, id) {
+  const e = viewOpp && viewOpp.phases && viewOpp.phases[id];
+  if (!e) return "";
+  if (e.note_kind === "short") return "🧭 Targeted lead (global on)";
+  if (e.note_kind === "full") return "🧭 Full grant (global off)";
+  if (e.note_kind === "locked") return "⛔ Locked";
+  if (e.mark == null && e.enabled) return "Inherited from global (no marker)";
+  return "Off";
+}
