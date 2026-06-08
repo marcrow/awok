@@ -50,6 +50,10 @@ signal the planned agents do not cover.
 
 {% if phase.description %}{{ phase.description }}{% endif %}
 
+{% if phase.interactive %}
+> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+
+{% endif %}
 {% if phase._opp and phase._opp.note_kind == 'locked' %}
 > ⛔ **No opportunistic autonomy here.** If the need is compelling, ask the user.
 

@@ -83,7 +83,8 @@
         "invocations": { "type": "array", "items": { "$ref": "#/definitions/invocation" } },
         "inputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
         "outputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
-        "opportunistic": { "$ref": "#/definitions/opportunistic" }
+        "opportunistic": { "$ref": "#/definitions/opportunistic" },
+        "interactive": { "type": "boolean", "description": "Human-gated checkpoint: render a hard STOP-and-wait instruction so the orchestrator does not advance past this phase without the maintainer's input." }
       }
     },
     "invocation": {

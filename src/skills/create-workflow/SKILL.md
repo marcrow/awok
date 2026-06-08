@@ -46,6 +46,8 @@ signal the planned agents do not cover.
 > `frame` · main_agent
 Capture the maintainer's raw idea and pin the real job-to-be-done with First Principles + How-Might-We. Ask the maintainer to choose the brainstorm depth (light ~15 min, or deep / multi-round) — and note it can switch any time. Write a short frame brief: the job, the chosen depth, known constraints.
 
+> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+
 
 
 ## 🧠 Brainstorm protocol (run this across S2A → S2B → S2C)
@@ -188,12 +190,16 @@ MIT). See THIRD_PARTY.md.*
 > `ideate` · main_agent · ⇐ S1-FRAME
 Movement 1 of the brainstorm (see the protocol above). Reframe the real job (First Principles / HMW) and check it; then generate ≥2 structurally different shapes and propose ≥2 agents/blocks the maintainer did not name. PACING IS MANDATORY: present ONE thing at a time — one prompt, one shape, one proposed agent — then STOP and WAIT for the maintainer before the next. Never stack questions, never dump everything at once, never advance on their behalf.
 
+> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+
 
 
 
 ### S2B-CHALLENGE — Brainstorm — challenge
 > `ideate` · main_agent · ⇐ S2A-DIVERGE
 Movement 2 of the brainstorm. Convene the independent challenge panel on the diverging design — ≥1 generative (cross-pollinator/rolestormer) AND ≥1 adversarial (premortem/devils-advocate), as background Task sub-agents — and weave their provocations back ONE AT A TIME, stopping for the maintainer's reaction after each. Land at least one challenge that actually moves the design. Same pacing rule: one thing → STOP → wait; never advance on the maintainer's behalf.
+
+> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
 
 > 🧭 **Opportunistic lead here.** A brainstorm thread needs a provocation the planned panel doesn't cover. — e.g. no panelist fits → author an ad-hoc panelist on the fly
 
@@ -203,6 +209,8 @@ Movement 2 of the brainstorm. Convene the independent challenge panel on the div
 ### S2C-CONVERGE — Brainstorm — converge & name
 > `ideate` · main_agent · ⇐ S2B-CHALLENGE
 Movement 3 of the brainstorm. Converge on the surviving design — the maintainer votes; offer "go deeper?" (escalation re-seeds divergence on the survivor, no state lost). Only once the mandatory floor is met, run the closing naming ritual (propose slugs, check the skill-name pattern + uniqueness against src/workflows/*.yaml, the maintainer picks) → new-name. The pacing rule still holds: one thing → STOP → wait.
+
+> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
 
 
 
@@ -216,6 +224,8 @@ Translate the converged design intent into a draft awok DAG: stages, groups, act
 
 ### S4-BLOCK-REVIEW — Review the blocks
 > `shape` · agent · ⇐ S3-DECOMPOSE
+
+> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
 
 #### Invocation `workflow-scout`
 
