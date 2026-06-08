@@ -1,0 +1,239 @@
+schema_version: 1
+skill:
+  name: workflow-doctor
+  description: |
+    Statically audit an existing awok workflow to tell whether it is well-built:
+    every agent well-written and well-scoped, the producer→consumer seams holding
+    semantically, and the declared YAML I/O coherent with the agents' hand-written
+    prose. A precondition gate assumes `awok validate` is green; a deterministic
+    pre-scan gates an LLM audit (drift / load-path continuity / agent fitness) so the
+    criticality verdict only escalates where a cheap signal already fired. Use it to
+    health-check a workflow (dev or pentest) before you trust it — non-decidable
+    issues surface as questions, not verdicts.
+  title: "/workflow-doctor — static workflow health-check"
+namespaces:
+  work: work/workflow-doctor
+opportunistic:
+  enabled: true
+  when: >
+    An auditor surfaces a class of problem outside the three planned concerns
+    (drift / continuity / fitness) that still bears on whether the workflow is
+    well-built.
+  examples:
+    - "target hard-codes a path no phase produces → ad-hoc producer check"
+    - "an agent's tools imply a side effect the DAG never declares → ad-hoc trace"
+groups:
+  gate:
+    description: Precondition — refuse to run on a workflow that is not validate-green
+    risk: none
+  observe:
+    description: Honest extraction of observed I/O + a cheap deterministic pre-scan
+    risk: none
+  audit:
+    description: The three concern auditors (drift, load-path continuity, fitness)
+    risk: low
+  reduce:
+    description: Synthesis, triage, adversarial recheck and handoff
+    risk: low
+phases:
+  - id: D0-GATE
+    name: Precondition gate
+    group: gate
+    type: script
+    description: >
+      Ask the maintainer which workflow to audit and write its name (one slug) to
+      work/workflow-doctor/target.txt. Then run `awok validate` on it: workflow-doctor assumes a
+      green validate and will NOT re-report any finding class validate already owns
+      (schema, cycles, dataflow orphans). If validate is not green, STOP — fix the
+      structural errors first, then re-run workflow-doctor.
+    inputs:
+      - { path: ".", kind: dir, external: true }
+    cmd: |
+      mkdir -p work/workflow-doctor
+      TARGET="$(tr -d '[:space:]' < work/workflow-doctor/target.txt 2>/dev/null)"
+      if [ -z "$TARGET" ]; then
+        echo "STOP: write the target workflow name to work/workflow-doctor/target.txt, then re-run."
+        exit 1
+      fi
+      echo "workflow-doctor precondition gate — target: $TARGET"
+      if awok validate "$TARGET"; then
+        echo "GATE: validate green → proceed."
+      else
+        echo "GATE: validate NOT green → STOP. workflow-doctor assumes a green validate; fix schema/dataflow first."
+        exit 1
+      fi
+  - id: D1-EXTRACT
+    name: Extract observed I/O (blind to declared)
+    group: observe
+    type: agent
+    depends_on: [D0-GATE]
+    invocations:
+      - agent: prose-io-reader
+        model: sonnet
+        description: Read each target agent's prose and extract what it actually reads/writes, blind to the declared YAML
+        inputs:
+          - { path: ".", kind: dir, external: true }
+        outputs:
+          - { role: work:observed-io, kind: json }
+  - id: D2-MISMATCH
+    name: Deterministic mismatch pre-scan
+    group: observe
+    type: script
+    depends_on: [D0-GATE]
+    description: >
+      Cheap, no-LLM parse of the target: (a) roles named in an agent's prose but
+      absent from its declared I/O (decidable drift), and (b) producer→consumer
+      seams whose declared role/kind do not line up. These signals GATE the
+      criticality of the downstream semantic audit (a deep finding may only escalate
+      to CRITICAL on a seam this scan already flagged).
+    inputs:
+      - { path: ".", kind: dir, external: true }
+    outputs:
+      - { role: work:mismatch-signals, kind: json }
+    cmd: |
+      mkdir -p work/workflow-doctor
+      TARGET="$(tr -d '[:space:]' < work/workflow-doctor/target.txt 2>/dev/null)"
+      python3 - "$TARGET" <<'PY'
+      import json, os, re, sys
+      target = sys.argv[1] if len(sys.argv) > 1 else ""
+      yaml_path = f"src/workflows/{target}.yaml"
+      out = {"target": target, "decidable_drift": [], "seam_mismatch": [], "notes": []}
+      try:
+          import yaml  # awok dependency; may be absent in a bare shell
+          doc = yaml.safe_load(open(yaml_path))
+      except Exception as e:
+          out["notes"].append(f"deterministic prescan degraded (no yaml / unreadable: {e}); "
+                              "downstream auditors must treat all seams as ungated.")
+          json.dump(out, open("work/workflow-doctor/mismatch-signals.json", "w"), indent=2)
+          print("MM: degraded — wrote notes only"); sys.exit(0)
+
+      def roles_of(io):
+          rs = []
+          for x in (io or []):
+              r = x.get("role") or x.get("path")
+              if r: rs.append((r, x.get("kind")))
+          return rs
+
+      agents_dir = "src/agents"
+      for ph in doc.get("phases", []):
+          for inv in ph.get("invocations", []):
+              name = inv.get("agent")
+              declared = set(r for r, _ in roles_of(inv.get("inputs")) + roles_of(inv.get("outputs")))
+              body_path = os.path.join(agents_dir, f"{name}.md")
+              if not os.path.exists(body_path):
+                  continue
+              body = open(body_path, encoding="utf-8", errors="ignore").read()
+              # (a) role-like tokens (ns:name) mentioned in prose but never declared
+              for tok in set(re.findall(r"\b[a-z][a-z0-9-]*:[a-z][a-z0-9-]+\b", body)):
+                  if tok not in declared:
+                      out["decidable_drift"].append(
+                          {"phase": ph.get("id"), "agent": name, "prose_role": tok,
+                           "kind": "role-mentioned-not-declared"})
+      # (b) seam role/kind: an output role consumed by a later phase whose declared kind differs
+      produced = {}
+      for ph in doc.get("phases", []):
+          for inv in ph.get("invocations", []):
+              for r, k in roles_of(inv.get("outputs")):
+                  produced[r] = (ph.get("id"), k)
+          for r, k in roles_of(ph.get("outputs")):
+              produced[r] = (ph.get("id"), k)
+      for ph in doc.get("phases", []):
+          consumes = list(ph.get("inputs") or [])
+          for inv in ph.get("invocations", []):
+              consumes += list(inv.get("inputs") or [])
+          for x in consumes:
+              r, k = x.get("role") or x.get("path"), x.get("kind")
+              if r in produced and produced[r][1] and k and produced[r][1] != k:
+                  out["seam_mismatch"].append(
+                      {"role": r, "producer": produced[r][0], "producer_kind": produced[r][1],
+                       "consumer": ph.get("id"), "consumer_kind": k})
+      json.dump(out, open("work/workflow-doctor/mismatch-signals.json", "w"), indent=2)
+      print(f"MM: {len(out['decidable_drift'])} decidable-drift, {len(out['seam_mismatch'])} seam-mismatch")
+      PY
+  - id: D3-DRIFT
+    name: Drift audit (prose vs declared)
+    group: audit
+    type: agent
+    depends_on: [D1-EXTRACT, D2-MISMATCH]
+    invocations:
+      - agent: declared-drift-checker
+        model: sonnet
+        description: Reconcile observed I/O against the declared YAML; emit non-decidable drift as questions
+        inputs:
+          - { role: work:observed-io, kind: json }
+          - { role: work:mismatch-signals, kind: json }
+          - { path: ".", kind: dir, external: true }
+        outputs:
+          - { role: work:drift-findings, kind: json }
+  - id: D4-LOADPATH
+    name: Load-path continuity audit
+    group: audit
+    type: agent
+    depends_on: [D1-EXTRACT, D2-MISMATCH]
+    invocations:
+      - agent: seam-continuity-tracer
+        model: opus
+        description: Check each producer→consumer seam holds semantically; score criticality, gated by the pre-scan
+        inputs:
+          - { role: work:observed-io, kind: json }
+          - { role: work:mismatch-signals, kind: json }
+          - { path: ".", kind: dir, external: true }
+        outputs:
+          - { role: work:loadpath-findings, kind: json }
+  - id: D5-FITNESS
+    name: Agent fitness / quality audit
+    group: audit
+    type: agent
+    depends_on: [D0-GATE]
+    invocations:
+      - agent: agent-quality-auditor
+        model: sonnet
+        description: Score each target agent against the embedded best-practices rubric — hard violations only
+        inputs:
+          - { path: ".", kind: dir, external: true }
+        outputs:
+          - { role: work:fitness-findings, kind: json }
+  - id: D6-REDUCE
+    name: Reduce / triage / diagnosis
+    group: reduce
+    type: main_agent
+    depends_on: [D3-DRIFT, D4-LOADPATH, D5-FITNESS]
+    description: >
+      As the orchestrator (you already hold the three auditors' outputs), merge them
+      into one diagnosis. Apply the caps: at most 7 questions total, each naming the
+      specific maintainer decision it unblocks; suppress any question that does not
+      move the criticality score. Compute a weakest-link verdict (the most critical
+      seam/agent governs) and flag single points of failure. Exclude any finding
+      class `awok validate` already owns.
+    inputs:
+      - { role: work:drift-findings, kind: json }
+      - { role: work:loadpath-findings, kind: json }
+      - { role: work:fitness-findings, kind: json }
+    outputs:
+      - { role: work:diagnosis, kind: md }
+  - id: D7-RECHECK
+    name: Adversarial recheck of blockers
+    group: reduce
+    type: agent
+    depends_on: [D6-REDUCE]
+    invocations:
+      - agent: finding-rechecker
+        model: opus
+        description: Re-examine only the blocking findings with a fresh lens; clear or confirm each before the verdict is trusted
+        inputs:
+          - { role: work:diagnosis, kind: md }
+          - { path: ".", kind: dir, external: true }
+        outputs:
+          - { role: work:verdict, kind: md, terminal: true }
+  - id: D8-HOOK
+    name: Scenario-efficacy handoff
+    group: reduce
+    type: main_agent
+    depends_on: [D7-RECHECK]
+    description: >
+      Close with a short handoff note. workflow-doctor audited STRUCTURE, COORDINATION and
+      agent FITNESS statically — it did NOT test whether the workflow is effective on
+      real cases (awok has no runtime). Real efficacy testing (generated pentest
+      scenarios, simulated runs, web-researched cases) is a heavier, separate future
+      workflow. Point the maintainer to that opening; do not attempt it here.
+on_demand_agents: []
