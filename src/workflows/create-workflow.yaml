@@ -58,10 +58,14 @@ phases:
     description: >
       Run the brainstorm protocol below (injected after this phase): an adversarial,
       generative engine that questions, contradicts and surprises the maintainer
-      rather than eliciting and rubber-stamping. Drive the curated techniques, convene
-      the independent challenge panel (premortem, devils-advocate, cross-pollinator,
-      rolestormer) via the Task tool, and run the double-diamond light/deep loop. The
-      maintainer always holds the vote. Close by naming the workflow → new-name.
+      rather than eliciting and rubber-stamping. You MUST hit the protocol's mandatory
+      floor — reframe, ≥2 structurally different shapes, ≥2 agents the maintainer did
+      not name, ≥1 generative AND ≥1 adversarial panelist fired, ≥1 challenge that
+      moved the design — BEFORE naming or decomposing, even in light mode. Drive the
+      curated techniques, convene the panel (premortem, devils-advocate,
+      cross-pollinator, rolestormer) via the Task tool, run the double-diamond
+      light/deep loop. The maintainer always holds the vote. Close by naming →
+      new-name.
     inputs:
       - { role: work:frame-brief, kind: md }
     outputs:
@@ -74,8 +78,13 @@ phases:
     depends_on: [S2-BRAINSTORM]
     description: >
       Translate the converged design intent into a draft awok DAG: stages, groups,
-      action blocks, and per-block I/O roles. Keep it a draft — the block review (S4)
-      and the maintainer will revise it. Inherit the workflow name chosen in S2.
+      action blocks, and per-block I/O roles. Before settling on one, render 2-3
+      alternative DAG shapes as a small self-contained HTML (mermaid diagrams) at
+      work/create-workflow/dag-alternatives.html, each with a one-line note on what
+      differs (what's parallelized, where the reduce sits, which blocks split/merge) —
+      open it and let the maintainer pick the shape (a table hides parallelism; a
+      diagram shows it). Keep the result a draft — the block review (S4) and the
+      maintainer will revise it. Inherit the workflow name chosen in S2.
     inputs:
       - { role: work:design-intent, kind: md }
     outputs:
