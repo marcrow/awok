@@ -2,7 +2,10 @@
 
 > Running list of improvements found while dogfooding create-workflow (v1.1) to
 > build `workflow-doctor` (v0) then `doctor2` (v1.1). Batched after the A/B run.
-> Status: **A (A1–A5) + B (B1–B4) implemented in the v1.2 batch.** **C (engine) pending.**
+> Status: **A (A1–A5) + B (B1–B4) — v1.2.** **C2 (interactive checkpoint) shipped as an
+> engine phase field; C1 (run isolation) shipped as a convention — see
+> `docs/dev/run-isolation.md` (a generic flag is leaky: awok bakes `work/` paths into
+> `type:script` cmds at generate). All cleared; only the empirical re-dogfood remains.**
 
 ## A. Brainstorm UX (the heart — highest priority)
 
