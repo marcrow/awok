@@ -133,7 +133,7 @@ phases:
     cmd: |
       NAME="$(tr -d '[:space:]' < work/create-workflow/new-name.txt)"
       echo "Validating + generating workflow: $NAME"
-      awok validate --workflow "$NAME"
+      awok validate "$NAME"
       awok generate --workflow "$NAME"
   - id: S7-REVIEW
     name: Quality review

@@ -189,7 +189,7 @@ Validate then generate the new workflow. The name is read from the new-name arti
 ```bash
 NAME="$(tr -d '[:space:]' < work/create-workflow/new-name.txt)"
 echo "Validating + generating workflow: $NAME"
-awok validate --workflow "$NAME"
+awok validate "$NAME"
 awok generate --workflow "$NAME"
 
 ```

@@ -928,7 +928,7 @@ phases:
     cmd: |
       NAME="$(tr -d '[:space:]' < work/create-workflow/new-name.txt)"
       echo "Validating + generating workflow: $NAME"
-      awok validate --workflow "$NAME"
+      awok validate "$NAME"
       awok generate --workflow "$NAME"
   - id: S7-REVIEW
     name: Quality review
@@ -1003,9 +1003,11 @@ manual_sections:
 
 Run:
 ```bash
-awok validate --workflow create-workflow
+awok validate create-workflow
 ```
-Expected: exits 0, no schema/coherence errors, **no dataflow warnings**. If you see
+Expected: exits 0, no schema/coherence errors, **no dataflow warnings**.
+(`awok validate` takes a **positional** workflow arg, not `--workflow`; only
+`awok generate` takes `--workflow`.) If you see
 "agent '<x>' not found", an agent file from Tasks 2–9 is missing/misnamed — fix the
 file, not the YAML. If you see a dataflow warning, re-check that the warned role is a
 `main_agent` phase-level I/O (should be silent) or an S4 invocation I/O with a matching
