@@ -79,15 +79,31 @@ You never hand-write the `SKILL.md` — it is generated. `awok check` fails the
 build if a generated file has drifted from its YAML source, so wire it into a
 pre-commit hook.
 
-### Authoring a workflow — just ask the AI
+### Authoring a workflow — `/create-workflow`
 
-You can write `src/workflows/<name>.yaml` three ways — but the **simplest and
-fastest is to brainstorm it with Claude Code and let the AI generate the YAML
-for you**, well-formed and ready to compile. Describe the pipeline in plain
-English — the phases, the agent each one calls, what flows in and out — and the
-model writes the declarative YAML; the JSON schema, role-based I/O and
-`awok validate` then keep it honest. Hand-editing the YAML and the visual editor
-below are there for when you want finer control, not as the starting point.
+The fastest, best-supported path is the bundled **`/create-workflow`** skill. It is
+not a passive interviewer: an adversarial brainstorming engine *pushes back* on your
+idea — independent pre-mortem, devil's-advocate, cross-domain analogy and persona
+panelists run as sub-agents to surface options and objections you wouldn't reach
+alone — then it decomposes the design into a draft DAG, checks build-vs-borrow and
+script-vs-agent for each block, scaffolds the YAML + agents + invocation snippets,
+generates, and quality-reviews the result. Run `/create-workflow` and describe the
+pipeline in plain English; you stay the decider at every step.
+
+Hand-editing `src/workflows/<name>.yaml` and the visual editor (below) are there for
+finer control; the JSON schema, role-based I/O and `awok validate` keep any path
+honest.
+
+### Health-check a workflow — `/workflow-doctor`
+
+Before you trust a workflow — especially a prose-heavy pentest one — run
+**`/workflow-doctor`** on it. It is a *static* audit (no execution): it gates on a
+green `awok validate`, then checks that each agent is well-written and well-scoped,
+that every producer→consumer seam holds **semantically** (does the producer's
+promised output actually satisfy what the consumer needs — not just a matching
+role/kind?), and that the hand-written agent prose stays coherent with the declared
+YAML I/O. The weakest seam governs the verdict; non-decidable issues surface as
+**questions to you, not verdicts**.
 
 ### Edit visually — `awok edit`
 

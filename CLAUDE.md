@@ -34,6 +34,8 @@ every `awok generate`).
 | Workflow | YAML | Generated skill | Cartography |
 |---|---|---|---|
 | `onboard` | `workflows/onboard.yaml` | `skills/onboard/SKILL.md` | `onboard.html` |
+| `create-workflow` | `workflows/create-workflow.yaml` | `skills/create-workflow/SKILL.md` | `create-workflow.html` |
+| `workflow-doctor` | `workflows/workflow-doctor.yaml` | `skills/workflow-doctor/SKILL.md` | `workflow-doctor.html` |
 
 **Commands** (no arg → all; `--workflow NAME|PATH` → a single one):
 ```bash
@@ -47,6 +49,15 @@ awok assist "<change>" --workflow onboard
 ```
 
 **Create a new workflow**:
+
+> **Recommended path: `/create-workflow`.** The bundled meta-workflow brainstorms the
+> design with you (adversarial + generative — it pushes back and proposes options you
+> didn't name), then scaffolds the YAML + agents + snippets, validates, generates and
+> quality-reviews it. The manual steps below are the fallback and the reference for
+> what it produces. After building — or before trusting any workflow — audit it with
+> **`/workflow-doctor`** (static health-check: agent fitness, semantic seam continuity,
+> prose↔declared drift).
+
 1. Create `src/workflows/<name>.yaml` with at minimum:
    ```yaml
    schema_version: 1
