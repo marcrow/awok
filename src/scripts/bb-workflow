@@ -1919,8 +1919,10 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
 
 
 def cmd_validate(args):
-    """Validate workflows. With --workflow NAME|PATH validates one;
-    otherwise iterates every discovered workflow."""
+    """Validate workflows. With --workflow NAME|PATH (or a positional NAME)
+    validates one; otherwise iterates every discovered workflow."""
+    if not args.workflow and getattr(args, "workflow_opt", None):
+        args.workflow = args.workflow_opt
     if args.workflow:
         try:
             name, workflow_path = resolve_workflow(args.workflow)
@@ -2957,7 +2959,10 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_val = sub.add_parser("validate", help="Validate workflow.yaml", parents=[common])
-    p_val.add_argument("workflow", nargs="?", default=None)
+    p_val.add_argument("workflow", nargs="?", default=None,
+                       help="Workflow name|path (default: all). "
+                            "--workflow NAME is accepted too, for parity with generate/check.")
+    p_val.add_argument("--workflow", dest="workflow_opt", default=None, help=argparse.SUPPRESS)
     p_val.set_defaults(func=cmd_validate)
 
     p_gen = sub.add_parser("generate", help="Generate SKILL.md + cartography", parents=[common])
