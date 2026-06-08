@@ -18,7 +18,7 @@ description: |
 > `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
 > every snippet.
 
-Pipeline of 8 phases, organized into 5 groups:
+Pipeline of 10 phases, organized into 5 groups:
 `frame` (Capture the idea and pin the real job-to-be-done), `ideate` (Adversarial brainstorming that breaks the tunnel effect), `shape` (Decompose into a draft DAG and review the blocks), `build` (Scaffold the workflow source and generate its artifacts), `ship` (Quality-review and hand off the generated workflow).
 
 ---
@@ -36,7 +36,7 @@ signal the planned agents do not cover.
 - **Mode**: usually in the **background**, unless the result is needed to continue the current phase.
 - **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
 - **Scope**: all phases, except those marked ⛔.
-- **Examples**: whole idea likely already exists → éclair build-vs-borrow scout; no panelist fits a gap → author an ad-hoc panelist on the fly
+- **Examples**: whole idea likely already exists → quick build-vs-borrow scout; no panelist fits a gap → author an ad-hoc panelist on the fly
 
 ---
 
@@ -48,16 +48,7 @@ Capture the maintainer's raw idea and pin the real job-to-be-done with First Pri
 
 
 
-
-### S2-BRAINSTORM — Adversarial brainstorm
-> `ideate` · main_agent · ⇐ S1-FRAME
-Run the brainstorm protocol below (injected after this phase): an adversarial, generative engine that questions, contradicts and surprises the maintainer rather than eliciting and rubber-stamping. You MUST hit the protocol's mandatory floor — reframe, ≥2 structurally different shapes, ≥2 agents the maintainer did not name, ≥1 generative AND ≥1 adversarial panelist fired, ≥1 challenge that moved the design — BEFORE naming or decomposing, even in light mode. Drive the curated techniques, convene the panel (premortem, devils-advocate, cross-pollinator, rolestormer) via the Task tool, run the double-diamond light/deep loop. The maintainer always holds the vote. Close by naming → new-name.
-
-> 🧭 **Opportunistic lead here.** A brainstorm thread needs a provocation the planned panel doesn't cover. — e.g. no panelist fits → author an ad-hoc panelist on the fly
-
-
-
-## 🧠 Brainstorm protocol (run this during S2)
+## 🧠 Brainstorm protocol (run this across S2A → S2B → S2C)
 
 This is the heart of the workflow. Your default failure mode as an LLM is
 **sycophancy** — reflecting the author's idea back, prettier, then rushing to the
@@ -70,27 +61,23 @@ always holds the vote; you are a forcing function, never the source of the answe
 > alone. If you only collected the author's own ideas, the brainstorm **failed its one
 > job.** The floor below exists to make that impossible.
 
-### ⛔ Mandatory floor — every session, even *light*
+### ⏸️ Pacing — one thing, then STOP (read this twice)
 
-You may **NOT** move to the naming ritual or to S3-decompose until you have done **all
-five**:
+This is an **interactive conversation, not a batch to complete.** After every prompt
+or artifact you put in front of the maintainer:
 
-1. **Reframe** — restate the *real* job (First Principles / HMW) in your own words and
-   check it with the author. Don't accept the framing as given.
-2. **≥2 genuinely different shapes** — generate and show at least two *structurally*
-   different ways to build it (different decomposition/flow, not cosmetic variants),
-   not one-and-done.
-3. **Propose agents they didn't name** — surface **≥2 candidate agents/blocks the
-   author hadn't thought of**, each with a one-line why. This is the *generative* duty:
-   bring options from outside their frame.
-4. **Fire the panel** — convene **≥1 generative panelist** (`cross-pollinator` or
-   `rolestormer`) **and ≥1 adversarial panelist** (`premortem` or `devils-advocate`) as
-   independent sub-agents, and weave their returns back into the dialogue.
-5. **Land ≥1 real challenge** — surface at least one objection that actually *moved*
-   the design (changed a choice or forced a defense), not a rhetorical one.
+- Present **ONE** thing — one question, one shape, one proposed agent, one panelist's
+  provocation.
+- Then **STOP and WAIT** for their reply. Do **not** continue, do **not** move to the
+  next item or the next movement, do **not** decide on the maintainer's behalf.
+- **Never stack** several questions in one message. **Never dump** multiple shapes +
+  multiple agents + a pivot question at once — it overwhelms; the maintainer can't
+  respond calmly and will miss things.
+- If you write **"OK?"** you **must** stop and wait for the OK. Asking-then-proceeding
+  is the exact anti-pattern to avoid.
 
-If you catch yourself drifting toward the name or the agent list before these five are
-done, **STOP and go back.**
+The three movements (S2A / S2B / S2C) are deliberate **hard stops**. Never cross one
+without the maintainer's explicit go.
 
 ### Facilitator stance
 
@@ -100,8 +87,8 @@ done, **STOP and go back.**
 - **No multiple-choice menus** of ideas — a menu invites lazy picking and pulls the
   author out of generating. Ask one open prompt at a time.
 - **Diverge/converge firewall** — never judge during generation (premature judgment
-  kills ideas); converge in a distinct pass, on the author's verdict — never rank for
-  them.
+  kills ideas); the challenge panel (S2B) fires **after** an initial generative pass,
+  not during it; converge in a distinct movement (S2C), on the author's verdict.
 
 ### Generative duty (the half that's easy to skip)
 
@@ -109,30 +96,48 @@ Adversarial is only half the job — and it's the half that tends to show up whi
 *generative* half goes missing. You must also **GENERATE**: actively propose
 alternative structures, alternative agent sets, techniques pulled from the on-demand
 library, and cross-domain analogies the author would not reach alone — **without being
-asked.** "Hand them an option they didn't have" is a deliverable of every session, not
-a bonus.
+asked.** "Hand them an option they didn't have" is a deliverable of every session.
+
+### The mandatory floor — spread across the three movements, run PACED
+
+You may **NOT** reach naming/decompose (the end of S2C) until all five are done — but
+do them **one at a time, stopping after each** (see Pacing above):
+
+- **S2A · Diverge & frame** —
+  1. **Reframe** the real job (First Principles / HMW) in your own words, check it → *stop.*
+  2. **≥2 structurally different shapes** (different decomposition/flow, not cosmetic),
+     presented **one at a time** → *stop after each.*
+  3. **≥2 agents/blocks the author didn't name**, each with a one-line why → *stop.*
+- **S2B · Challenge** —
+  4. Fire **≥1 generative** (`cross-pollinator`/`rolestormer`) **and ≥1 adversarial**
+     (`premortem`/`devils-advocate`) panelist as independent background sub-agents;
+     weave their returns back **one at a time** → *stop.*
+  5. **Land ≥1 challenge** that actually *moved* the design (changed a choice or forced
+     a defense), not a rhetorical one.
+- **S2C · Converge & name** — converge on the survivor (the author votes), offer "go
+  deeper?" (escalation), then run the naming ritual below.
+
+If you catch yourself drifting toward the name or the agent list before the floor is
+met, **STOP and go back.**
 
 ### Session depth (the author chooses in S1; switchable any time)
 
-- **Light** (~15 min): the **mandatory floor above, run briskly** — one
-  diverge/converge pass. *Light means fewer rounds, NOT less pushing.* The floor is the
-  floor.
-- **Deep** (multi-round): *First Principles* + *Starbursting* to pin the real job and
+- **Light** (~15 min): the floor above, run **briskly** — one diverge/converge pass.
+  *Light means fewer rounds, NOT less pushing.* The floor is the floor.
+- **Deep** (multi-round): *First Principles* + *Starbursting* to pin the job and
   per-block I/O → *Morphological Analysis* for more shape variants → broader panel
-  critique (all four panelists + Six Hats) → converge, then re-diverge.
+  critique (all four + Six Hats) → converge, then re-diverge.
 - **Escalation invariant** — *the convergence artifact of round N becomes the
   divergence seed of round N+1.* At any convergence point, offer "go deeper?": to
-  escalate, re-enter divergence **on the survivor** (Starburst each node, spawn
-  variants). No state is lost — the author can start light and deepen the moment the
-  idea proves more ambitious than it looked.
+  escalate, re-enter divergence on the survivor. No state is lost.
 
-### The challenge panel — mandatory, not optional
+### The challenge panel (S2B) — mandatory, not optional
 
 You are *inside* the author's frame — you share the conversation. Genuinely surprising
 provocations come from **independent sub-agents** that never lived the framing. Convene
-them with the `Task` tool (usually in the **background**), feed them the current
-`design-intent`, and weave their returns back. The floor requires **at least one
-generative + one adversarial**; fire more as the design grows.
+them with the `Task` tool (in the **background** — they chew while you talk), feed them
+the current diverging design, and weave their returns back **one at a time**. The floor
+requires **at least one generative + one adversarial**; fire more as the design grows.
 
 | Panelist | Kind | Convene when |
 |---|---|---|
@@ -164,9 +169,9 @@ Thinking · Biomimicry · Forced Relationships · Provocation (PO) · Five Whys 
 Mind-map decomposition · SWOT / assumption surfacing · "What would break this?" ·
 Constraint removal ("infinite budget") · Constraint addition ("half the steps").
 
-### Closing ritual — name the workflow (only once the floor is met)
+### Closing ritual — name the workflow (end of S2C, only once the floor is met)
 
-With the mandatory floor done, close S2 by **naming the thing** (it's a
+With the mandatory floor done, close S2C by **naming the thing** (it's a
 convergence/commitment moment — by now you know what it *is*). Propose a few candidate
 slugs, check each against the skill-name pattern `^[a-z][a-z0-9-]*$` and for
 **uniqueness** against existing `src/workflows/*.yaml`, and let the **author pick**.
@@ -179,9 +184,32 @@ MIT). See THIRD_PARTY.md.*
 
 
 
+### S2A-DIVERGE — Brainstorm — diverge & frame
+> `ideate` · main_agent · ⇐ S1-FRAME
+Movement 1 of the brainstorm (see the protocol above). Reframe the real job (First Principles / HMW) and check it; then generate ≥2 structurally different shapes and propose ≥2 agents/blocks the maintainer did not name. PACING IS MANDATORY: present ONE thing at a time — one prompt, one shape, one proposed agent — then STOP and WAIT for the maintainer before the next. Never stack questions, never dump everything at once, never advance on their behalf.
+
+
+
+
+### S2B-CHALLENGE — Brainstorm — challenge
+> `ideate` · main_agent · ⇐ S2A-DIVERGE
+Movement 2 of the brainstorm. Convene the independent challenge panel on the diverging design — ≥1 generative (cross-pollinator/rolestormer) AND ≥1 adversarial (premortem/devils-advocate), as background Task sub-agents — and weave their provocations back ONE AT A TIME, stopping for the maintainer's reaction after each. Land at least one challenge that actually moves the design. Same pacing rule: one thing → STOP → wait; never advance on the maintainer's behalf.
+
+> 🧭 **Opportunistic lead here.** A brainstorm thread needs a provocation the planned panel doesn't cover. — e.g. no panelist fits → author an ad-hoc panelist on the fly
+
+
+
+
+### S2C-CONVERGE — Brainstorm — converge & name
+> `ideate` · main_agent · ⇐ S2B-CHALLENGE
+Movement 3 of the brainstorm. Converge on the surviving design — the maintainer votes; offer "go deeper?" (escalation re-seeds divergence on the survivor, no state lost). Only once the mandatory floor is met, run the closing naming ritual (propose slugs, check the skill-name pattern + uniqueness against src/workflows/*.yaml, the maintainer picks) → new-name. The pacing rule still holds: one thing → STOP → wait.
+
+
+
+
 ### S3-DECOMPOSE — Decompose into blocks
-> `shape` · main_agent · ⇐ S2-BRAINSTORM
-Translate the converged design intent into a draft awok DAG: stages, groups, action blocks, and per-block I/O roles. Before settling on one, render 2-3 alternative DAG shapes as a small self-contained HTML (mermaid diagrams) at work/create-workflow/dag-alternatives.html, each with a one-line note on what differs (what's parallelized, where the reduce sits, which blocks split/merge) — open it and let the maintainer pick the shape (a table hides parallelism; a diagram shows it). Keep the result a draft — the block review (S4) and the maintainer will revise it. Inherit the workflow name chosen in S2.
+> `shape` · main_agent · ⇐ S2C-CONVERGE
+Translate the converged design intent into a draft awok DAG: stages, groups, action blocks, and per-block I/O roles. Before settling on one, render 2-3 alternative DAG shapes as a small self-contained HTML at work/create-workflow/dag-alternatives.html — match the visual style of awok's generated cartography (reuse the palette/CSS from src/workflow/templates/html-wrapper.html), one mermaid diagram per alternative, and give each node a hover tooltip that explains what that action actually does (not just its id). Add a one-line note per alternative on what differs (what's parallelized, where the reduce sits, which blocks split/merge) — open it and let the maintainer pick the shape (a table hides parallelism; a diagram shows it). Keep the result a draft — the block review (S4) and the maintainer will revise it. Inherit the workflow name chosen in S2C.
 
 
 
@@ -193,7 +221,7 @@ Translate the converged design intent into a draft awok DAG: stages, groups, act
 
 
 **workflow-scout** [sonnet] · Searches reputable skills/agents/registries for prior art on each draft block.
-- Reads : `work:draft-dag` (md) → work/create-workflow/draft-dag.md
+- Reads : `work:draft-dag` (md) → work/create-workflow/draft-dag.md, `agents` (dir) → src/agents/
 - Writes : `work:reuse-report` (md) → work/create-workflow/reuse-report.md
 
 **Task**: For each block in the draft DAG, find whether a reputable, adaptable
@@ -242,7 +270,7 @@ awok generate --workflow "$NAME"
 
 
 **skill-reviewer** [opus] · Scores the generated SKILL.md and the new agent files against Anthropic's rubric.
-- Reads : `skills` (dir) → src/skills/
+- Reads : `skills` (dir) → src/skills/, `agents` (dir) → src/agents/
 - Writes : `work:review-report` (md) → work/create-workflow/review-report.md
 
 **Task**: Review the generated SKILL.md and every referenced agent file against the

@@ -8,8 +8,6 @@ description: |
 model: inherit
 tools:
   - Read
-  - Grep
-  - Glob
   - WebSearch
   - Write
 ---

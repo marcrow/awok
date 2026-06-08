@@ -16,7 +16,7 @@ opportunistic:
     Early, if the whole idea smells already-built (strong prior art); or in the
     brainstorm, when a thread needs a provocation the planned panel doesn't cover.
   examples:
-    - "whole idea likely already exists → éclair build-vs-borrow scout"
+    - "whole idea likely already exists → quick build-vs-borrow scout"
     - "no panelist fits a gap → author an ad-hoc panelist on the fly"
 groups:
   frame:
@@ -46,28 +46,57 @@ phases:
       a short frame brief: the job, the chosen depth, known constraints.
     outputs:
       - { role: work:frame-brief, kind: md }
-  - id: S2-BRAINSTORM
-    name: Adversarial brainstorm
+  - id: S2A-DIVERGE
+    name: Brainstorm — diverge & frame
     group: ideate
     type: main_agent
     depends_on: [S1-FRAME]
+    description: >
+      Movement 1 of the brainstorm (see the protocol above). Reframe the real job
+      (First Principles / HMW) and check it; then generate ≥2 structurally different
+      shapes and propose ≥2 agents/blocks the maintainer did not name. PACING IS
+      MANDATORY: present ONE thing at a time — one prompt, one shape, one proposed
+      agent — then STOP and WAIT for the maintainer before the next. Never stack
+      questions, never dump everything at once, never advance on their behalf.
+    inputs:
+      - { role: work:frame-brief, kind: md }
+    outputs:
+      - { role: work:diverge-notes, kind: md }
+  - id: S2B-CHALLENGE
+    name: Brainstorm — challenge
+    group: ideate
+    type: main_agent
+    depends_on: [S2A-DIVERGE]
     opportunistic:
       when: A brainstorm thread needs a provocation the planned panel doesn't cover.
       examples:
         - "no panelist fits → author an ad-hoc panelist on the fly"
     description: >
-      Run the brainstorm protocol below (injected after this phase): an adversarial,
-      generative engine that questions, contradicts and surprises the maintainer
-      rather than eliciting and rubber-stamping. You MUST hit the protocol's mandatory
-      floor — reframe, ≥2 structurally different shapes, ≥2 agents the maintainer did
-      not name, ≥1 generative AND ≥1 adversarial panelist fired, ≥1 challenge that
-      moved the design — BEFORE naming or decomposing, even in light mode. Drive the
-      curated techniques, convene the panel (premortem, devils-advocate,
-      cross-pollinator, rolestormer) via the Task tool, run the double-diamond
-      light/deep loop. The maintainer always holds the vote. Close by naming →
-      new-name.
+      Movement 2 of the brainstorm. Convene the independent challenge panel on the
+      diverging design — ≥1 generative (cross-pollinator/rolestormer) AND ≥1
+      adversarial (premortem/devils-advocate), as background Task sub-agents — and
+      weave their provocations back ONE AT A TIME, stopping for the maintainer's
+      reaction after each. Land at least one challenge that actually moves the design.
+      Same pacing rule: one thing → STOP → wait; never advance on the maintainer's
+      behalf.
     inputs:
-      - { role: work:frame-brief, kind: md }
+      - { role: work:diverge-notes, kind: md }
+    outputs:
+      - { role: work:challenge-notes, kind: md }
+  - id: S2C-CONVERGE
+    name: Brainstorm — converge & name
+    group: ideate
+    type: main_agent
+    depends_on: [S2B-CHALLENGE]
+    description: >
+      Movement 3 of the brainstorm. Converge on the surviving design — the maintainer
+      votes; offer "go deeper?" (escalation re-seeds divergence on the survivor, no
+      state lost). Only once the mandatory floor is met, run the closing naming ritual
+      (propose slugs, check the skill-name pattern + uniqueness against
+      src/workflows/*.yaml, the maintainer picks) → new-name. The pacing rule still
+      holds: one thing → STOP → wait.
+    inputs:
+      - { role: work:challenge-notes, kind: md }
     outputs:
       - { role: work:design-intent, kind: md }
       - { role: work:new-name, kind: text }
@@ -75,16 +104,20 @@ phases:
     name: Decompose into blocks
     group: shape
     type: main_agent
-    depends_on: [S2-BRAINSTORM]
+    depends_on: [S2C-CONVERGE]
     description: >
       Translate the converged design intent into a draft awok DAG: stages, groups,
       action blocks, and per-block I/O roles. Before settling on one, render 2-3
-      alternative DAG shapes as a small self-contained HTML (mermaid diagrams) at
-      work/create-workflow/dag-alternatives.html, each with a one-line note on what
-      differs (what's parallelized, where the reduce sits, which blocks split/merge) —
-      open it and let the maintainer pick the shape (a table hides parallelism; a
-      diagram shows it). Keep the result a draft — the block review (S4) and the
-      maintainer will revise it. Inherit the workflow name chosen in S2.
+      alternative DAG shapes as a small self-contained HTML at
+      work/create-workflow/dag-alternatives.html — match the visual style of awok's
+      generated cartography (reuse the palette/CSS from
+      src/workflow/templates/html-wrapper.html), one mermaid diagram per alternative,
+      and give each node a hover tooltip that explains what that action actually does
+      (not just its id). Add a one-line note per alternative on what differs (what's
+      parallelized, where the reduce sits, which blocks split/merge) — open it and let
+      the maintainer pick the shape (a table hides parallelism; a diagram shows it).
+      Keep the result a draft — the block review (S4) and the maintainer will revise
+      it. Inherit the workflow name chosen in S2C.
     inputs:
       - { role: work:design-intent, kind: md }
     outputs:
@@ -100,6 +133,7 @@ phases:
         description: For each block, find reputable skills/agents that already do the work
         inputs:
           - { role: work:draft-dag, kind: md }
+          - { path: "src/agents/", kind: dir, external: true }
         outputs:
           - { role: work:reuse-report, kind: md }
       - agent: nature-critic
@@ -155,6 +189,7 @@ phases:
         description: Score the generated SKILL.md and the new agent files against the rubric
         inputs:
           - { path: "src/skills/", kind: dir, external: true }
+          - { path: "src/agents/", kind: dir, external: true }
         outputs:
           - { role: work:review-report, kind: md }
   - id: S8-HANDOFF
@@ -210,4 +245,4 @@ on_demand_agents:
 manual_sections:
   - name: brainstorm-protocol
     path: src/workflow/manual/brainstorm-protocol.md
-    insert_at: "after:S2-BRAINSTORM"
+    insert_at: "after:S1-FRAME"

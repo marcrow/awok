@@ -4,7 +4,7 @@
 
 ## Overview
 
-8 phases, organized into 5 groups.
+10 phases, organized into 5 groups.
 > 🧭 Opportunistic workflow: the orchestrator may launch ad-hoc sub-agents (except phases marked ⛔).
 
 ## Groups
@@ -19,13 +19,15 @@
 
 ```
 Level 0: S1-FRAME
-Level 1: S2-BRAINSTORM
-Level 2: S3-DECOMPOSE
-Level 3: S4-BLOCK-REVIEW
-Level 4: S5-SCAFFOLD
-Level 5: S6-GENERATE
-Level 6: S7-REVIEW
-Level 7: S8-HANDOFF
+Level 1: S2A-DIVERGE
+Level 2: S2B-CHALLENGE
+Level 3: S2C-CONVERGE
+Level 4: S3-DECOMPOSE
+Level 5: S4-BLOCK-REVIEW
+Level 6: S5-SCAFFOLD
+Level 7: S6-GENERATE
+Level 8: S7-REVIEW
+Level 9: S8-HANDOFF
 ```
 
 ## Phases
@@ -34,16 +36,24 @@ Level 7: S8-HANDOFF
 
 - Group: `frame`
 - Type: `main_agent`
-### S2-BRAINSTORM — Adversarial brainstorm
+### S2A-DIVERGE — Brainstorm — diverge & frame
 
 - Group: `ideate`
 - Type: `main_agent`- Depends on: S1-FRAME
+### S2B-CHALLENGE — Brainstorm — challenge
+
+- Group: `ideate`
+- Type: `main_agent`- Depends on: S2A-DIVERGE
 - 🧭 Opportunistic autonomy: A brainstorm thread needs a provocation the planned panel doesn't cover.
 
+### S2C-CONVERGE — Brainstorm — converge & name
+
+- Group: `ideate`
+- Type: `main_agent`- Depends on: S2B-CHALLENGE
 ### S3-DECOMPOSE — Decompose into blocks
 
 - Group: `shape`
-- Type: `main_agent`- Depends on: S2-BRAINSTORM
+- Type: `main_agent`- Depends on: S2C-CONVERGE
 ### S4-BLOCK-REVIEW — Review the blocks
 
 - Group: `shape`

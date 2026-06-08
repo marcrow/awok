@@ -31,8 +31,11 @@ weight its verdict accordingly.
 mkdir -p /tmp/tessl-sandbox
 export HOME=/tmp/tessl-sandbox
 export npm_config_cache=/tmp/tessl-sandbox/.npm
+# resolve the generated skill dir from the chosen workflow name (no hardcoded path)
+NAME="$(tr -d '[:space:]' < work/create-workflow/new-name.txt 2>/dev/null)"
+SKILL_DIR="$(realpath "src/skills/$NAME" 2>/dev/null)"
 npx --cache /tmp/tessl-sandbox/.npm @tessl/cli config set shareUsageData false
-npx --cache /tmp/tessl-sandbox/.npm @tessl/cli skill review --json /abs/path/to/src/skills/<name>
+npx --cache /tmp/tessl-sandbox/.npm @tessl/cli skill review --json "$SKILL_DIR"
 ```
 
 If `npx`/network is unavailable, report "tessl unavailable" — do not fail the workflow.
