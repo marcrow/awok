@@ -76,11 +76,14 @@ agent **author additional ad-hoc panelists** for a technique the panel doesn't c
 
 ### 2.3 On-demand technique library
 
-The full BMAD `brain-methods.csv` (~108 techniques) is vendored as a **skill asset**
-(subset surfaced; full set available). The main agent pulls a technique by name when
-the author asks ("do a reverse brainstorming now") or when it judges the well is dry.
-This is data the main agent applies, **not** a sub-agent — only the *panel* are
-sub-agents.
+A curated subset of BMAD's `brain-methods.csv` (~15–20 of the best, adapted) is
+**embedded directly in the `brainstorm-protocol` manual section** as a markdown
+table — awok has no skill-asset deployment mechanism, so the library must be
+self-contained in the SKILL.md (and each panel agent self-contains its own protocol
+in its `.md` body, which *is* deployed to `~/.claude/agents/`). The main agent pulls
+a technique by name when the author asks ("do a reverse brainstorming now") or when
+it judges the well is dry. This is data the main agent applies, **not** a sub-agent —
+only the *panel* are sub-agents.
 
 ### 2.4 Session depth & the escalation seam (short ↔ long, switchable mid-session)
 
@@ -140,13 +143,15 @@ the single source of truth consumed by scaffold (S5) and the generate script (S6
 | **S7-REVIEW** | `agent` | ship | `skill-reviewer` scores SKILL.md **and** agents against the Anthropic rubric. `fail → S5` (instructions, not a DAG edge). |
 | **S8-HANDOFF** | `main_agent` | ship | `./install.sh`, smoke-test the new `/skill`, optionally chain `writing-plans`. |
 
-**S4 detail** — two invocations on the same `draft-dag`:
+**S4 detail** — one phase, two invocations:
 - `workflow-scout` [sonnet] — for each block, search reputable skills/agents/registries
   → *does this already exist?* → `reuse-report`.
 - `nature-critic` [sonnet] — for each block, recommend its optimal awok **action type**
-  (`script` vs `agent` vs `main_agent` vs `workflow_call`) → `nature-report`.
-  Chained `depends_on_invocation: workflow-scout` so it can skip blocks already
-  flagged borrowable.
+  (`script` vs `agent` vs `main_agent` vs `workflow_call`) → `nature-report`. It takes
+  `reuse-report` **as an input**, which both *orders it after* the scout and lets it
+  skip blocks already flagged borrowable. (Ordering is encoded via I/O rather than the
+  `depends_on_invocation` field, which awok validates but does not render in the
+  SKILL.md.)
 
 **Loops (instructions in the SKILL, not DAG edges):** light→deep escalation in S2;
 review-fail→fix between S7 and S5.
@@ -166,7 +171,7 @@ whole workflow smells already-built; ad-hoc panelists in S2.
 | S2-BRAINSTORM (also `brainstormings.output`) | `work:design-intent` | md | S3, S5 |
 | S2-BRAINSTORM (closing naming ritual) | `work:new-name` | text | S5, S6 |
 | S3-DECOMPOSE | `work:draft-dag` | md | S4, S5 |
-| S4 · workflow-scout | `work:reuse-report` | md | S5 |
+| S4 · workflow-scout | `work:reuse-report` | md | S4 · nature-critic, S5 |
 | S4 · nature-critic | `work:nature-report` | md | S5 |
 | S5-SCAFFOLD | the new workflow source tree (`src/workflows/<name>.yaml`, agents, snippets) | dir | S6 (terminal deliverable) |
 | S6-GENERATE | the generated `SKILL.md` + cartography | dir | S7 (terminal deliverable) |
@@ -222,6 +227,14 @@ source GitHub repo (not the marketplace listing).
 ---
 
 ## 7. awok feature coverage (this workflow as a self-test)
+
+**Build note:** a generator probe (2026-06-08) confirmed **every feature below is
+already wired and rendered** — this workflow is **pure content authoring, zero
+generator/template changes**. The only adjustments vs. a naive reading: ordering of
+the two S4 critics is encoded via I/O (not the unrendered `depends_on_invocation`),
+and the technique library is embedded in the manual section (no skill-asset
+deployment exists). `brainstorming.output` is dataflow-invisible, so `design-intent`
+is tracked as the S2 phase-level output.
 
 | Feature | Exercised by | New vs `onboard` |
 |---|---|---|
