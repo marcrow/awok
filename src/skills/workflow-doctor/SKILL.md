@@ -20,6 +20,11 @@ description: |
 > Implicit convention: each agent invocation `<name>` instructs Claude to read
 > `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
 > every snippet.
+>
+> **Model is not inherited.** Each invocation shows its model as `[model]` and a ⚙️
+> reminder line. When you launch that agent via the `Task` tool you **must pass the
+> model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
+> the session model, often a costlier one.
 
 Pipeline of 9 phases, organized into 4 groups:
 `gate` (Precondition — refuse to run on a workflow that is not validate-green), `observe` (Honest extraction of observed I/O + a cheap deterministic pre-scan), `audit` (The three concern auditors (drift, load-path continuity, fitness)), `reduce` (Synthesis, triage, adversarial recheck and handoff).
@@ -82,6 +87,8 @@ fi
 its body prose and its hand-written Task sentence (never the YAML, never the templated
 I/O block) and record what it actually reads/writes, with short evidence quotes and an
 `uncertain` list where the prose is vague. Observations, never verdicts.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 
 
 
@@ -169,6 +176,8 @@ residue: where an agent's prose works on an artifact it never declares, or decla
 output its prose never produces. Exclude anything `awok validate` owns. Phrase every
 non-decidable finding as a question that names the decision it unblocks.
 
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
 
 
 ### D4-LOADPATH — Load-path continuity audit
@@ -187,6 +196,8 @@ QUESTION — it escalates to CRITICAL only on a seam the pre-scan's `seam_mismat
 already flagged. Name the weakest link that governs the verdict and any single point of
 failure.
 
+> ⚙️ **Run on `opus`** — launch via the `Task` tool with `model: opus` (not inherited from the session model).
+
 
 
 ### D5-FITNESS — Agent fitness / quality audit
@@ -204,6 +215,8 @@ violations (missing required tool, pinned model, description↔body contradictio
 output contract), cap style notes at a shared top-3 (non-blocking), and never penalize
 terseness. Add inter-agent coherence findings. Warn if the engine schema_version exceeds
 the rubric's.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 
 
 
@@ -229,6 +242,8 @@ fresh, and try to refute it. Mark each CONFIRMED / CLEARED / DOWNGRADED, default
 CLEARED when refutation even partly succeeds. Write the final verdict (HEALTHY /
 NEEDS-FIX / BLOCKED) governed by the surviving weakest link, then the questions and
 capped style notes.
+
+> ⚙️ **Run on `opus`** — launch via the `Task` tool with `model: opus` (not inherited from the session model).
 
 
 

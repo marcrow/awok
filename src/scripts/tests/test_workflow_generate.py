@@ -92,6 +92,60 @@ phases:
     assert "in/a.json" in content
     assert "out/b.json" in content
     assert "test-agent" in content
+    # No invocation pins a model → neither the header convention note nor the
+    # per-invocation ⚙️ reminder must appear (gated on any_invocation_model).
+    assert "Model is not inherited" not in content
+    assert "⚙️" not in content
+
+
+def test_generate_skill_emits_model_imperative(bbw_module, tmp_path):
+    """When an invocation pins a model, the SKILL.md must render it as an IMPERATIVE
+    (pass it to the Task tool), not just a decorative [model] label — plus the
+    header convention note. Regression guard for the headless tiering loss: the
+    orchestrator silently inherited the session model when the model was advisory."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: tiered-flow
+  description: One invocation pins a model
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: First
+    group: g
+    invocations:
+      - agent: test-agent
+        model: haiku
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    # Header convention note appears (gated on any_invocation_model).
+    assert "Model is not inherited" in content
+    # Per-invocation imperative: the model must be passed to the Task tool.
+    assert "model: haiku" in content
+    assert "not inherited from the session model" in content
 
 
 def test_generate_skill_derives_parallel_with(bbw_module, tmp_path):

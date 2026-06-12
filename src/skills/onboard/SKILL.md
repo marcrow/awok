@@ -16,6 +16,11 @@ description: |
 > Implicit convention: each agent invocation `<name>` instructs Claude to read
 > `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
 > every snippet.
+>
+> **Model is not inherited.** Each invocation shows its model as `[model]` and a ⚙️
+> reminder line. When you launch that agent via the `Task` tool you **must pass the
+> model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
+> the session model, often a costlier one.
 
 Pipeline of 7 phases, organized into 3 groups:
 `scan` (Cheap initial scan of the target repo), `explore` (Parallel exploration of the codebase), `synthesize` (Synthesis of the deliverables).
@@ -52,6 +57,8 @@ signal the planned agents do not cover.
 - Writes : `work:inventory` (md) → work/onboard/inventory.md
 
 **Task**: Walk the target repo and write the `inventory`: top-level layout, detected languages, build/config/manifest files, candidate entry points, and rough sizes (file counts, LOC ballpark). Factual and compact — the explorers read it.
+
+> ⚙️ **Run on `haiku`** — launch via the `Task` tool with `model: haiku` (not inherited from the session model).
 
 
 
@@ -90,6 +97,8 @@ mkdir -p work/onboard
 
 **Task**: From the `inventory`, group the code into modules (by directory or cohesive unit). For each: name, one-line responsibility, and boundaries (what it owns, what it depends on). Write the `structure`.
 
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
 
 
 ### O2-DEPS — Dependency audit
@@ -106,6 +115,8 @@ mkdir -p work/onboard
 
 **Task**: From the `inventory`, audit dependencies and tooling: package manager(s) and manifests, declared deps (grouped), build system and scripts, and lint/test/CI config. Write the `deps`.
 
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
 
 
 ### O3-FLOW — Flow tracing
@@ -119,6 +130,8 @@ mkdir -p work/onboard
 - Writes : `work:flow` (md) → work/onboard/flow.md
 
 **Task**: From the `inventory`, identify the real entry points (CLI, main, server) and trace the main execution path from startup to exit, naming the key functions/modules it passes through. Write the `flow`.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 
 
 
@@ -136,6 +149,8 @@ mkdir -p work/onboard
 
 **Task**: Synthesize the `architecture` from the `structure`, `deps`, `flow` and `git-stats`. Sections: Overview, Components (how they fit), Dataflow (grounded in `flow`), Activity hotspots (grounded in `git-stats`). Cite real names.
 
+> ⚙️ **Run on `opus`** — launch via the `Task` tool with `model: opus` (not inherited from the session model).
+
 
 
 ### O5-GETTING-STARTED — Getting-started guide
@@ -149,6 +164,8 @@ mkdir -p work/onboard
 - Writes : `work:getting-started` (md) → work/onboard/getting-started.md
 
 **Task**: Using the `architecture` and `inventory`, write the `getting-started` guide: Prerequisites, Install/Setup (concrete commands), First run, and Where to contribute first (2-4 concrete low-risk starting points). Practical and concrete.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 
 
 

@@ -1034,7 +1034,17 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
                 continue
             snippet = load_snippet(snippet_path)
             rendered = render_snippet(snippet, inv)
-            rendered_invocations.append(f"#### Invocation `{inv['agent']}`\n\n{rendered}")
+            block = f"#### Invocation `{inv['agent']}`\n\n{rendered}"
+            if inv.get("model"):
+                # The model lives in workflow.yaml (source of truth); render it as an
+                # IMPERATIVE so the orchestrator passes it to the Task tool, instead of
+                # a decorative [model] label the sub-agent silently inherits past. The
+                # session model wins by default — see the model convention in the header.
+                block = block.rstrip("\n") + (
+                    f"\n\n> ⚙️ **Run on `{inv['model']}`** — launch via the `Task` tool "
+                    f"with `model: {inv['model']}` (not inherited from the session model).\n"
+                )
+            rendered_invocations.append(block)
         phase["rendered_invocations"] = rendered_invocations
         phases_rendered.append(phase)
 
@@ -1082,6 +1092,14 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         else:
             manual_blocks_at_end.append(content)
 
+    # Whether any planned invocation pins a model — gates the "model is not
+    # inherited" convention note in the header (noise when no tiering is used).
+    any_invocation_model = any(
+        inv.get("model")
+        for phase in workflow.get("phases", [])
+        for inv in (phase.get("invocations") or [])
+    )
+
     # Render top-level skeleton
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(templates_dir)),
@@ -1105,6 +1123,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         manual_blocks=manual_blocks_at_end,
         on_demand_agents=workflow.get("on_demand_agents", []),
         opportunistic_global=opportunistic_global,
+        any_invocation_model=any_invocation_model,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

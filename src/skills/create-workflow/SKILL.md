@@ -17,6 +17,11 @@ description: |
 > Implicit convention: each agent invocation `<name>` instructs Claude to read
 > `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
 > every snippet.
+>
+> **Model is not inherited.** Each invocation shows its model as `[model]` and a ⚙️
+> reminder line. When you launch that agent via the `Task` tool you **must pass the
+> model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
+> the session model, often a costlier one.
 
 Pipeline of 10 phases, organized into 5 groups:
 `frame` (Capture the idea and pin the real job-to-be-done), `ideate` (Adversarial brainstorming that breaks the tunnel effect), `shape` (Decompose into a draft DAG and review the blocks), `build` (Scaffold the workflow source and generate its artifacts), `ship` (Quality-review and hand off the generated workflow).
@@ -239,6 +244,8 @@ resource (skill/agent/library) already does the work. Report candidates with URL
 license, reputation and a borrow/build-fresh recommendation. Advisory only — the
 maintainer decides per block.
 
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
 #### Invocation `nature-critic`
 
 
@@ -249,6 +256,8 @@ maintainer decides per block.
 **Task**: For each block in the draft DAG (skipping ones the reuse-report flags as
 borrowable), recommend its optimal awok action nature, hunting especially for
 LLM-where-a-script-suffices and script-where-judgment-is-needed. Advisory only.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 
 
 
@@ -287,6 +296,8 @@ awok generate --workflow "$NAME"
 Anthropic skill-authoring rubric (description quality, conciseness-for-an-orchestrator,
 structure; agent frontmatter + body). Emit per-artifact scores, severity-tagged issues
 with concrete fixes, and an overall PASS / NEEDS-FIX / REWORK verdict.
+
+> ⚙️ **Run on `opus`** — launch via the `Task` tool with `model: opus` (not inherited from the session model).
 
 
 

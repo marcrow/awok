@@ -12,6 +12,13 @@ description: |
 > Implicit convention: each agent invocation `<name>` instructs Claude to read
 > `~/.claude/agents/<name>.md` (its full instructions). No need to repeat this in
 > every snippet.
+{% if any_invocation_model %}
+>
+> **Model is not inherited.** Each invocation shows its model as `[model]` and a ⚙️
+> reminder line. When you launch that agent via the `Task` tool you **must pass the
+> model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
+> the session model, often a costlier one.
+{% endif %}
 
 Pipeline of {{ phase_count }} phases, organized into {{ group_count }} groups:
 {% for gname, g in groups.items() %}`{{ gname }}` ({{ g.description }}){% if not loop.last %}, {% endif %}{% endfor %}.
