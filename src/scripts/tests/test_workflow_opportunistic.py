@@ -252,7 +252,7 @@ phases:
 def test_skill_renders_full_grant_note(bbw_module, tmp_path):
     # No top-level opportunistic → global off → a phase enable yields note_kind 'full'.
     text = _gen_skill(bbw_module, tmp_path, FULL_WF)
-    assert "Opportunistic autonomy — permitted on this phase" in text
+    assert "Opportunistic autonomy — permitted on this action" in text
     assert "FULL_WHEN_MARKER" in text
     assert "> Examples: FULL_EXAMPLE_MARKER" in text          # examples on their own blockquote line
     assert "FULL_WHEN_MARKER> Examples" not in text           # not glued to the when text

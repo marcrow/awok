@@ -26,8 +26,30 @@ description: |
 > model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
 > the session model, often a costlier one.
 
-Pipeline of 9 phases, organized into 4 groups:
+Pipeline of 9 actions, organized into 4 groups:
 `gate` (Precondition — refuse to run on a workflow that is not validate-green), `observe` (Honest extraction of observed I/O + a cheap deterministic pre-scan), `audit` (The three concern auditors (drift, load-path continuity, fitness)), `reduce` (Synthesis, triage, adversarial recheck and handoff).
+
+---
+
+## ⚙️ Execution protocol — order vs. parallelism
+
+The pipeline below is a **dependency graph**, not a checklist. Two markers on each
+action's header drive how you run it:
+
+- `⇐ A, B` — this action **depends on** A and B. **Hard rule: never start it until
+  every `⇐` dependency has returned** — its inputs are the files those actions wrote.
+- `∥ A` — this action is **independent** of A (same stage, no edge between them).
+
+Within that ordering, **launch independent agents together in a single message**
+(one `Task` block each), never one at a time:
+
+- actions on the **same stage** (marked `∥`), once their shared `⇐` dependency has
+  returned;
+- and, when one action lists several agents, all of them at once (no order between them).
+
+Each separate message re-reads the whole accumulated context, so launching N
+independent agents one-per-message multiplies cost and serializes work that could
+run concurrently.
 
 ---
 
@@ -41,14 +63,14 @@ signal the planned agents do not cover.
   prompt you write yourself from context. These agents do not exist in
   `src/agents/` — you create them on the fly.
 - **When**: An auditor surfaces a class of problem outside the three planned concerns (drift / continuity / fitness) that still bears on whether the workflow is well-built.
-- **Mode**: usually in the **background**, unless the result is needed to continue the current phase.
+- **Mode**: usually in the **background**, unless the result is needed to continue the current action.
 - **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
-- **Scope**: all phases, except those marked ⛔.
+- **Scope**: all actions, except those marked ⛔.
 - **Examples**: target hard-codes a path no phase produces → ad-hoc producer check; an agent's tools imply a side effect the DAG never declares → ad-hoc trace
 
 ---
 
-## Pipeline phases (DAG)
+## Pipeline actions (DAG)
 
 ### D0-GATE — Precondition gate
 > `gate` · script

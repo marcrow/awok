@@ -95,7 +95,13 @@ phases:
     # No invocation pins a model → neither the header convention note nor the
     # per-invocation ⚙️ reminder must appear (gated on any_invocation_model).
     assert "Model is not inherited" not in content
-    assert "⚙️" not in content
+    # No parallelism (1 linear action, 1 invocation) → no Execution-protocol
+    # section and no ⚡ reminder (gated on any_parallelism).
+    assert "Execution protocol" not in content
+    assert "⚡" not in content
+    # Vocab alignment: generated prose says "actions", never "phases".
+    assert "## Pipeline actions (DAG)" in content
+    assert "Pipeline phases" not in content
 
 
 def test_generate_skill_emits_model_imperative(bbw_module, tmp_path):
@@ -146,6 +152,58 @@ phases:
     # Per-invocation imperative: the model must be passed to the Task tool.
     assert "model: haiku" in content
     assert "not inherited from the session model" in content
+
+
+def test_generate_skill_emits_parallel_reminder(bbw_module, tmp_path):
+    """An action listing >=2 invocations renders the ⚡ intra-action parallel
+    reminder (launch them in ONE message), since that parallelism is otherwise
+    invisible. Mirrors create-workflow's S4-BLOCK-REVIEW shape. Regression guard
+    for the headless turn explosion: the orchestrator launched 'parallel' agents
+    one per message."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    # One action, two invocations → intra-action parallelism.
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: fanout-flow
+  description: One action runs two independent agents
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: First
+    group: g
+    invocations:
+      - agent: test-agent
+      - agent: test-agent
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    # Per-action reminder: both agents launched in one message.
+    assert "Parallel — 2 independent agents" in content
+    assert "2 `Task` blocks" in content
+    # >=2 invocations ⇒ any_parallelism ⇒ the Execution protocol section too.
+    assert "Execution protocol" in content
 
 
 def test_generate_skill_derives_parallel_with(bbw_module, tmp_path):
@@ -201,6 +259,10 @@ phases:
     # A1 and A2 are siblings → each must be annotated parallel with the other.
     assert "∥ A2" in content
     assert "∥ A1" in content
+    # Sibling actions on a stage → parallelism exists → the Execution protocol
+    # section is emitted (gated on any_parallelism via parallel_with).
+    assert "Execution protocol" in content
+    assert "Pipeline phases" not in content  # vocab aligned to "actions"
 
 
 def test_generate_cartography_texte(bbw_module, tmp_path):

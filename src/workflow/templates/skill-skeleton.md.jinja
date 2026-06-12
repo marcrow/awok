@@ -20,8 +20,32 @@ description: |
 > the session model, often a costlier one.
 {% endif %}
 
-Pipeline of {{ phase_count }} phases, organized into {{ group_count }} groups:
+Pipeline of {{ phase_count }} actions, organized into {{ group_count }} groups:
 {% for gname, g in groups.items() %}`{{ gname }}` ({{ g.description }}){% if not loop.last %}, {% endif %}{% endfor %}.
+{% if any_parallelism %}
+
+---
+
+## ⚙️ Execution protocol — order vs. parallelism
+
+The pipeline below is a **dependency graph**, not a checklist. Two markers on each
+action's header drive how you run it:
+
+- `⇐ A, B` — this action **depends on** A and B. **Hard rule: never start it until
+  every `⇐` dependency has returned** — its inputs are the files those actions wrote.
+- `∥ A` — this action is **independent** of A (same stage, no edge between them).
+
+Within that ordering, **launch independent agents together in a single message**
+(one `Task` block each), never one at a time:
+
+- actions on the **same stage** (marked `∥`), once their shared `⇐` dependency has
+  returned;
+- and, when one action lists several agents, all of them at once (no order between them).
+
+Each separate message re-reads the whole accumulated context, so launching N
+independent agents one-per-message multiplies cost and serializes work that could
+run concurrently.
+{% endif %}
 
 {% for block in manual_blocks_at_top|default([]) %}
 {{ block }}
@@ -39,9 +63,9 @@ signal the planned agents do not cover.
   prompt you write yourself from context. These agents do not exist in
   `src/agents/` — you create them on the fly.
 {% if opportunistic_global.when %}- **When**: {{ opportunistic_global.when|trim }}
-{% endif %}- **Mode**: usually in the **background**, unless the result is needed to continue the current phase.
+{% endif %}- **Mode**: usually in the **background**, unless the result is needed to continue the current action.
 - **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
-- **Scope**: all phases, except those marked ⛔.
+- **Scope**: all actions, except those marked ⛔.
 {% if opportunistic_global.examples %}
 - **Examples**: {{ opportunistic_global.examples|join('; ') }}
 {% endif %}
@@ -49,7 +73,7 @@ signal the planned agents do not cover.
 
 ---
 
-## Pipeline phases (DAG)
+## Pipeline actions (DAG)
 
 {% for phase in phases %}
 ### {{ phase.id }} — {{ phase.name }}
@@ -58,14 +82,14 @@ signal the planned agents do not cover.
 {% if phase.description %}{{ phase.description }}{% endif %}
 
 {% if phase.interactive %}
-> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+> ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
 {% endif %}
 {% if phase._opp and phase._opp.note_kind == 'locked' %}
 > ⛔ **No opportunistic autonomy here.** If the need is compelling, ask the user.
 
 {% elif phase._opp and phase._opp.note_kind == 'full' %}
-> 🧭 **Opportunistic autonomy — permitted on this phase.** You may author and launch an ad-hoc sub-agent (`Task` tool, `general-purpose`/`Explore`, with a prompt you write from context) when you spot a signal the planned agents don't cover — usually in the background. A sub-agent cannot itself spawn sub-agents, so after reading the planned sub-agent's report it is up to you to launch the follow-up.{{ (' ' ~ phase._opp.when|trim) if phase._opp.when else '' }}
+> 🧭 **Opportunistic autonomy — permitted on this action.** You may author and launch an ad-hoc sub-agent (`Task` tool, `general-purpose`/`Explore`, with a prompt you write from context) when you spot a signal the planned agents don't cover — usually in the background. A sub-agent cannot itself spawn sub-agents, so after reading the planned sub-agent's report it is up to you to launch the follow-up.{{ (' ' ~ phase._opp.when|trim) if phase._opp.when else '' }}
 {% if phase._opp.examples %}
 >
 > Examples: {{ phase._opp.examples|join('; ') }}
@@ -73,6 +97,10 @@ signal the planned agents do not cover.
 
 {% elif phase._opp and phase._opp.note_kind == 'short' %}
 > 🧭 **Opportunistic lead here.** {{ phase._opp.when|trim }}{{ (' — e.g. ' ~ phase._opp.examples|join('; ')) if phase._opp.examples else '' }}
+
+{% endif %}
+{% if phase.invocations and phase.invocations|length >= 2 %}
+> ⚡ **Parallel — {{ phase.invocations|length }} independent agents** (no order between them). Launch all {{ phase.invocations|length }} in a single message ({{ phase.invocations|length }} `Task` blocks), not one at a time; wait for all to return before moving on.
 
 {% endif %}
 {% if phase.type == 'script' %}

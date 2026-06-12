@@ -1100,6 +1100,17 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         for inv in (phase.get("invocations") or [])
     )
 
+    # Whether the workflow has any exploitable parallelism — gates the
+    # "Execution protocol" section. True if an action lists >=2 invocations
+    # (intra-action) or any action is a same-stage sibling (parallel_with, set
+    # by apply_parallel_with above). Linear single-invocation workflows: no section.
+    any_parallelism = (
+        any(len(phase.get("invocations") or []) >= 2
+            for phase in workflow.get("phases", []))
+        or any(phase.get("parallel_with")
+               for phase in workflow.get("phases", []))
+    )
+
     # Render top-level skeleton
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(templates_dir)),
@@ -1124,6 +1135,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         on_demand_agents=workflow.get("on_demand_agents", []),
         opportunistic_global=opportunistic_global,
         any_invocation_model=any_invocation_model,
+        any_parallelism=any_parallelism,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

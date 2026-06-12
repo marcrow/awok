@@ -23,8 +23,30 @@ description: |
 > model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
 > the session model, often a costlier one.
 
-Pipeline of 10 phases, organized into 5 groups:
+Pipeline of 10 actions, organized into 5 groups:
 `frame` (Capture the idea and pin the real job-to-be-done), `ideate` (Adversarial brainstorming that breaks the tunnel effect), `shape` (Decompose into a draft DAG and review the blocks), `build` (Scaffold the workflow source and generate its artifacts), `ship` (Quality-review and hand off the generated workflow).
+
+---
+
+## ⚙️ Execution protocol — order vs. parallelism
+
+The pipeline below is a **dependency graph**, not a checklist. Two markers on each
+action's header drive how you run it:
+
+- `⇐ A, B` — this action **depends on** A and B. **Hard rule: never start it until
+  every `⇐` dependency has returned** — its inputs are the files those actions wrote.
+- `∥ A` — this action is **independent** of A (same stage, no edge between them).
+
+Within that ordering, **launch independent agents together in a single message**
+(one `Task` block each), never one at a time:
+
+- actions on the **same stage** (marked `∥`), once their shared `⇐` dependency has
+  returned;
+- and, when one action lists several agents, all of them at once (no order between them).
+
+Each separate message re-reads the whole accumulated context, so launching N
+independent agents one-per-message multiplies cost and serializes work that could
+run concurrently.
 
 ---
 
@@ -38,20 +60,20 @@ signal the planned agents do not cover.
   prompt you write yourself from context. These agents do not exist in
   `src/agents/` — you create them on the fly.
 - **When**: Early, if the whole idea smells already-built (strong prior art); or in the brainstorm, when a thread needs a provocation the planned panel doesn't cover.
-- **Mode**: usually in the **background**, unless the result is needed to continue the current phase.
+- **Mode**: usually in the **background**, unless the result is needed to continue the current action.
 - **Nesting limit**: a sub-agent cannot itself spawn sub-agents (max depth = 1). After reading the planned sub-agent's report, it is up to you to launch the follow-up.
-- **Scope**: all phases, except those marked ⛔.
+- **Scope**: all actions, except those marked ⛔.
 - **Examples**: whole idea likely already exists → quick build-vs-borrow scout; no panelist fits a gap → author an ad-hoc panelist on the fly
 
 ---
 
-## Pipeline phases (DAG)
+## Pipeline actions (DAG)
 
 ### S1-FRAME — Frame the idea
 > `frame` · main_agent
 Capture the maintainer's raw idea and pin the real job-to-be-done with First Principles + How-Might-We. Ask the maintainer to choose the brainstorm depth (light ~15 min, or deep / multi-round) — and note it can switch any time. Write a short frame brief: the job, the chosen depth, known constraints.
 
-> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+> ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
 
 
@@ -195,7 +217,7 @@ MIT). See THIRD_PARTY.md.*
 > `ideate` · main_agent · ⇐ S1-FRAME
 Movement 1 of the brainstorm (see the protocol above). Reframe the real job (First Principles / HMW) and check it; then generate ≥2 structurally different shapes and propose ≥2 agents/blocks the maintainer did not name. PACING IS MANDATORY: present ONE thing at a time — one prompt, one shape, one proposed agent — then STOP and WAIT for the maintainer before the next. Never stack questions, never dump everything at once, never advance on their behalf.
 
-> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+> ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
 
 
@@ -204,7 +226,7 @@ Movement 1 of the brainstorm (see the protocol above). Reframe the real job (Fir
 > `ideate` · main_agent · ⇐ S2A-DIVERGE
 Movement 2 of the brainstorm. Convene the independent challenge panel on the diverging design — ≥1 generative (cross-pollinator/rolestormer) AND ≥1 adversarial (premortem/devils-advocate), as background Task sub-agents — and weave their provocations back ONE AT A TIME, stopping for the maintainer's reaction after each. Land at least one challenge that actually moves the design. Same pacing rule: one thing → STOP → wait; never advance on the maintainer's behalf.
 
-> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+> ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
 > 🧭 **Opportunistic lead here.** A brainstorm thread needs a provocation the planned panel doesn't cover. — e.g. no panelist fits → author an ad-hoc panelist on the fly
 
@@ -215,7 +237,7 @@ Movement 2 of the brainstorm. Convene the independent challenge panel on the div
 > `ideate` · main_agent · ⇐ S2B-CHALLENGE
 Movement 3 of the brainstorm. Converge on the surviving design — the maintainer votes; offer "go deeper?" (escalation re-seeds divergence on the survivor, no state lost). Only once the mandatory floor is met, run the closing naming ritual (propose slugs, check the skill-name pattern + uniqueness against src/workflows/*.yaml, the maintainer picks) → new-name. The pacing rule still holds: one thing → STOP → wait.
 
-> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+> ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
 
 
@@ -230,7 +252,9 @@ Translate the converged design intent into a draft awok DAG: stages, groups, act
 ### S4-BLOCK-REVIEW — Review the blocks
 > `shape` · agent · ⇐ S3-DECOMPOSE
 
-> ⏸️ **Interactive checkpoint.** Present your output for this phase, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next phase, and do not decide on their behalf.
+> ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
+
+> ⚡ **Parallel — 2 independent agents** (no order between them). Launch all 2 in a single message (2 `Task` blocks), not one at a time; wait for all to return before moving on.
 
 #### Invocation `workflow-scout`
 
