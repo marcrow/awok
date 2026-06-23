@@ -343,6 +343,46 @@ Each agent has 3 descriptions to keep aligned (semantic consistency, not verbati
 **When you modify an agent's description**, check all 3 locations. If a gap is detected,
 align all 3.
 
+### Patching the engine or a template — the change ripples to every workflow
+
+Editing one workflow's `.yaml` is **local**. Editing the **engine**
+(`src/scripts/bb-workflow`) or a **shared template** (`src/workflow/templates/*.jinja`)
+is **global**: it re-renders **every** `SKILL.md` and cartography on the next
+`generate`. So an engine fix is transparent to workflow authors (no YAML edit needed),
+but it does **not** propagate on its own. After any engine/template change:
+
+1. **Regenerate everything** — `awok generate` (no `--workflow` → all workflows + index).
+2. **Commit the regenerated artifacts in the same commit** — the `src/skills/*/SKILL.md`
+   and `docs/architecture-cartography/*` diffs are part of the patch. The `awok check`
+   pre-commit gate fails the commit if you forget one.
+3. **Redeploy** — `./install.sh`. Regenerating the source is not enough: the runtime
+   reads `~/.claude/skills/<wf>/SKILL.md`, not `src/skills/`.
+4. **Add a regression test** in `src/scripts/tests/` (positive + negative) whenever the
+   change alters generated output — see the model-imperative guard
+   (`test_generate_skill_emits_model_imperative`) in `test_workflow_generate.py`.
+
+**`awok check` / drift is the signal.** After the engine changes, any workflow whose
+committed `SKILL.md` was built by the old engine goes red until regenerated; green again
+means the ripple reached every artifact — it doubles as your to-do list.
+
+**Private workdirs do NOT ripple automatically.** Workflows in a separate content root
+(`--workdir`, e.g. the pentest / invest repos) keep their own generated `SKILL.md`;
+pulling this engine changes nothing for them. Their owner must run, in the workdir:
+`awok --workdir DIR generate && awok deploy --workdir DIR`.
+
+**Covering the specific case — commit-message discipline.** Any engine/template patch
+that changes generated output carries, in its commit body, a `Regen:` trailer naming
+what re-renders and the one-line action workdir owners must run — so it is discoverable
+from `git log --grep '^Regen:'`:
+
+```
+Regen: all SKILL.md (per-invocation model imperative);
+       workdir owners run `awok generate && awok deploy`.
+```
+
+Worked example of the whole loop: commit `0586259` (per-invocation model rendered as an
+imperative, not a decorative label — the headless-tiering fix).
+
 ## bb-workflow / awok (SKILL.md generator)
 
 `SKILL.md` is generated from `src/workflows/<name>.yaml` via the
@@ -367,6 +407,9 @@ align all 3.
 3. Tests: `pytest src/scripts/tests/test_workflow_*.py -v`
 4. JSON schema: `src/workflow/workflow.schema.json` (validate on change)
 5. Deployment: `./install.sh` installs the `~/.local/bin/awok` wrapper + deploys skills/agents to `~/.claude/`
+6. **Ripple**: an engine/template change re-renders **every** workflow — regenerate all,
+   commit the regenerated artifacts, redeploy, and add the `Regen:` commit trailer. See
+   *Patching the engine or a template* under Workflow conventions. `awok check` gates it.
 
 **Spec and plan**:
 - Spec: `docs/superpowers/specs/2026-05-21-workflow-modulable-yaml-design.md`

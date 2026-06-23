@@ -148,6 +148,25 @@ awok deploy --workdir ~/pentest-workflows   # deploy its skills/agents to ~/.cla
 The workdir mirrors `src/` (its own `src/workflows/` + `src/agents/`); set
 `AWOK_WORKDIR` to avoid repeating the flag. Nothing private touches this repo.
 
+## Updating awok
+
+The generator and templates are **shared**, so an engine fix reaches every workflow
+the next time you regenerate — no per-workflow edit. After pulling a new awok:
+
+```bash
+awok generate     # re-render all SKILL.md + cartography from the new engine
+./install.sh      # redeploy to ~/.claude (the runtime reads the deployed copy)
+```
+
+Generating is not enough on its own — Claude Code runs `~/.claude/skills/<wf>/SKILL.md`,
+so you must redeploy. **Private workdirs don't update automatically**: run
+`awok --workdir DIR generate && awok deploy --workdir DIR` in each. `awok check` turns
+red on any workflow still built by the old engine — that's your to-do list.
+
+One fix that rides this path: per-invocation **model routing now holds in headless
+`-p` runs** — each agent runs on the model pinned in its YAML invocation instead of
+silently inheriting the session model (e.g. everything on `--model opus`).
+
 ## Commands
 
 ```bash

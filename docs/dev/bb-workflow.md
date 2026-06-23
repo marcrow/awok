@@ -84,6 +84,27 @@ on_demand_agents:                   # callables hors-DAG, listés dans l'onglet 
     when: "..."
 ```
 
+### `model:` par invocation — rendu en impératif, jamais hérité
+
+Le `model:` d'une invocation vit dans le YAML (source de vérité) et est rendu dans le
+`SKILL.md` comme une **instruction impérative** (« lance via le `Task` tool avec
+`model: <model>` »), pas comme une simple étiquette `[model]`. Conséquence : en run
+headless (`claude -p --model X`), chaque sous-agent tourne sur le modèle épinglé au lieu
+d'hériter du modèle de session. Renforcement *discrétionnaire* (pas une garantie dure) —
+les échappatoires déterministes restent `CLAUDE_CODE_SUBAGENT_MODEL` et le pinning
+frontmatter (au prix de casser la convention `model: inherit`).
+
+### Patch du moteur ou d'un template — ça touche TOUS les workflows
+
+`bb-workflow` et les templates Jinja (`src/workflow/templates/*.jinja`) sont
+**partagés** : les modifier re-rend **tous** les `SKILL.md`, pas un seul. Après un tel
+patch : `awok generate` (sans `--workflow` → tout + index), committer les artefacts
+régénérés dans le même commit, puis `./install.sh` pour redéployer (le runtime lit
+`~/.claude/skills/<wf>/SKILL.md`). `awok check` passe au rouge sur tout workflow encore
+généré par l'ancien moteur — c'est ta liste de tâches. Les **workdirs privés** ne se
+mettent pas à jour seuls : `awok --workdir DIR generate && awok deploy --workdir DIR`.
+Convention complète + discipline de commit (`Regen:`) : voir `CLAUDE.md`.
+
 ## Workflow type — ajouter une phase
 
 ```bash
