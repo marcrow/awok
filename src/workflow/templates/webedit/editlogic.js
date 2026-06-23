@@ -1,5 +1,7 @@
 // Pure logic used by editor.js (kept as a tested standalone copy; editor.js
 // inlines the same functions for the single-file serve model).
+import { resolveIoPath } from "./formfields.js";
+
 export function computeDropDepends(rows, level, draggedId) {
   if (level <= 0) return [];
   return rows[level - 1].filter(id => id !== draggedId);
@@ -156,6 +158,124 @@ export function setGlobalOpportunistic(model, enabled, when, examples) {
   if (w) o.when = w;
   if (ex.length) o.examples = ex;
   model.opportunistic = o;
+}
+
+// --- dataflow model (pure) -------------------------------------------------
+// The interactive Dataflow canvas computes its files/edges/validation in the
+// browser (mirrors bb-workflow's dataflow + resolve_io_path so vignettes update
+// live without a round-trip). These helpers are the DOM-free core.
+
+// role "work:inventory" → {ns:'work', name:'inventory'} · "x"+namespace → same · bare → ns ''.
+export function parseRole(io) {
+  const r = (io && io.role) || "";
+  const ci = r.indexOf(":");
+  if (ci >= 0) return { ns: r.slice(0, ci), name: r.slice(ci + 1) };
+  return { ns: (io && io.namespace) || "", name: r };
+}
+
+// The artifact label an io_ref points at (role wins over path, like the generator).
+export function ioLabel(io) { return (io && (io.role || io.path)) || ""; }
+
+// Stable, distinct color per namespace (files keep their dashed-diamond shape so
+// they never read as actions; the color only disambiguates namespaces).
+const NS_PALETTE = ["#38bdf8", "#a78bfa", "#f472b6", "#34d399", "#fbbf24", "#fb923c", "#22d3ee", "#c084fc"];
+export function nsColor(ns, namespaces) {
+  if (!ns) return "#64748b";
+  const keys = Object.keys(namespaces || {});
+  const i = keys.indexOf(ns);
+  return NS_PALETTE[(i < 0 ? keys.length : i) % NS_PALETTE.length];
+}
+
+// Every artifact referenced by the model: standalone editor file blocks + every
+// phase-level AND invocation-level input/output (awok declares io both ways).
+// Returns descriptors with deduped producers/consumers, resolved path and flags.
+export function dataflowFiles(model) {
+  const namespaces = (model && model.namespaces) || {};
+  const map = new Map();
+  const ensure = (l, kind) => {
+    if (!map.has(l)) map.set(l, { label: l, kind: kind || "md", producers: [], consumers: [], inputRefs: [], outputRefs: [], standalone: null });
+    const m = map.get(l); if (kind) m.kind = kind; return m;
+  };
+  ((model && model.files) || []).forEach(f => { const m = ensure(f.label, f.kind); m.standalone = f; });
+  for (const p of (model && model.phases) || []) {
+    const sinks = [{ inputs: p.inputs, outputs: p.outputs }];
+    for (const inv of p.invocations || []) sinks.push({ inputs: inv.inputs, outputs: inv.outputs });
+    for (const s of sinks) {
+      (s.outputs || []).forEach(io => { const l = ioLabel(io); if (l) { const m = ensure(l, io.kind); m.producers.push(p.id); m.outputRefs.push(io); } });
+      (s.inputs || []).forEach(io => { const l = ioLabel(io); if (l) { const m = ensure(l, io.kind); m.consumers.push(p.id); m.inputRefs.push(io); } });
+    }
+  }
+  return Array.from(map.values()).map(f => {
+    const sa = f.standalone;
+    const external = f.inputRefs.some(io => io.external) || (sa && !!sa.external) || f.producers.length === 0;
+    const terminal = f.outputRefs.some(io => io.terminal) || (sa && !!sa.terminal);
+    const optional = f.inputRefs.some(io => io.optional) || (sa && !!sa.optional);
+    const pathOverride = (sa && sa.path) || (f.outputRefs[0] && f.outputRefs[0].path) || (f.inputRefs[0] && f.inputRefs[0].path) || undefined;
+    const path = resolveIoPath({ role: pathOverride ? undefined : f.label, kind: f.kind, path: pathOverride }, namespaces);
+    const { ns } = parseRole({ role: f.label });
+    const nsBad = !pathOverride && !!ns && !(namespaces[ns]);
+    return {
+      label: f.label, kind: f.kind, ns,
+      producers: [...new Set(f.producers)], consumers: [...new Set(f.consumers)],
+      external, terminal, optional, path, nsBad, inputRefs: f.inputRefs, outputRefs: f.outputRefs,
+    };
+  });
+}
+
+// Client mirror of the dataflow validation: undeclared namespace = blocking error;
+// produced-but-unconsumed / consumed-but-unproduced = warning (unless the ref is
+// flagged optional/external/terminal). Returns { errors, warnings, items }.
+export function validateModel(model) {
+  const errors = [], warnings = [], items = [];
+  const add = (level, type, key, msg) => { items.push({ level, type, key, msg }); (level === "error" ? errors : warnings).push(msg); };
+  const ns = (model && model.namespaces) || {};
+  for (const p of (model && model.phases) || []) {
+    const sinks = [{ inputs: p.inputs, outputs: p.outputs }, ...(p.invocations || []).map(iv => ({ inputs: iv.inputs, outputs: iv.outputs }))];
+    for (const s of sinks) {
+      ["inputs", "outputs"].forEach(side => (s[side] || []).forEach(io => {
+        if (io.path) return;
+        const { ns: n } = parseRole(io);
+        if (n && !ns[n]) {
+          add("error", "action", p.id, p.id + ': namespace "' + n + ':" is not declared');
+          add("error", "file", io.role || "", 'namespace "' + n + ':" is not declared');
+        }
+      }));
+    }
+  }
+  for (const f of dataflowFiles(model)) {
+    if (f.consumers.length && !f.producers.length) {
+      const covered = f.inputRefs.length > 0 && f.inputRefs.every(io => io.optional || io.external);
+      if (!covered) add("warning", "file", f.label, "Read but never produced — no action outputs this file.");
+    }
+    if (f.producers.length && !f.consumers.length) {
+      const covered = f.outputRefs.length > 0 && f.outputRefs.every(io => io.terminal);
+      if (!covered) add("warning", "file", f.label, "Written but never read — no action consumes this file.");
+    }
+  }
+  return { errors, warnings, items };
+}
+
+// Browser mirror of bb-workflow's compute_levels: phase id → grid row = longest
+// dependency path from a root. Used by the Dataflow canvas (the grid uses the
+// server's /api/view levels, which this matches).
+export function computeLevels(model) {
+  const phases = (model && model.phases) || [];
+  const deps = {}; phases.forEach(p => { deps[p.id] = (p.depends_on || []).filter(Boolean); });
+  const memo = {};
+  const level = (pid, seen) => {
+    if (pid in memo) return memo[pid];
+    const ds = (deps[pid] || []).filter(d => (d in deps) && !seen.has(d));
+    const lvl = ds.length ? 1 + Math.max(...ds.map(d => level(d, new Set([...seen, pid])))) : 0;
+    memo[pid] = lvl; return lvl;
+  };
+  const out = {}; phases.forEach(p => { out[p.id] = level(p.id, new Set()); }); return out;
+}
+
+// Classify a dependency edge by the level gap it spans (drives the overlay style):
+// 'same' (intra-level), 'direct' (adjacent), 'far' (skips ≥1 level).
+export function classifyLinkSpan(fromLevel, toLevel) {
+  const span = Math.abs((toLevel || 0) - (fromLevel || 0));
+  return span === 0 ? "same" : span > 1 ? "far" : "direct";
 }
 
 // Human label for the resolved preview, read from the /api/view block.

@@ -1,542 +1,753 @@
-// Single source of truth for pure helpers — shared with the bun tests
-// (src/scripts/tests/webedit import the same files).
-import { computeDropDepends, safeDropDepends, blockedDependents,
-         buildNotice, renderEdges, aggregateInvocationIo, applyPhaseGroup,
+// awok editor — navy redesign (ported from docs/dev/Awok Editor.dc.html).
+// depends_on stays the source of truth; levels are a derived visual abstraction
+// (compute_levels on the server). Drag rewires dependencies safely (anti-cycle
+// preserved via safeDropDepends/blockedDependents) — NOT a persisted level.
+import { safeDropDepends, blockedDependents, buildNotice,
          opportunisticMode, opportunisticGuidance, setOpportunistic,
-         globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel } from "./editlogic.js";
-import { makeCard, section, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
+         globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
+         applyPhaseGroup, validateModel, classifyLinkSpan,
+         aggregateInvocationIo } from "./editlogic.js";
+import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
+import { createDataflow } from "./dataflow.js";
 
 const $ = s => document.querySelector(s);
-const api = (m, p, b) => fetch(p, {method:m, headers:{'Content-Type':'application/json'},
-  body: b ? JSON.stringify(b) : undefined}).then(async r => ({status:r.status, j:await r.json()}));
+const api = (m, p, b) => fetch(p, { method: m, headers: { "Content-Type": "application/json" },
+  body: b ? JSON.stringify(b) : undefined }).then(async r => ({ status: r.status, j: await r.json() }));
 
-function showNotice(title, lines){
-  document.querySelectorAll(".notice-overlay").forEach(n=>n.remove());
-  const ov=document.createElement("div"); ov.className="notice-overlay";
-  const box=buildNotice(title, lines);
-  const btn=document.createElement("button"); btn.textContent="Got it";
-  btn.addEventListener("click",()=>ov.remove());
-  box.appendChild(btn); ov.appendChild(box);
-  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
-  document.body.appendChild(ov);
-}
-
-let state={name:null, model:null, view:null, selected:null, workflows:[], agents:[], panelTab:"general", panelWidth:null};
-
-// Mirror of bb-workflow's group palette so grid cards match the cartography
-// colors. Known semantic groups keep a curated color; custom groups get a
-// distinct palette color cycled in declaration order (deterministic, not random).
-const DEFAULT_GROUP_COLORS={
-  "passive-recon":"#14532d","active-collection":"#1e3a5f","static-analysis":"#5c3a00",
-  "consolidation":"#3b0764","active-exploit":"#5b1a1a","g1":"#1e3a5f","g2":"#5c3a00",
-};
-const GROUP_COLOR_PALETTE=["#1e3a5f","#14532d","#5c3a00","#3b0764","#5b1a1a","#134e4a","#7c2d12","#4c1d95","#831843","#155e75","#365314","#3f3f46"];
-function resolveGroupColors(model){
-  const colors={...DEFAULT_GROUP_COLORS}; let idx=0;
-  for(const g of Object.keys((model&&model.groups)||{})){
-    if(!(g in colors)){ colors[g]=GROUP_COLOR_PALETTE[idx%GROUP_COLOR_PALETTE.length]; idx++; }
-  }
+// Proto group palette — assigned by group declaration order (spec §2).
+const GROUP_PALETTE = ["#60a5fa", "#4ade80", "#fbbf24", "#c084fc", "#f87171", "#38bdf8", "#fb923c", "#a3e635"];
+function resolveGroupColors(model) {
+  const colors = {};
+  Object.keys((model && model.groups) || {}).forEach((g, i) => { colors[g] = GROUP_PALETTE[i % GROUP_PALETTE.length]; });
   return colors;
 }
+const TYPE_COLORS = {
+  main_agent: "#38bdf8", agent: "#34d399", script: "#fbbf24", external: "#94a3b8", workflow_call: "#c084fc",
+};
 
-let _panelGlobalsWired=false;
-function wirePanelGlobals(){
-  if(_panelGlobalsWired) return; _panelGlobalsWired=true;
-  document.addEventListener("mousedown",e=>{
-    const panel=$('#edit-panel');
-    if(!panel || panel.hidden) return;
-    if(panel.contains(e.target)) return;
-    if(e.target.closest && (e.target.closest('.phase-card') || e.target.closest('.notice-overlay'))) return;
-    panel.hidden=true; state.selected=null; renderGrid();
-  });
-}
-function ensureResizeGrip(panel){
-  wirePanelGlobals();
-  if(state.panelWidth) panel.style.width=state.panelWidth+"px";
-  const grip=document.createElement("div"); grip.className="resize-grip"; panel.appendChild(grip);
-  grip.addEventListener("mousedown",e=>{
-    e.preventDefault();
-    const startX=e.clientX, startW=panel.getBoundingClientRect().width;
-    const move=ev=>{ const w=Math.min(window.innerWidth-80, Math.max(280, startW+(startX-ev.clientX))); panel.style.width=w+"px"; state.panelWidth=w; if(state.view) drawEdges(); };
-    const up=()=>{ document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",up); };
-    document.addEventListener("mousemove",move); document.addEventListener("mouseup",up);
-  });
-}
+let state = {
+  name: null, model: null, view: null, selected: null, workflows: [], agents: [],
+  tab: "grid", drawerTab: "wiring", panelWidth: 480, showLinks: false,
+  dragId: null, legendOpen: true,
+};
 
-async function loadList(){
-  const {j}=await api('GET','/api/workflows');
-  state.workflows = j;
-  state.agents = (await api('GET','/api/agents')).j || [];
-  const sel=$('#wf-select'); sel.replaceChildren();
-  j.forEach(n=>{ const o=document.createElement('option'); o.textContent=n; sel.appendChild(o); });
-  if(!j.length) return;
-  const want=new URLSearchParams(location.search).get('workflow');
-  const initial=(want && j.includes(want))?want:j[0];
-  sel.value=initial; await loadWorkflow(initial);
+let dataflow = null;
+
+// --- notice overlay --------------------------------------------------------
+function showNotice(title, lines) {
+  document.querySelectorAll(".notice-overlay").forEach(n => n.remove());
+  const ov = document.createElement("div"); ov.className = "notice-overlay";
+  const box = buildNotice(title, lines);
+  const btn = document.createElement("button"); btn.textContent = "Got it";
+  btn.addEventListener("click", () => ov.remove());
+  box.appendChild(btn); ov.appendChild(box);
+  ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
 }
-async function loadWorkflow(name){
-  const {j}=await api('GET','/api/workflow/'+name);
-  state={...state, name, model:j.model, view:null, selected:null};
-  $('#edit-panel').hidden=true;
+function setStatus(t) { $("#status").textContent = t; }
+
+// --- load / view -----------------------------------------------------------
+async function loadList() {
+  state.workflows = (await api("GET", "/api/workflows")).j || [];
+  state.agents = (await api("GET", "/api/agents")).j || [];
+  renderWorkflowSelect();
+  if (!state.workflows.length) return;
+  const want = new URLSearchParams(location.search).get("workflow");
+  const initial = (want && state.workflows.includes(want)) ? want : state.workflows[0];
+  $("#wf-select").value = initial;
+  await loadWorkflow(initial);
+}
+function renderWorkflowSelect() {
+  const sel = $("#wf-select"); sel.replaceChildren();
+  state.workflows.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+}
+async function loadWorkflow(name) {
+  const { j } = await api("GET", "/api/workflow/" + name);
+  state = { ...state, name, model: j.model, view: null, selected: null };
+  $("#edit-panel").hidden = true;
+  applyDrawerLayout();
   await refreshView();
 }
-async function refreshView(){
-  const {j}=await api('POST','/api/view',state.model);
-  state.view=j;
-  renderGrid(); renderYaml();
-  setStatus(j.errors && j.errors.length ? '⚠ '+j.errors.length+' validation issue(s)' : '');
+async function refreshView() {
+  const { j } = await api("POST", "/api/view", state.model);
+  state.view = j;
+  renderHeader();
+  renderGrid();
+  renderYaml();
+  renderIssues();
+  if (state.tab === "dataflow") dataflow.render();
+  setStatus(j.errors && j.errors.length ? "⚠ " + j.errors.length + " schema issue(s)" : "");
 }
-function setStatus(t){ $('#status').textContent=t; }
 
-function rowsFromView(){
-  const lv=state.view.levels, max=Math.max(0,...Object.values(lv));
-  const rows=[]; for(let i=0;i<=max;i++) rows.push([]);
-  (state.model.phases||[]).forEach(p=>rows[lv[p.id]||0].push(p.id));
+function renderHeader() {
+  const m = state.model || {};
+  const nP = (m.phases || []).length, nG = Object.keys(m.groups || {}).length;
+  $("#grid-count").textContent = nP + " actions · " + nG + " groups";
+  $("#settings-wf").textContent = state.name || "";
+  const sub = ((m.skill && m.skill.description) || "").split("\n")[0] || "";
+  $("#wf-subtitle").textContent = sub;
+}
+function renderIssues() {
+  const v = validateModel(state.model);
+  const badge = $("#issues-badge");
+  if (!v.errors.length && !v.warnings.length) { badge.hidden = true; return; }
+  badge.hidden = false; badge.replaceChildren();
+  badge.title = v.errors.concat(v.warnings).join("\n");
+  if (v.errors.length) { const s = document.createElement("span"); s.className = "err"; s.textContent = "⛔ " + v.errors.length; badge.appendChild(s); }
+  if (v.warnings.length) { const s = document.createElement("span"); s.className = "warn"; s.textContent = "⚠ " + v.warnings.length; badge.appendChild(s); }
+}
+
+// --- grid ------------------------------------------------------------------
+function rowsFromView() {
+  const lv = (state.view && state.view.levels) || {};
+  const max = Math.max(0, ...Object.values(lv));
+  const rows = []; for (let i = 0; i <= max; i++) rows.push([]);
+  (state.model.phases || []).forEach(p => rows[lv[p.id] || 0].push(p.id));
   return rows;
 }
-function renderGrid(){
-  const grid=$('#grid'); grid.replaceChildren();
-  const rows=rowsFromView();
-  const byId={}; (state.model.phases||[]).forEach(p=>byId[p.id]=p);
-  const colors=resolveGroupColors(state.model);
-  rows.forEach((ids,i)=>grid.appendChild(makeRow(ids,i,byId,false,colors)));
-  grid.appendChild(makeRow([],rows.length,byId,true,colors));
-  requestAnimationFrame(drawEdges);
-}
-function makeRow(ids,i,byId,isNew,colors){
-  const row=document.createElement("div");
-  row.className="row"+(isNew?" new-level":""); row.dataset.level=i;
-  row.addEventListener("dragover",e=>{e.preventDefault();row.classList.add("drop-hover");});
-  row.addEventListener("dragleave",()=>row.classList.remove("drop-hover"));
-  row.addEventListener("drop",e=>onDrop(e,i));
-  const label=document.createElement("div"); label.className="row-label";
-  label.textContent = isNew ? `Lvl ${i+1} (drop here)` : `Lvl ${i+1}`;
-  row.appendChild(label);
-  ids.forEach(id=>{
-    const oppMark=(state.view&&state.view.opportunistic&&state.view.opportunistic.phases[id]||{}).mark;
-    const card=makeCard(byId[id], (colors||{})[byId[id].group], oppMark);
-    if(id===state.selected) card.classList.add("selected");
-    card.addEventListener("dragstart",e=>e.dataTransfer.setData("text/plain",id));
-    card.addEventListener("click",()=>selectPhase(id));
-    row.appendChild(card);
+function renderGrid() {
+  const grid = $("#grid"); grid.replaceChildren();
+  const rows = rowsFromView();
+  const byId = {}; (state.model.phases || []).forEach(p => byId[p.id] = p);
+  const colors = resolveGroupColors(state.model);
+  const oppPhases = (state.view && state.view.opportunistic && state.view.opportunistic.phases) || {};
+  rows.forEach((ids, i) => {
+    if (i > 0) grid.appendChild(makeDropZone(i)); // zone above each level after the first
+    grid.appendChild(makeRow(ids, i, byId, colors, oppPhases));
   });
+  grid.appendChild(makeDropZone(rows.length, true)); // trailing "new level"
+  renderLegend(colors);
+  schedulePaint();
+}
+function makeDropZone(level, isNew) {
+  const z = document.createElement("div"); z.className = "drop-zone";
+  const lbl = document.createElement("span"); lbl.className = "zone-label";
+  lbl.textContent = isNew ? "+ drop here for a new level" : "+ drop here";
+  z.appendChild(lbl);
+  z.addEventListener("dragover", e => { e.preventDefault(); z.classList.add("hover"); });
+  z.addEventListener("dragleave", () => z.classList.remove("hover"));
+  z.addEventListener("drop", e => { z.classList.remove("hover"); onDrop(e, level); });
+  return z;
+}
+function makeRow(ids, i, byId, colors, oppPhases) {
+  const row = document.createElement("div"); row.className = "row"; row.dataset.level = i;
+  // rail
+  const rail = document.createElement("div"); rail.className = "rail";
+  const top = document.createElement("div"); top.className = "rail-line" + (i === 0 ? " blank" : "");
+  const nodeWrap = document.createElement("div"); nodeWrap.className = "rail-node-wrap";
+  const cap = document.createElement("div"); cap.className = "rail-cap"; cap.textContent = "Lvl";
+  const node = document.createElement("div"); node.className = "rail-node"; node.textContent = i + 1;
+  const dotColor = ids.length ? (colors[byId[ids[0]].group] || "#243049") : "#243049";
+  node.style.borderColor = dotColor;
+  nodeWrap.appendChild(cap); nodeWrap.appendChild(node);
+  const bot = document.createElement("div"); bot.className = "rail-line";
+  rail.appendChild(top); rail.appendChild(nodeWrap); rail.appendChild(bot);
+  row.appendChild(rail);
+  // cards
+  const cards = document.createElement("div"); cards.className = "row-cards";
+  ids.forEach(id => {
+    const p = byId[id];
+    const oppMark = (oppPhases[id] || {}).mark;
+    const card = makeCard(p, colors[p.group], oppMark);
+    if (id === state.selected) card.classList.add("selected");
+    card.addEventListener("dragstart", e => {
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", id); } catch (_) {}
+      state.dragId = id; document.body.classList.add("dragging");
+      setTimeout(() => card.classList.add("dragging"), 0);
+    });
+    card.addEventListener("dragend", () => { state.dragId = null; document.body.classList.remove("dragging"); card.classList.remove("dragging"); });
+    card.addEventListener("click", () => selectPhase(id));
+    cards.appendChild(card);
+  });
+  cards.addEventListener("dragover", e => { e.preventDefault(); if (state.dragId) row.classList.add("drop-row"); });
+  cards.addEventListener("dragleave", () => row.classList.remove("drop-row"));
+  cards.addEventListener("drop", e => { row.classList.remove("drop-row"); onDrop(e, i); });
+  row.appendChild(cards);
   return row;
 }
-function cardCenter(id){
-  const el=[...document.querySelectorAll('.phase-card')].find(c=>c.dataset.id===id);
-  if(!el) return null;
-  const wrap=$('#grid-wrap').getBoundingClientRect();
-  const r=el.getBoundingClientRect();
-  return {x:r.left-wrap.left+r.width/2, y:r.top-wrap.top+r.height/2};
-}
-function drawEdges(){
-  const svg=$('#edge-overlay');
-  const wrap=$('#grid-wrap').getBoundingClientRect();
-  svg.setAttribute("width",wrap.width); svg.setAttribute("height",wrap.height);
-  const pos={}; (state.model.phases||[]).forEach(p=>{const c=cardCenter(p.id); if(c) pos[p.id]=c;});
-  renderEdges(svg, state.view.edges||[], pos);
-}
-async function onDrop(ev,level){
+async function onDrop(ev, level) {
   ev.preventDefault();
-  const id=ev.dataTransfer.getData("text/plain");
-  const p=(state.model.phases||[]).find(x=>x.id===id); if(!p) return;
-  // previous-row deps minus any descendant of the dragged phase -> never a cycle
-  const rows=rowsFromView();
-  const blocked=blockedDependents(state.model.phases, rows, level, id);
-  p.depends_on=safeDropDepends(state.model.phases, rows, level, id);
+  const id = ev.dataTransfer.getData("text/plain") || state.dragId;
+  state.dragId = null; document.body.classList.remove("dragging");
+  const p = (state.model.phases || []).find(x => x.id === id); if (!p) return;
+  const rows = rowsFromView();
+  const blocked = blockedDependents(state.model.phases, rows, level, id);
+  p.depends_on = safeDropDepends(state.model.phases, rows, level, id);
+  if (!p.depends_on.length) delete p.depends_on;
   await refreshView();
-  if(blocked.length){
-    setStatus("↪ "+id+": constrained move (anti-cycle)");
-    showNotice("Constrained move — "+id, [
-      "These phases already depend on "+id+": "+blocked.join(", ")+".",
-      id+" cannot depend on them (that would create a cycle).",
-      "To place it lower, first remove those links (uncheck "+id+" in their depends_on panel), then move it again.",
+  if (blocked.length) {
+    setStatus("↪ " + id + ": constrained move (anti-cycle)");
+    showNotice("Constrained move — " + id, [
+      "These actions already depend on " + id + ": " + blocked.join(", ") + ".",
+      id + " cannot depend on them (that would create a cycle).",
+      "To place it lower, first remove those links (in their Wiring panel), then move it again.",
     ]);
   }
-  if(state.selected) selectPhase(state.selected); // refresh open panel + links
+  if (state.selected) selectPhase(state.selected);
 }
 
-function selectPhase(id){
-  state.selected=id;
-  const p=(state.model.phases||[]).find(x=>x.id===id); if(!p) return;
-  const panel=$('#edit-panel'); panel.hidden=false; panel.replaceChildren();
+// --- dependency overlay ----------------------------------------------------
+let _paintScheduled = false;
+function schedulePaint() {
+  if (_paintScheduled) return; _paintScheduled = true;
+  requestAnimationFrame(() => { _paintScheduled = false; paintDepLinks(); });
+  setTimeout(paintDepLinks, 220); // catch the drawer/reflow transition
+}
+function paintDepLinks() {
+  const svg = $("#dep-svg"); if (!svg) return;
+  if (!state.showLinks || state.tab !== "grid" || !state.model) { svg.innerHTML = ""; return; }
+  const root = $("#grid-inner"); const rr = root.getBoundingClientRect();
+  const colors = resolveGroupColors(state.model);
+  const lvl = (state.view && state.view.levels) || {};
+  const rects = {};
+  root.querySelectorAll(".phase-card").forEach(el => rects[el.dataset.id] = el.getBoundingClientRect());
+  const links = [];
+  for (const p of state.model.phases || []) for (const dep of p.depends_on || [])
+    if (rects[dep] && rects[p.id]) links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8" });
+  const direct = [], far = [], same = [];
+  for (const l of links) {
+    const cls = classifyLinkSpan(lvl[l.from], lvl[l.to]);
+    (cls === "same" ? same : cls === "far" ? far : direct).push({ a: rects[l.from], b: rects[l.to], color: l.color });
+  }
+  const seg = (d, arrow, c) => '<path d="' + d + '" stroke="' + c + '" stroke-width="1.8" opacity="0.62"/>' +
+    '<polygon points="' + arrow + '" fill="' + c + '" opacity="0.85"/>';
+  const out = [];
+  for (const it of direct) {
+    const sx = it.a.left - rr.left + it.a.width / 2, sy = it.a.bottom - rr.top;
+    const tx = it.b.left - rr.left + it.b.width / 2, ty = it.b.top - rr.top;
+    const dy = Math.max(16, (ty - sy) / 2);
+    out.push(seg("M " + sx + " " + sy + " C " + sx + " " + (sy + dy) + ", " + tx + " " + (ty - dy) + ", " + tx + " " + ty,
+      (tx - 4) + "," + (ty - 8) + " " + (tx + 4) + "," + (ty - 8) + " " + tx + "," + (ty - 1), it.color));
+  }
+  const fi = far.map(it => {
+    const sx = it.a.right - rr.left, sy = it.a.top - rr.top + it.a.height / 2;
+    const tx = it.b.right - rr.left, ty = it.b.top - rr.top + it.b.height / 2;
+    return { it, sx, sy, tx, ty, yMin: Math.min(sy, ty), yMax: Math.max(sy, ty) };
+  });
+  fi.sort((p, q) => p.yMin - q.yMin);
+  const laneEnds = [];
+  fi.forEach(f => { let lane = laneEnds.findIndex(end => end <= f.yMin + 6); if (lane < 0) lane = laneEnds.length; laneEnds[lane] = f.yMax; f.lane = lane; });
+  for (const f of fi) {
+    const gx = Math.max(f.sx, f.tx) + 28 + f.lane * 20;
+    out.push(seg("M " + f.sx + " " + f.sy + " C " + gx + " " + f.sy + ", " + gx + " " + f.ty + ", " + f.tx + " " + f.ty,
+      (f.tx + 8) + "," + (f.ty - 4) + " " + (f.tx + 8) + "," + (f.ty + 4) + " " + (f.tx + 1) + "," + f.ty, f.it.color));
+  }
+  for (const it of same) {
+    const a = it.a, b = it.b;
+    const aCx = a.left - rr.left + a.width / 2, aCy = a.top - rr.top + a.height / 2;
+    const bCx = b.left - rr.left + b.width / 2, bCy = b.top - rr.top + b.height / 2;
+    if (Math.abs(aCy - bCy) >= Math.abs(aCx - bCx)) {
+      const down = aCy <= bCy;
+      const sx = aCx, sy = down ? a.bottom - rr.top : a.top - rr.top;
+      const tx = bCx, ty = down ? b.top - rr.top : b.bottom - rr.top;
+      const dy = Math.max(12, Math.abs(ty - sy) / 2) * (down ? 1 : -1);
+      const arrow = down ? (tx - 4) + "," + (ty - 8) + " " + (tx + 4) + "," + (ty - 8) + " " + tx + "," + (ty - 1)
+        : (tx - 4) + "," + (ty + 8) + " " + (tx + 4) + "," + (ty + 8) + " " + tx + "," + (ty + 1);
+      out.push(seg("M " + sx + " " + sy + " C " + sx + " " + (sy + dy) + ", " + tx + " " + (ty - dy) + ", " + tx + " " + ty, arrow, it.color));
+    } else {
+      const right = aCx <= bCx;
+      const sx = right ? a.right - rr.left : a.left - rr.left;
+      const tx = right ? b.left - rr.left : b.right - rr.left;
+      const sy = aCy, ty = bCy, mx = (sx + tx) / 2;
+      const arrow = right ? (tx - 7) + "," + (ty - 4) + " " + (tx - 7) + "," + (ty + 4) + " " + (tx - 1) + "," + ty
+        : (tx + 7) + "," + (ty - 4) + " " + (tx + 7) + "," + (ty + 4) + " " + (tx + 1) + "," + ty;
+      out.push(seg("M " + sx + " " + sy + " C " + mx + " " + sy + ", " + mx + " " + ty + ", " + tx + " " + ty, arrow, it.color));
+    }
+  }
+  svg.innerHTML = out.join("");
+}
+
+// --- groups legend ---------------------------------------------------------
+function renderLegend(colors) {
+  const root = $("#groups-legend"); root.replaceChildren();
+  const m = state.model; const groups = m.groups || {};
+  const head = document.createElement("div"); head.className = "legend-head";
+  const left = document.createElement("span");
+  left.appendChild(document.createTextNode("Groups"));
+  const cnt = document.createElement("span"); cnt.className = "count"; cnt.textContent = Object.keys(groups).length;
+  left.appendChild(cnt); head.appendChild(left);
+  const caret = document.createElement("span"); caret.style.color = "#64748b"; caret.style.fontSize = "10px";
+  caret.textContent = state.legendOpen ? "▾" : "▸"; head.appendChild(caret);
+  head.style.cursor = "pointer";
+  head.addEventListener("click", () => { state.legendOpen = !state.legendOpen; renderLegend(colors); });
+  root.appendChild(head);
+  if (!state.legendOpen) return;
+  const body = document.createElement("div"); body.className = "legend-body";
+  const rows = document.createElement("div"); rows.className = "legend-rows";
+  const RISK = ["none", "low", "medium", "high"];
+  Object.keys(groups).forEach((g, i) => {
+    const row = document.createElement("div"); row.className = "legend-row";
+    const sw = document.createElement("div"); sw.className = "legend-swatch"; sw.style.background = colors[g] || GROUP_PALETTE[i % GROUP_PALETTE.length];
+    row.appendChild(sw);
+    const fields = document.createElement("div"); fields.className = "legend-fields";
+    const top = document.createElement("div"); top.className = "top";
+    const nameIn = document.createElement("input"); nameIn.className = "legend-name"; nameIn.value = g;
+    nameIn.addEventListener("change", () => renameGroup(g, nameIn.value));
+    top.appendChild(nameIn);
+    const risk = groups[g].risk || "none";
+    const rb = document.createElement("button"); rb.className = "risk-btn risk-" + risk; rb.textContent = risk; rb.title = "Click to change risk";
+    rb.addEventListener("click", () => { groups[g].risk = RISK[(RISK.indexOf(risk) + 1) % 4]; refreshView(); });
+    top.appendChild(rb);
+    fields.appendChild(top);
+    const desc = document.createElement("input"); desc.className = "legend-desc"; desc.value = groups[g].description || ""; desc.placeholder = "description";
+    desc.addEventListener("change", () => { groups[g].description = desc.value; refreshView(); });
+    fields.appendChild(desc);
+    row.appendChild(fields);
+    rows.appendChild(row);
+  });
+  body.appendChild(rows);
+  const add = document.createElement("button"); add.className = "legend-add"; add.textContent = "+ group";
+  add.addEventListener("click", addGroup); body.appendChild(add);
+  root.appendChild(body);
+}
+function renameGroup(old, raw) {
+  const v = (raw || "").trim(); if (!v || v === old) return;
+  const m = state.model;
+  if (m.groups[v] && v !== old) { setStatus("group " + v + " already exists"); return; }
+  m.groups[v] = m.groups[old]; delete m.groups[old];
+  (m.phases || []).forEach(p => { if (p.group === old) p.group = v; });
+  refreshView().then(() => { if (state.selected) selectPhase(state.selected); });
+}
+function addGroup() {
+  const m = state.model; m.groups = m.groups || {};
+  let n = "group", i = 1; while (m.groups[n]) n = "group" + (++i);
+  m.groups[n] = { description: "", risk: "none" };
+  refreshView();
+}
+
+// --- drawer (action editor) ------------------------------------------------
+function applyDrawerLayout() {
+  // The drawer only belongs to the Grid view — hide it (without losing the
+  // selection) when the user switches to Dataflow/Settings/YAML.
+  const open = !!state.selected && state.tab === "grid";
+  document.body.classList.toggle("drawer-open", open);
+  $("#edit-panel").hidden = !open;
+  $("#panel-grid").style.marginRight = open ? state.panelWidth + "px" : "";
+  schedulePaint();
+}
+function curPhase() { return (state.model.phases || []).find(x => x.id === state.selected); }
+
+function selectPhase(id) {
+  state.selected = id;
+  const p = curPhase(); if (!p) return;
+  const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
+  panel.style.width = state.panelWidth + "px";
   ensureResizeGrip(panel);
+  const colors = resolveGroupColors(state.model);
 
-  const title=document.createElement("div"); title.className="panel-title"; title.textContent=p.id; panel.appendChild(title);
+  // header
+  const head = document.createElement("div"); head.className = "drawer-head";
+  const top = document.createElement("div"); top.className = "top";
+  const badge = document.createElement("span"); badge.className = "badge"; badge.dataset.type = p.type || "agent"; badge.textContent = p.type || "agent";
+  top.appendChild(badge);
+  const grp = document.createElement("span"); grp.className = "group-label"; grp.style.marginLeft = "0"; grp.textContent = p.group || ""; grp.style.color = colors[p.group] || "#94a3b8";
+  top.appendChild(grp);
+  const close = document.createElement("button"); close.className = "drawer-close"; close.textContent = "×";
+  close.addEventListener("click", closeDrawer); top.appendChild(close);
+  head.appendChild(top);
+  const idIn = document.createElement("input"); idIn.className = "drawer-id"; idIn.value = p.id;
+  idIn.addEventListener("change", () => renamePhase(idIn.value));
+  head.appendChild(idIn);
+  panel.appendChild(head);
 
-  const tabs=[
-    {key:"general", label:"General", render:b=>tabGeneral(b,p,id)},
-    {key:"autonomy", label:"🧭 Autonomy", render:b=>tabAutonomy(b,p,id)},
-    {key:"deps", label:"Dependencies", render:b=>tabDeps(b,p)},
-    {key:"files", label:"Files", render:b=>tabFiles(b,p)},
-    {key:"triggers", label:"Triggers", render:b=>tabTriggers(b,p)},
-    {key:"invocations", label:"Invocations ("+((p.invocations||[]).length)+")", render:b=>renderInvocations(b,p,id)},
-  ];
-  if(!tabs.some(t=>t.key===state.panelTab)) state.panelTab="general";
+  // body
+  const body = document.createElement("div"); body.className = "drawer-body";
+  drawPriorityFields(body, p);
+  drawSegmented(body, p);
+  panel.appendChild(body);
 
-  const strip=document.createElement("div"); strip.className="panel-tabs";
-  const content=document.createElement("div"); content.className="panel-content";
-  const draw=()=>{
-    content.replaceChildren();
-    (tabs.find(t=>t.key===state.panelTab)||tabs[0]).render(content);
-    [...strip.children].forEach(b=>b.classList.toggle("active", b.dataset.k===state.panelTab));
-  };
-  tabs.forEach(t=>{ const b=document.createElement("button"); b.className="ptab"; b.dataset.k=t.key; b.textContent=t.label;
-    b.addEventListener("click",()=>{ state.panelTab=t.key; draw(); }); strip.appendChild(b); });
-  panel.appendChild(strip); panel.appendChild(content);
+  // footer
+  const foot = document.createElement("div"); foot.className = "drawer-foot";
+  const del = document.createElement("button"); del.className = "btn-del"; del.textContent = "Delete action";
+  del.addEventListener("click", deletePhase); foot.appendChild(del);
+  const done = document.createElement("button"); done.className = "btn-done"; done.textContent = "Done";
+  done.addEventListener("click", closeDrawer); foot.appendChild(done);
+  panel.appendChild(foot);
 
-  const actions=document.createElement("div"); actions.className="panel-actions";
-  const del=document.createElement("button"); del.textContent="🗑 delete phase";
-  del.addEventListener("click",deletePhase); actions.appendChild(del);
-  const close=document.createElement("button"); close.textContent="close";
-  close.addEventListener("click",()=>{panel.hidden=true;}); actions.appendChild(close);
-  panel.appendChild(actions);
-
-  draw();
+  applyDrawerLayout();
   renderGrid();
 }
+function closeDrawer() { state.selected = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
 
-function tabGeneral(body,p,id){
-  const mk=(node)=>body.appendChild(node);
-  const idR=fieldText("id", p.id, ()=>{}); idR.querySelector("input").addEventListener("change",e=>renamePhase(e.target.value)); idR.appendChild(helpIcon("Unique identifier in UPPERCASE (e.g. R1-BOT-SIM).")); mk(idR);
-  mk(fieldText("name", p.name||"", v=>{p.name=v; refreshView();}));
-  const typeR=fieldSelect("type", p.type||"agent", ["agent","script","external","main_agent","workflow_call"], v=>{p.type=v; refreshView().then(()=>selectPhase(id));});
-  typeR.appendChild(helpIcon("agent = invokes sub-agents · script = shell command (cmd) · external = produced outside the workflow · main_agent = driven by the main agent · workflow_call = calls another workflow.")); mk(typeR);
-  const grp=fieldDatalist("group", p.group||"", Object.keys(state.model.groups||{}), v=>setPhaseGroup(p,v));
-  grp.appendChild(helpIcon("Free-form group name (drives visual grouping + risk). Existing groups are suggested; a new name automatically creates the group (adjustable in Settings › groups).")); mk(grp);
-  mk(fieldTextarea("description", p.description, v=>{ if(v) p.description=v; else delete p.description; refreshView(); }));
-  if(p.type==="script"){
-    const c=fieldTextarea("cmd", p.cmd, v=>{ if(v) p.cmd=v; else delete p.cmd; refreshView(); });
-    c.appendChild(helpIcon("Shell command run for this phase (e.g. python src/scripts/foo.py).")); mk(c);
+function drawPriorityFields(body, p) {
+  body.appendChild(fieldText("Name", p.name || "", v => { p.name = v; refreshView(); }));
+  const row2 = document.createElement("div"); row2.className = "row-2";
+  const typeR = fieldSelect("Type", p.type || "agent", ["main_agent", "agent", "script", "external", "workflow_call"],
+    v => { p.type = v; refreshView().then(() => selectPhase(p.id)); });
+  typeR.querySelector("label").appendChild(helpIcon("main_agent = driven by the main agent · agent = invokes sub-agents · script = shell command · external = produced outside the workflow · workflow_call = calls another workflow."));
+  const grpR = fieldDatalist("Group", p.group || "", Object.keys(state.model.groups || {}), v => { if (applyPhaseGroup(state.model, p, v)) refreshView().then(() => selectPhase(p.id)); });
+  const c1 = document.createElement("div"); c1.appendChild(typeR);
+  const c2 = document.createElement("div"); c2.appendChild(grpR);
+  row2.appendChild(c1); row2.appendChild(c2); body.appendChild(row2);
+
+  body.appendChild(toggleRow("Interactive", "Pauses for the maintainer instead of running straight through",
+    !!p.interactive, false, () => { p.interactive = !p.interactive; if (!p.interactive) delete p.interactive; refreshView().then(() => selectPhase(p.id)); }));
+
+  body.appendChild(fieldTextarea("Description", p.description || "", v => { if (v) p.description = v; else delete p.description; refreshView(); }));
+
+  if (p.type === "script") {
+    const box = document.createElement("div"); box.className = "cmd-box";
+    box.appendChild(fieldTextarea("Command", p.cmd || "", v => { if (v) p.cmd = v; else delete p.cmd; refreshView(); }));
+    box.appendChild(helpNote("Shell commands run when this action executes. Reference input artifacts via env vars."));
+    body.appendChild(box);
   }
-  if(p.type==="workflow_call"){
-    const w=fieldSelect("workflow", p.workflow||"", ["", ...(state.workflows||[]).filter(n=>n!==state.name)], v=>{ if(v) p.workflow=v; else delete p.workflow; refreshView(); });
-    w.appendChild(helpIcon("Workflow to invoke as a sub-step (must exist in src/workflows/).")); mk(w);
-  }
-}
-function tabAutonomy(body,p,id){
-  const mk=(node)=>body.appendChild(node);
-  const mode=opportunisticMode(p);
-  const g=opportunisticGuidance(p);
-  const modeR=fieldSelect("mode", mode, ["inherit","enabled","locked"], v=>{
-    setOpportunistic(p, v, g.when, g.examples);
-    refreshView().then(()=>selectPhase(id));
-  });
-  modeR.appendChild(helpIcon("inherit = use the workflow's global default · enabled = the main agent may author & launch an ad-hoc sub-agent here (a sub-agent cannot itself spawn — you do it after the planned one returns) · locked = explicitly forbid it on this deterministic/sensitive phase."));
-  mk(modeR);
-  if(mode==="enabled"){
-    const w=fieldTextarea("when", g.when, v=>{ setOpportunistic(p,"enabled",v,g.examples); refreshView().then(()=>selectPhase(id)); });
-    w.appendChild(helpIcon("When to improvise here (e.g. 'a dependency looks old / abandoned').")); mk(w);
-    mk(stringListEditor("examples", g.examples, arr=>{ setOpportunistic(p,"enabled",g.when,arr); refreshView().then(()=>selectPhase(id)); }));
-  }
-  const prev=document.createElement("div"); prev.className="opp-resolved";
-  const label=resolvedOppLabel(state.view&&state.view.opportunistic, id);
-  prev.textContent="Resolved: "+(label||"—");
-  mk(prev);
-}
-function tabDeps(body,p){
-  const lvl=state.view.levels[p.id]||0;
-  const candidates=(state.model.phases||[]).filter(o=>o.id!==p.id && (state.view.levels[o.id]||0)<lvl);
-  const head=labelWithHelp("depends_on", "Check the (lower-level) phases that must finish before this one. You can also drag the card under another row."); body.appendChild(head);
-  if(!candidates.length){const m=document.createElement("div"); m.className="muted"; m.textContent="root — no lower-level phase."; body.appendChild(m);}
-  candidates.forEach(o=>{
-    const wrap=document.createElement("label"); wrap.style.textTransform="none";
-    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=(p.depends_on||[]).includes(o.id);
-    cb.addEventListener("change",()=>toggleDep(o.id,cb.checked));
-    wrap.appendChild(cb); wrap.appendChild(document.createTextNode(" "+o.id+" (lvl "+((state.view.levels[o.id]||0)+1)+")"));
-    body.appendChild(wrap);
-  });
-}
-function tabFiles(body,p){
-  const ph=section("phase files", true);
-  ph.body.appendChild(labelWithHelp("phase-level", "Inputs/outputs declared directly on the phase (scripts, main_agent). For a phase with invocations, files are set per invocation — see below and the Invocations tab."));
-  ph.body.appendChild(ioRefEditor("inputs", p.inputs||[], next=>{ if(next.length) p.inputs=next; else delete p.inputs; refreshView(); }, state.model.namespaces));
-  ph.body.appendChild(ioRefEditor("outputs", p.outputs||[], next=>{ if(next.length) p.outputs=next; else delete p.outputs; refreshView(); }, state.model.namespaces));
-  body.appendChild(ph);
-  const agg=aggregateInvocationIo(p);
-  if(agg.length){
-    const inv=section("invocation files (read-only)", true);
-    inv.body.appendChild(helpNote("Overview — same files as the Dataflow. Edit them in the Invocations tab."));
-    agg.forEach(g=>{
-      const row=document.createElement("div"); row.className="io-rollup";
-      const t=document.createElement("div"); t.className="io-rollup-agent"; t.textContent="▸ "+g.agent; row.appendChild(t);
-      if(g.inputs.length){ const d=document.createElement("div"); d.className="io-rollup-line io-in"; d.textContent="in  "+g.inputs.map(x=>x.path+(x.optional?"?":"")).join(", "); row.appendChild(d); }
-      if(g.outputs.length){ const d=document.createElement("div"); d.className="io-rollup-line io-out"; d.textContent="out "+g.outputs.map(x=>x.path+(x.optional?"?":"")).join(", "); row.appendChild(d); }
-      inv.body.appendChild(row);
-    });
-    body.appendChild(inv);
+  if (p.type === "workflow_call") {
+    const opts = ["", ...(state.workflows || []).filter(n => n !== state.name)];
+    const w = fieldSelect("Workflow", p.workflow || "", opts, v => { if (v) p.workflow = v; else delete p.workflow; refreshView(); });
+    w.querySelector("label").appendChild(helpIcon("Workflow to dispatch as a sub-step (must exist in src/workflows/)."));
+    body.appendChild(w);
   }
 }
-function tabTriggers(body,p){
-  body.appendChild(triggerEditor("triggers", p.triggers||[], next=>{ if(next.length) p.triggers=next; else delete p.triggers; refreshView(); }));
+function toggleRow(title, sub, on, warn, onClick) {
+  const r = document.createElement("div"); r.className = "toggle-row";
+  const sw = document.createElement("div"); sw.className = "switch" + (warn ? " warn" : "") + (on ? " on" : "");
+  const knob = document.createElement("div"); knob.className = "knob"; sw.appendChild(knob);
+  r.appendChild(sw);
+  const txt = document.createElement("div"); txt.className = "toggle-text";
+  const t = document.createElement("div"); t.className = "t"; t.textContent = title;
+  const s = document.createElement("div"); s.className = "s"; s.textContent = sub;
+  txt.appendChild(t); txt.appendChild(s); r.appendChild(txt);
+  r.style.cursor = "pointer";
+  r.addEventListener("click", onClick);
+  return r;
 }
 
-function renderInvocations(host, p, id){
-  (p.invocations||[]).forEach((inv,idx)=>{
-    const box=section("▸ "+inv.agent, false); box.classList.add("inv-card"); host.appendChild(box);
-    const b=box.body;
-    b.appendChild(fieldSelect("model", inv.model||"inherit", ["inherit","haiku","sonnet","opus"], v=>{inv.model=v; refreshView();}));
-    const ep=document.createElement("button"); ep.className="prompt-btn"; ep.textContent="✎ edit prompt"; ep.addEventListener("click",()=>openPrompt(inv.agent)); b.appendChild(ep);
-    b.appendChild(fieldTextarea("description (for this invocation)", inv.description, v=>{ if(v) inv.description=v; else delete inv.description; refreshView();}));
-    const bg=fieldCheckbox("background (run the agent in the background)", inv.background, v=>{ if(v) inv.background=true; else delete inv.background; refreshView();}); b.appendChild(bg);
-    const si=fieldSelect("skip_if (skip when the condition is true)", inv.skip_if||"", ["", ...Object.keys(state.model.conditions||{})], v=>{ if(v) inv.skip_if=v; else delete inv.skip_if; refreshView();}); b.appendChild(si);
-    if(!Object.keys(state.model.conditions||{}).length) b.appendChild(helpNote("No condition defined — add one in Settings › conditions."));
-    b.appendChild(fieldSelect("depends_on_invocation (wait for another invocation of this phase)", inv.depends_on_invocation||"", ["", ...(p.invocations||[]).filter(x=>x!==inv).map(x=>x.agent)], v=>{ if(v) inv.depends_on_invocation=v; else delete inv.depends_on_invocation; refreshView();}));
-    const it=section("invocation triggers", false); b.appendChild(it);
-    it.body.appendChild(triggerEditor("triggers", inv.triggers||[], next=>{ if(next.length) inv.triggers=next; else delete inv.triggers; refreshView();}));
-    const io=section("invocation files", false); b.appendChild(io);
-    io.body.appendChild(ioRefEditor("inputs", inv.inputs||[], next=>{ if(next.length) inv.inputs=next; else delete inv.inputs; refreshView();}, state.model.namespaces));
-    io.body.appendChild(ioRefEditor("outputs", inv.outputs||[], next=>{ if(next.length) inv.outputs=next; else delete inv.outputs; refreshView();}, state.model.namespaces));
-    const rm=document.createElement("button"); rm.className="inv-remove"; rm.textContent="✕ remove this invocation";
-    rm.addEventListener("click",()=>{p.invocations.splice(idx,1); if(!p.invocations.length) delete p.invocations; refreshView().then(()=>selectPhase(id));});
-    b.appendChild(rm);
-  });
-  if((state.agents||[]).length){
-    const pick=document.createElement("select");
-    const o0=document.createElement("option"); o0.value=""; o0.textContent="+ invocation (existing agent)…"; pick.appendChild(o0);
-    state.agents.forEach(a=>{const o=document.createElement("option"); o.value=a; o.textContent=a; pick.appendChild(o);});
-    pick.addEventListener("change",()=>{ if(!pick.value)return; p.invocations=p.invocations||[]; if(!p.invocations.some(i=>i.agent===pick.value)) p.invocations.push({agent:pick.value,model:"inherit"}); refreshView().then(()=>selectPhase(id)); });
-    host.appendChild(pick);
-  } else {
-    host.appendChild(helpNote("No agent in src/agents/."));
-  }
-  const create=document.createElement("button"); create.className="link-btn"; create.textContent="+ create a new agent…";
-  create.addEventListener("click",()=>openAgentForm());
-  host.appendChild(create);
-}
-
-async function refreshAgents(){ state.agents=(await api('GET','/api/agents')).j||[]; }
-
-function openAgentForm(){
-  document.querySelectorAll(".notice-overlay").forEach(n=>n.remove());
-  const ov=document.createElement("div"); ov.className="notice-overlay";
-  const box=document.createElement("div"); box.className="prompt-box";
-  const h=document.createElement("div"); h.className="notice-title"; h.textContent="New agent"; box.appendChild(h);
-  const draft={name:"",description:"",tools:"",model:"inherit",prompt:""};
-  box.appendChild(fieldText("name (lowercase slug, e.g. my-agent)", "", v=>draft.name=v));
-  box.appendChild(fieldText("description", "", v=>draft.description=v));
-  box.appendChild(fieldText("tools (e.g. Read, Grep, Bash)", "", v=>draft.tools=v));
-  box.appendChild(fieldSelect("model", "inherit", ["inherit","haiku","sonnet","opus"], v=>draft.model=v));
-  const plabel=document.createElement("label"); plabel.textContent="prompt"; box.appendChild(plabel);
-  const ta=document.createElement("textarea"); ta.className="prompt-textarea"; ta.spellcheck=false;
-  ta.addEventListener("change",()=>draft.prompt=ta.value); box.appendChild(ta);
-  const bar=document.createElement("div"); bar.className="prompt-bar";
-  const st=document.createElement("span"); st.className="muted";
-  const save=document.createElement("button"); save.textContent="create agent";
-  save.addEventListener("click",async()=>{
-    draft.prompt=ta.value;
-    const {status,j}=await api('POST','/api/agent',draft);
-    if(status===200 && (!j.errors||!j.errors.length)){
-      await refreshAgents(); st.textContent="✓ agent created"; ov.remove();
-      if(state.selected) selectPhase(state.selected);
-    } else { st.textContent="✗ "+((j.errors||['error']).join('; ')); }
-  });
-  const close=document.createElement("button"); close.textContent="close"; close.addEventListener("click",()=>ov.remove());
-  bar.appendChild(save); bar.appendChild(close); bar.appendChild(st); box.appendChild(bar);
-  ov.appendChild(box);
-  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
-  document.body.appendChild(ov);
-}
-
-async function openPrompt(agent){
-  // Two distinct artifacts: the agent's real system prompt (src/agents/<name>.md
-  // body) and the per-phase invocation snippet (templates/invocations/<name>.md).
-  const ag=await api('GET','/api/agent/'+agent);
-  const iv=await api('GET','/api/invocation/'+agent);
-  const agentExists=ag.status===200;
-  const sources=[
-    {label:"Prompt agent — src/agents/"+agent+".md",
-     value:(ag.j&&ag.j.body)||"", disabled:!agentExists,
-     hint:agentExists?"The agent's full system prompt. The frontmatter (tools, model, description) is preserved.":"Agent not found in src/agents/ — create it via « + agent ».",
-     save:v=>api('PUT','/api/agent/'+agent,{body:v})},
-    {label:"Invocation snippet — included in the SKILL",
-     value:(iv.j&&iv.j.prompt)||"", disabled:false,
-     hint:"The Task block injected into the generated SKILL.md for this phase.",
-     save:v=>api('PUT','/api/invocation/'+agent,{prompt:v})},
+function drawSegmented(body, p) {
+  const tabs = [
+    { key: "wiring", label: "Wiring", render: b => tabWiring(b, p) },
+    { key: "autonomy", label: "Autonomy", render: b => tabAutonomy(b, p) },
+    { key: "invocations", label: "Invocations", render: b => tabInvocations(b, p) },
+    { key: "triggers", label: "Triggers", render: b => tabTriggers(b, p) },
   ];
-  document.querySelectorAll(".notice-overlay").forEach(n=>n.remove());
-  const ov=document.createElement("div"); ov.className="notice-overlay";
-  const box=document.createElement("div"); box.className="prompt-box";
-  const h=document.createElement("div"); h.className="notice-title"; h.textContent="Prompts — "+agent; box.appendChild(h);
-  const tabs=document.createElement("div"); tabs.className="panel-tabs"; box.appendChild(tabs);
-  const hint=document.createElement("div"); hint.className="muted";
-  const ta=document.createElement("textarea"); ta.className="prompt-textarea"; ta.spellcheck=false;
-  const st=document.createElement("span"); st.className="muted";
-  let active=sources[0];
-  function activate(s){
-    active=s;
-    [...tabs.children].forEach((b,i)=>b.classList.toggle("active",sources[i]===s));
-    ta.value=s.value; ta.disabled=!!s.disabled; hint.textContent=s.hint||""; st.textContent="";
-  }
-  sources.forEach(s=>{
-    const tb=document.createElement("button"); tb.className="ptab"; tb.textContent=s.label;
-    tb.addEventListener("click",()=>{ if(!active.disabled) active.value=ta.value; activate(s); });
-    tabs.appendChild(tb);
+  if (!tabs.some(t => t.key === state.drawerTab)) state.drawerTab = "wiring";
+  const seg = document.createElement("div"); seg.className = "seg";
+  const content = document.createElement("div");
+  const draw = () => {
+    content.replaceChildren();
+    (tabs.find(t => t.key === state.drawerTab) || tabs[0]).render(content);
+    [...seg.children].forEach(b => b.classList.toggle("active", b.dataset.k === state.drawerTab));
+  };
+  tabs.forEach(t => { const b = document.createElement("button"); b.dataset.k = t.key; b.textContent = t.label;
+    b.addEventListener("click", () => { state.drawerTab = t.key; draw(); }); seg.appendChild(b); });
+  body.appendChild(seg); body.appendChild(content); draw();
+}
+
+function tabWiring(body, p) {
+  // depends_on
+  const head = labelWithHelp("Depends on", "Actions that must finish before this one. You can also drag the card onto another level (the dependency is rewired safely — no cycles).");
+  head.className = "sub-head"; head.style.margin = "0 0 8px"; body.appendChild(head);
+  const chips = document.createElement("div"); chips.className = "dep-chips";
+  const deps = p.depends_on || [];
+  if (!deps.length) { const m = document.createElement("span"); m.className = "muted-note"; m.textContent = "No dependencies — runs first."; chips.appendChild(m); }
+  deps.forEach(d => {
+    const chip = document.createElement("span"); chip.className = "dep-chip"; chip.appendChild(document.createTextNode(d));
+    const x = document.createElement("button"); x.textContent = "×";
+    x.addEventListener("click", () => { p.depends_on = (p.depends_on || []).filter(v => v !== d); if (!p.depends_on.length) delete p.depends_on; refreshView().then(() => selectPhase(p.id)); });
+    chip.appendChild(x); chips.appendChild(chip);
   });
+  body.appendChild(chips);
+  // add dep — exclude self, current deps, and descendants (anti-cycle)
+  const desc = descendantSet(p.id);
+  const avail = (state.model.phases || []).filter(x => x.id !== p.id && !deps.includes(x.id) && !desc.has(x.id)).map(x => x.id);
+  if (avail.length) {
+    const sel = document.createElement("select"); sel.style.marginTop = "9px";
+    const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "+ add dependency…"; sel.appendChild(o0);
+    avail.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; sel.appendChild(o); });
+    sel.addEventListener("change", () => { if (!sel.value) return; p.depends_on = p.depends_on || []; p.depends_on.push(sel.value); refreshView().then(() => selectPhase(p.id)); });
+    body.appendChild(sel);
+  }
+  // inputs / outputs (the io editor labels itself; coloured via .io-in/.io-out wrappers)
+  const inWrap = document.createElement("div"); inWrap.className = "io-in"; inWrap.style.marginTop = "18px";
+  inWrap.appendChild(ioRefEditor("inputs", p.inputs || [], next => { if (next.length) p.inputs = next; else delete p.inputs; refreshView(); }, state.model.namespaces));
+  body.appendChild(inWrap);
+  const outWrap = document.createElement("div"); outWrap.className = "io-out"; outWrap.style.marginTop = "16px";
+  outWrap.appendChild(ioRefEditor("outputs", p.outputs || [], next => { if (next.length) p.outputs = next; else delete p.outputs; refreshView(); }, state.model.namespaces));
+  body.appendChild(outWrap);
+
+  // Agent actions usually declare their files per-invocation — surface them here
+  // (read-only) so the Wiring tab is never misleadingly empty. They're editable
+  // in the Invocations tab → Advanced.
+  const agg = aggregateInvocationIo(p);
+  if (agg.length) {
+    const roll = document.createElement("div"); roll.className = "io-rollup";
+    const h = document.createElement("div"); h.className = "sub-head";
+    h.appendChild(document.createTextNode("From invocations "));
+    h.appendChild(helpIcon("These files are declared per-invocation (this is an agent action). They're editable in the Invocations tab under “Advanced”."));
+    roll.appendChild(h);
+    agg.forEach(g => {
+      const c = document.createElement("div"); c.className = "rollup-card";
+      const t = document.createElement("div"); t.className = "rollup-agent"; t.textContent = "▸ " + g.agent; c.appendChild(t);
+      const line = (cls, label, items) => { if (!items.length) return; const d = document.createElement("div"); d.className = "rollup-line " + cls; d.textContent = label + " " + items.map(io => (io.role || io.path || "") + (io.optional ? "?" : "")).join(", "); c.appendChild(d); };
+      line("in", "in ", g.inputs); line("out", "out", g.outputs);
+      roll.appendChild(c);
+    });
+    body.appendChild(roll);
+  }
+}
+function descendantSet(id) {
+  const dependents = {};
+  for (const p of state.model.phases || []) for (const d of p.depends_on || []) (dependents[d] = dependents[d] || []).push(p.id);
+  const out = new Set(); const stack = [...(dependents[id] || [])];
+  while (stack.length) { const c = stack.pop(); if (out.has(c)) continue; out.add(c); for (const n of dependents[c] || []) stack.push(n); }
+  return out;
+}
+
+function tabAutonomy(body, p) {
+  const mode = opportunisticMode(p);
+  const g = opportunisticGuidance(p);
+  // 3-state segmented control (inherit / enabled / locked) — friendly + faithful.
+  const seg = document.createElement("div"); seg.className = "seg";
+  [["inherit", "Inherit"], ["enabled", "Enabled"], ["locked", "Locked"]].forEach(([k, lbl]) => {
+    const b = document.createElement("button"); b.textContent = lbl; if (k === mode) b.classList.add("active");
+    b.addEventListener("click", () => { setOpportunistic(p, k, g.when, g.examples); if (k === "inherit") delete p.opportunistic; refreshView().then(() => selectPhase(p.id)); });
+    seg.appendChild(b);
+  });
+  body.appendChild(seg);
+  const help = helpNote("inherit = use the workflow default · enabled = the main agent may author & launch an ad-hoc sub-agent here · locked = explicitly forbid it on this deterministic/sensitive action.");
+  body.appendChild(help);
+  if (mode === "enabled") {
+    body.appendChild(fieldTextarea("When", g.when, v => { setOpportunistic(p, "enabled", v, g.examples); refreshView().then(() => selectPhase(p.id)); }));
+    body.appendChild(stringListEditor("Examples", g.examples, arr => { setOpportunistic(p, "enabled", g.when, arr); refreshView().then(() => selectPhase(p.id)); }));
+  }
+  const prev = document.createElement("div"); prev.className = "opp-resolved";
+  prev.textContent = "Resolved: " + (resolvedOppLabel(state.view && state.view.opportunistic, p.id) || "—");
+  body.appendChild(prev);
+}
+
+function tabTriggers(body, p) {
+  body.appendChild(helpNote("What makes this action run. By default it fires when the previous stage completes — add triggers to fire on a produced artifact, an event, or a threshold."));
+  body.appendChild(triggerEditor("triggers", p.triggers || [], next => { if (next.length) p.triggers = next; else delete p.triggers; refreshView(); }));
+}
+
+function tabInvocations(body, p) {
+  if (p.type !== "agent") {
+    const note = document.createElement("div"); note.className = "help-note";
+    note.style.cssText = "padding:14px;background:var(--well);border:1px dashed var(--border);border-radius:8px;font-size:12.5px;color:var(--dim)";
+    note.textContent = "Invocations apply to agent-type actions. Switch the type to agent to wire sub-agents here.";
+    body.appendChild(note); return;
+  }
+  (p.invocations || []).forEach((inv, idx) => body.appendChild(invocationCard(p, inv, idx)));
+  if ((state.agents || []).length) {
+    const pick = document.createElement("select"); pick.className = "inv-add"; pick.style.cssText = "";
+    const wrap = document.createElement("div");
+    const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "+ add invocation (existing agent)…"; pick.appendChild(o0);
+    state.agents.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; pick.appendChild(o); });
+    pick.addEventListener("change", () => { if (!pick.value) return; p.invocations = p.invocations || []; if (!p.invocations.some(i => i.agent === pick.value)) p.invocations.push({ agent: pick.value, model: "inherit" }); refreshView().then(() => selectPhase(p.id)); });
+    wrap.appendChild(pick); body.appendChild(wrap);
+  } else { body.appendChild(helpNote("No agent in src/agents/.")); }
+  const create = document.createElement("button"); create.className = "add-mini"; create.style.marginTop = "8px"; create.textContent = "+ create a new agent…";
+  create.addEventListener("click", openAgentForm); body.appendChild(create);
+}
+function invocationCard(p, inv, idx) {
+  const box = document.createElement("div"); box.className = "inv-card";
+  const top = document.createElement("div"); top.className = "inv-top";
+  const ag = document.createElement("select"); ag.className = "inv-agent";
+  const names = [...new Set([...(state.agents || []), inv.agent].filter(Boolean))];
+  names.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; if (n === inv.agent) o.selected = true; ag.appendChild(o); });
+  const oNew = document.createElement("option"); oNew.value = "__new"; oNew.textContent = "+ new agent…"; ag.appendChild(oNew);
+  ag.addEventListener("change", () => {
+    if (ag.value === "__new") { openAgentForm(); selectPhase(p.id); return; }
+    inv.agent = ag.value; refreshView().then(() => selectPhase(p.id));
+  });
+  top.appendChild(ag);
+  const model = document.createElement("select"); model.className = "inv-model";
+  ["inherit", "haiku", "sonnet", "opus"].forEach(mm => { const o = document.createElement("option"); o.value = mm; o.textContent = mm; if (mm === (inv.model || "inherit")) o.selected = true; model.appendChild(o); });
+  model.addEventListener("change", () => { inv.model = model.value; refreshView(); });
+  top.appendChild(model);
+  const rm = document.createElement("button"); rm.className = "inv-rm"; rm.textContent = "×";
+  rm.addEventListener("click", () => { p.invocations.splice(idx, 1); if (!p.invocations.length) delete p.invocations; refreshView().then(() => selectPhase(p.id)); });
+  top.appendChild(rm); box.appendChild(top);
+
+  box.appendChild(fieldTextarea("", inv.description || "", v => { if (v) inv.description = v; else delete inv.description; refreshView(); }));
+  box.querySelector("textarea").placeholder = "what this sub-agent does in this action";
+
+  const prow = document.createElement("div"); prow.className = "prompt-row";
+  const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = "✎ Prompt";
+  const prev = document.createElement("span"); prev.className = "prev"; prev.textContent = "agent system prompt + invocation snippet";
+  prow.appendChild(lbl); prow.appendChild(prev);
+  prow.addEventListener("click", () => openPrompt(inv.agent)); box.appendChild(prow);
+
+  // advanced (awok-specific richness): background / skip_if / depends_on_invocation / per-invocation triggers & io
+  const adv = document.createElement("details"); adv.className = "inv-advanced";
+  const sum = document.createElement("summary"); sum.textContent = "Advanced"; adv.appendChild(sum);
+  adv.appendChild(fieldCheckbox("background (run the agent in the background)", inv.background, v => { if (v) inv.background = true; else delete inv.background; refreshView(); }));
+  const conds = ["", ...Object.keys(state.model.conditions || {})];
+  adv.appendChild(fieldSelect("skip_if (skip when the condition is true)", inv.skip_if || "", conds, v => { if (v) inv.skip_if = v; else delete inv.skip_if; refreshView(); }));
+  if (conds.length === 1) adv.appendChild(helpNote("No condition defined — add one in Settings › conditions."));
+  const others = ["", ...(p.invocations || []).filter(x => x !== inv).map(x => x.agent)];
+  adv.appendChild(fieldSelect("depends_on_invocation (wait for another invocation here)", inv.depends_on_invocation || "", others, v => { if (v) inv.depends_on_invocation = v; else delete inv.depends_on_invocation; refreshView(); }));
+  adv.appendChild(triggerEditor("invocation triggers", inv.triggers || [], next => { if (next.length) inv.triggers = next; else delete inv.triggers; refreshView(); }));
+  adv.appendChild(ioRefEditor("invocation inputs", inv.inputs || [], next => { if (next.length) inv.inputs = next; else delete inv.inputs; refreshView(); }, state.model.namespaces));
+  adv.appendChild(ioRefEditor("invocation outputs", inv.outputs || [], next => { if (next.length) inv.outputs = next; else delete inv.outputs; refreshView(); }, state.model.namespaces));
+  box.appendChild(adv);
+  return box;
+}
+
+function renamePhase(newId) {
+  const p = curPhase(); if (!p || !newId || newId === p.id) return;
+  const old = p.id;
+  (state.model.phases || []).forEach(x => { if (x.depends_on) x.depends_on = x.depends_on.map(d => d === old ? newId : d); });
+  p.id = newId; state.selected = newId; refreshView().then(() => selectPhase(newId));
+}
+function uniqueId(base) {
+  const ids = new Set((state.model.phases || []).map(p => p.id));
+  if (!ids.has(base)) return base; let n = 2; while (ids.has(base + "-" + n)) n++; return base + "-" + n;
+}
+function addPhase() {
+  if (!state.model) return;
+  const id = uniqueId("NEW-ACTION");
+  const group = Object.keys(state.model.groups || {})[0] || "setup";
+  // default: depend on the deepest level's actions (sits one level lower)
+  const rows = rowsFromView();
+  const prev = rows.length ? rows[rows.length - 1].filter(Boolean) : [];
+  state.model.phases = state.model.phases || [];
+  const ph = { id, name: "New action", group, type: "main_agent" };
+  if (prev.length) ph.depends_on = prev;
+  state.model.phases.push(ph);
+  refreshView().then(() => selectPhase(id));
+}
+function deletePhase() {
+  const p = curPhase(); if (!p) return;
+  if (!confirm("Delete " + p.id + "?")) return;
+  const id = p.id;
+  state.model.phases = state.model.phases.filter(x => x.id !== id);
+  (state.model.phases || []).forEach(x => { if (x.depends_on) x.depends_on = x.depends_on.filter(d => d !== id); });
+  closeDrawer(); refreshView();
+}
+
+// --- resize grip -----------------------------------------------------------
+function ensureResizeGrip(panel) {
+  const grip = document.createElement("div"); grip.className = "resize-grip"; panel.appendChild(grip);
+  grip.addEventListener("mousedown", e => {
+    e.preventDefault();
+    const move = ev => {
+      const w = Math.min(Math.max(window.innerWidth - ev.clientX, 360), window.innerWidth * 0.96);
+      state.panelWidth = w; panel.style.width = w + "px"; $("#panel-grid").style.marginRight = w + "px"; schedulePaint();
+    };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  });
+}
+
+// --- prompt + agent editors (two artifacts: agent body + invocation snippet) -
+async function refreshAgents() { state.agents = (await api("GET", "/api/agents")).j || []; }
+async function openPrompt(agent) {
+  const ag = await api("GET", "/api/agent/" + agent);
+  const iv = await api("GET", "/api/invocation/" + agent);
+  const agentExists = ag.status === 200;
+  const sources = [
+    { label: "Agent prompt — src/agents/" + agent + ".md", value: (ag.j && ag.j.body) || "", disabled: !agentExists,
+      hint: agentExists ? "The agent's full system prompt (frontmatter preserved)." : "Agent not found — create it via « + new agent ».",
+      save: v => api("PUT", "/api/agent/" + agent, { body: v }) },
+    { label: "Invocation snippet — included in the SKILL", value: (iv.j && iv.j.prompt) || "", disabled: false,
+      hint: "The Task block injected into the generated SKILL.md for this action.",
+      save: v => api("PUT", "/api/invocation/" + agent, { prompt: v }) },
+  ];
+  document.querySelectorAll(".notice-overlay").forEach(n => n.remove());
+  const ov = document.createElement("div"); ov.className = "notice-overlay";
+  const box = document.createElement("div"); box.className = "prompt-box";
+  const h = document.createElement("div"); h.className = "notice-title"; h.textContent = "Prompts — " + agent; box.appendChild(h);
+  const tabs = document.createElement("div"); tabs.className = "panel-tabs"; box.appendChild(tabs);
+  const hint = document.createElement("div"); hint.className = "muted";
+  const ta = document.createElement("textarea"); ta.className = "prompt-textarea"; ta.spellcheck = false;
+  const st = document.createElement("span"); st.className = "muted";
+  let active = sources[0];
+  const activate = s => { active = s; [...tabs.children].forEach((b, i) => b.classList.toggle("active", sources[i] === s)); ta.value = s.value; ta.disabled = !!s.disabled; hint.textContent = s.hint || ""; st.textContent = ""; };
+  sources.forEach(s => { const tb = document.createElement("button"); tb.className = "ptab"; tb.textContent = s.label;
+    tb.addEventListener("click", () => { if (!active.disabled) active.value = ta.value; activate(s); }); tabs.appendChild(tb); });
   box.appendChild(hint); box.appendChild(ta);
-  const bar=document.createElement("div"); bar.className="prompt-bar";
-  const save=document.createElement("button"); save.textContent="💾 save";
-  save.addEventListener("click",async()=>{
-    if(active.disabled){ st.textContent="nothing to save"; return; }
-    active.value=ta.value;
-    const r=await active.save(ta.value);
-    st.textContent=(r.status===200)?"✓ saved":"✗ "+(((r.j&&r.j.errors)||['error']).join('; '));
+  const bar = document.createElement("div"); bar.className = "prompt-bar";
+  const save = document.createElement("button"); save.textContent = "Save";
+  save.addEventListener("click", async () => { if (active.disabled) { st.textContent = "nothing to save"; return; } active.value = ta.value; const r = await active.save(ta.value); st.textContent = r.status === 200 ? "✓ saved" : "✗ " + (((r.j && r.j.errors) || ["error"]).join("; ")); });
+  const close = document.createElement("button"); close.textContent = "Close"; close.addEventListener("click", () => ov.remove());
+  bar.appendChild(save); bar.appendChild(st); bar.appendChild(close); box.appendChild(bar);
+  ov.appendChild(box); ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov); activate(sources[0]); ta.focus();
+}
+function openAgentForm() {
+  document.querySelectorAll(".notice-overlay").forEach(n => n.remove());
+  const ov = document.createElement("div"); ov.className = "notice-overlay";
+  const box = document.createElement("div"); box.className = "notice-box"; box.style.width = "min(560px,100%)";
+  const h = document.createElement("div"); h.className = "notice-title"; h.textContent = "New agent"; box.appendChild(h);
+  const draft = { name: "", description: "", tools: "", model: "inherit", prompt: "" };
+  box.appendChild(fieldText("name (lowercase slug, e.g. my-agent)", "", v => draft.name = v));
+  box.appendChild(fieldText("description", "", v => draft.description = v));
+  box.appendChild(fieldText("tools (e.g. Read, Grep, Bash)", "", v => draft.tools = v));
+  box.appendChild(fieldSelect("model", "inherit", ["inherit", "haiku", "sonnet", "opus"], v => draft.model = v));
+  const plabel = document.createElement("label"); plabel.textContent = "prompt"; plabel.style.cssText = "display:block;font-size:11px;color:var(--dim);margin:8px 0 4px"; box.appendChild(plabel);
+  const ta = document.createElement("textarea"); ta.spellcheck = false; ta.style.cssText = "width:100%;min-height:160px;background:var(--well);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:10px;font:13px/1.6 var(--mono);outline:none"; box.appendChild(ta);
+  const bar = document.createElement("div"); bar.className = "prompt-bar"; bar.style.background = "transparent"; bar.style.borderTop = "none"; bar.style.padding = "12px 0 0";
+  const st = document.createElement("span"); st.className = "muted";
+  const save = document.createElement("button"); save.textContent = "Create agent";
+  save.addEventListener("click", async () => {
+    draft.prompt = ta.value;
+    const { status, j } = await api("POST", "/api/agent", draft);
+    if (status === 200 && (!j.errors || !j.errors.length)) { await refreshAgents(); ov.remove(); if (state.selected) selectPhase(state.selected); }
+    else st.textContent = "✗ " + ((j.errors || ["error"]).join("; "));
   });
-  const close=document.createElement("button"); close.textContent="close"; close.addEventListener("click",()=>ov.remove());
-  bar.appendChild(save); bar.appendChild(close); bar.appendChild(st); box.appendChild(bar);
-  ov.appendChild(box);
-  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
+  const close = document.createElement("button"); close.textContent = "Close"; close.addEventListener("click", () => ov.remove());
+  bar.appendChild(save); bar.appendChild(st); bar.appendChild(close); box.appendChild(bar);
+  ov.appendChild(box); ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
   document.body.appendChild(ov);
-  activate(sources[0]); ta.focus();
-}
-function setPhaseGroup(p,v){ if(applyPhaseGroup(state.model, p, v)) refreshView().then(()=>selectPhase(state.selected)); }
-function cur(){ return (state.model.phases||[]).find(x=>x.id===state.selected); }
-function toggleDep(dep,on){ const p=cur(); if(!p)return; p.depends_on=p.depends_on||[];
-  if(on){ if(!p.depends_on.includes(dep)) p.depends_on.push(dep);} else p.depends_on=p.depends_on.filter(d=>d!==dep);
-  refreshView().then(()=>selectPhase(state.selected)); }
-function renamePhase(newId){ const p=cur(); if(!p||!newId||newId===p.id)return;
-  const old=p.id; (state.model.phases||[]).forEach(x=>{if(x.depends_on)x.depends_on=x.depends_on.map(d=>d===old?newId:d);});
-  p.id=newId; state.selected=newId; refreshView().then(()=>selectPhase(newId)); }
-function uniqueId(base){ const ids=new Set((state.model.phases||[]).map(p=>p.id));
-  if(!ids.has(base))return base; let n=2; while(ids.has(base+"-"+n))n++; return base+"-"+n; }
-function addPhase(){ if(!state.model)return;
-  const id=uniqueId("NEW-PHASE"); const group=Object.keys(state.model.groups||{})[0]||"setup";
-  state.model.phases=state.model.phases||[]; state.model.phases.push({id,name:"New phase",group,type:"agent",depends_on:[]});
-  refreshView().then(()=>selectPhase(id)); }
-function deletePhase(){ const p=cur(); if(!p)return; if(!confirm("Delete "+p.id+"?"))return;
-  const id=p.id; state.model.phases=state.model.phases.filter(x=>x.id!==id);
-  (state.model.phases||[]).forEach(x=>{if(x.depends_on)x.depends_on=x.depends_on.filter(d=>d!==id);});
-  state.selected=null; $('#edit-panel').hidden=true; refreshView(); }
-
-function renderYaml(){ $('#yaml-src').textContent=JSON.stringify(state.model,null,2); }
-
-// ---- Dataflow (lazy mermaid) ----------------------------------------------
-let _mermaidLoad=null;
-function ensureMermaid(){
-  if(window.mermaid) return Promise.resolve(true);
-  if(_mermaidLoad) return _mermaidLoad;
-  _mermaidLoad=new Promise(resolve=>{
-    const s=document.createElement("script"); s.src="/editor/mermaid.min.js";
-    s.onload=()=>{ try{ window.mermaid.initialize({startOnLoad:false,theme:"dark",securityLevel:"loose"}); }catch(e){} resolve(!!window.mermaid); };
-    s.onerror=()=>resolve(false);
-    document.head.appendChild(s);
-  });
-  return _mermaidLoad;
-}
-function stripFence(s){ return String(s||"").replace(/^\s*```mermaid\s*/i,"").replace(/```\s*$/,"").trim(); }
-async function renderDataflow(){
-  const el=$('#dataflow-render'); if(!el) return;
-  const {j}=await api('POST','/api/preview',state.model);
-  const src=stripFence(j.dataflow);
-  if(!src){ el.textContent="(dataflow unavailable for this model)"; return; }
-  const ok=await ensureMermaid();
-  if(!ok){ el.replaceChildren(); const pre=document.createElement("pre"); pre.textContent=src; el.appendChild(pre);
-    el.appendChild(helpNote("mermaid not loaded (offline?). Plain-text diagram above.")); return; }
-  try{ const {svg}=await window.mermaid.render("dfg"+(state._dfgN=(state._dfgN||0)+1), src); el.innerHTML=svg; }
-  catch(e){ el.replaceChildren(); const pre=document.createElement("pre"); pre.textContent=src; el.appendChild(pre);
-    el.appendChild(helpNote("mermaid: "+(e&&e.message||e))); }
 }
 
-function renderSettings(){
-  const root=$('#settings'); if(!root||!state.model)return; root.replaceChildren();
-  const m=state.model; m.skill=m.skill||{};
-  const sec=t=>{const h=document.createElement("h3"); h.className="settings-h"; h.textContent=t; root.appendChild(h);};
-  sec("skill");
-  root.appendChild(fieldText("name", m.skill.name||"", v=>{m.skill.name=v;}));
-  root.appendChild(fieldTextarea("description", m.skill.description||"", v=>{m.skill.description=v;}));
-  root.appendChild(fieldText("title", m.skill.title||"", v=>{ if(v) m.skill.title=v; else delete m.skill.title; }));
-  sec("namespaces");
-  m.namespaces=m.namespaces||{};
-  root.appendChild((()=>{const h=document.createElement("div"); h.className="help-note"; h.textContent="Maps a role prefix to a base path: role `ns:name` (+ kind) resolves to `<base>/name<ext>`. Used by the Files editor and the dataflow."; return h;})());
-  Object.keys(m.namespaces).forEach(ns=>{
-    const box=document.createElement("div"); box.className="settings-row";
-    const nm=document.createElement("input"); nm.value=ns; nm.placeholder="prefix (e.g. work)";
-    nm.addEventListener("change",()=>{ const v=nm.value.trim(); if(v&&v!==ns){ m.namespaces[v]=m.namespaces[ns]; delete m.namespaces[ns]; renderSettings(); refreshView(); } });
-    box.appendChild(nm);
-    box.appendChild(fieldText("base path", m.namespaces[ns]||"", v=>{m.namespaces[ns]=v; refreshView();}));
-    const del=document.createElement("button"); del.textContent="✕ namespace"; del.addEventListener("click",()=>{ delete m.namespaces[ns]; renderSettings(); refreshView(); }); box.appendChild(del);
-    root.appendChild(box);
-  });
-  const addN=document.createElement("button"); addN.textContent="+ namespace"; addN.addEventListener("click",()=>{ let n="ns",i=1; while(m.namespaces[n])n="ns"+(++i); m.namespaces[n]="work/"+n; renderSettings(); refreshView(); }); root.appendChild(addN);
-  sec("groups");
-  m.groups=m.groups||{};
-  Object.keys(m.groups).forEach(g=>{
-    const box=document.createElement("div"); box.className="settings-row";
-    const nm=document.createElement("input"); nm.value=g;
-    nm.addEventListener("change",()=>{ if(nm.value&&nm.value!==g){ m.groups[nm.value]=m.groups[g]; delete m.groups[g]; (m.phases||[]).forEach(p=>{if(p.group===g)p.group=nm.value;}); renderSettings(); refreshView(); } });
-    box.appendChild(nm);
-    box.appendChild(fieldText("description", m.groups[g].description||"", v=>{m.groups[g].description=v;}));
-    box.appendChild(fieldSelect("risk", m.groups[g].risk||"none", ["none","low","medium","high"], v=>{m.groups[g].risk=v;}));
-    const del=document.createElement("button"); del.textContent="✕ group"; del.addEventListener("click",()=>{ delete m.groups[g]; renderSettings(); refreshView(); }); box.appendChild(del);
-    root.appendChild(box);
-  });
-  const addG=document.createElement("button"); addG.textContent="+ group"; addG.addEventListener("click",()=>{ let n="group",i=1; while(m.groups[n])n="group"+(++i); m.groups[n]={description:""}; renderSettings(); refreshView(); }); root.appendChild(addG);
-  sec("conditions");
-  m.conditions=m.conditions||{};
-  Object.keys(m.conditions).forEach(c=>{
-    const box=document.createElement("div"); box.className="settings-row";
-    const nm=document.createElement("input"); nm.value=c;
-    nm.addEventListener("change",()=>{ if(nm.value&&nm.value!==c){ m.conditions[nm.value]=m.conditions[c]; delete m.conditions[c]; renderSettings(); } });
-    box.appendChild(nm);
-    box.appendChild(fieldSelect("check", m.conditions[c].check||"file_exists", ["file_missing","file_exists","dir_missing","dir_exists"], v=>{m.conditions[c].check=v;}));
-    box.appendChild(fieldText("path", m.conditions[c].path||"", v=>{ if(v) m.conditions[c].path=v; else delete m.conditions[c].path; }));
-    const del=document.createElement("button"); del.textContent="✕ condition"; del.addEventListener("click",()=>{ delete m.conditions[c]; renderSettings(); }); box.appendChild(del);
-    root.appendChild(box);
-  });
-  const addC=document.createElement("button"); addC.textContent="+ condition"; addC.addEventListener("click",()=>{ let n="cond",i=1; while(m.conditions[n])n="cond"+(++i); m.conditions[n]={check:"file_exists"}; renderSettings(); }); root.appendChild(addC);
-  sec("on_demand_agents");
-  m.on_demand_agents=m.on_demand_agents||[];
-  m.on_demand_agents.forEach((od,idx)=>{
-    const box=document.createElement("div"); box.className="settings-row";
-    box.appendChild(fieldSelect("agent", od.agent||"", ["", ...(state.agents||[])], v=>{od.agent=v;}));
-    box.appendChild(fieldText("description", od.description||"", v=>{od.description=v;}));
-    box.appendChild(fieldSelect("model", od.model||"inherit", ["inherit","haiku","sonnet","opus"], v=>{od.model=v;}));
-    box.appendChild(fieldText("when", od.when||"", v=>{ if(v) od.when=v; else delete od.when; }));
-    const del=document.createElement("button"); del.textContent="✕"; del.addEventListener("click",()=>{ m.on_demand_agents.splice(idx,1); renderSettings(); }); box.appendChild(del);
-    root.appendChild(box);
-  });
-  const addO=document.createElement("button"); addO.textContent="+ on-demand agent"; addO.addEventListener("click",()=>{ m.on_demand_agents.push({agent:(state.agents||[])[0]||"",description:""}); renderSettings(); }); root.appendChild(addO);
-  sec("opportunistic (global default)");
-  const gs=globalOpportunisticState(m);
-  const enR=fieldCheckbox("enable by default", gs.enabled, v=>{ setGlobalOpportunistic(m, v, gs.when, gs.examples); renderSettings(); refreshView(); });
-  enR.appendChild(helpIcon("When on, every phase is an autonomy zone by default (override or lock per phase in the 🧭 Autonomy tab). The main agent may author ad-hoc sub-agents to handle the unexpected.")); root.appendChild(enR);
-  if(gs.enabled){
-    root.appendChild(fieldTextarea("when", gs.when, v=>{ setGlobalOpportunistic(m, true, v, gs.examples); refreshView(); }));
-    root.appendChild(stringListEditor("examples", gs.examples, arr=>{ setGlobalOpportunistic(m, true, gs.when, arr); refreshView(); }));
-  }
+// --- yaml view -------------------------------------------------------------
+function renderYaml() { $("#yaml-src").textContent = JSON.stringify(state.model, null, 2); }
+
+// --- settings --------------------------------------------------------------
+import { renderSettings } from "./settings.js";
+function settingsCtx() {
+  return { getModel: () => state.model, getAgents: () => state.agents, getWorkflows: () => state.workflows,
+           currentName: () => state.name, refreshView, helpers: { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, helpIcon, helpNote, stringListEditor,
+           globalOpportunisticState, setGlobalOpportunistic } };
 }
 
-async function save(){
-  const {status,j}=await api('PUT','/api/workflow/'+state.name,{model:state.model});
-  setStatus(status===200?'✓ saved':'✗ '+((j.errors||[]).join('; ')||'error'));
-  if(status===200) loadWorkflow(state.name);
+// --- save / new / clone ----------------------------------------------------
+function modelForSave() {
+  // Strip editor-only transient keys (standalone file blocks) so they never
+  // leak into the persisted YAML.
+  const m = JSON.parse(JSON.stringify(state.model)); delete m.files; return m;
 }
-async function newWf(){ const name=prompt('Workflow name (slug):'); if(!name)return;
-  const {status,j}=await api('POST','/api/workflow',{name});
-  if(status===200){await loadList(); $('#wf-select').value=name; loadWorkflow(name);} else alert((j.errors||['error']).join('; ')); }
-async function cloneWf(){ const {j:list}=await api('GET','/api/workflows');
-  const from=prompt('Duplicate from?\n('+list.join(', ')+')',state.name); if(!from)return;
-  const name=prompt('Name of the copy (slug):'); if(!name)return;
-  const {status,j}=await api('POST','/api/workflow',{name,from});
-  if(status===200){await loadList(); $('#wf-select').value=name; loadWorkflow(name);} else alert((j.errors||['error']).join('; ')); }
+async function save() {
+  const { status, j } = await api("PUT", "/api/workflow/" + state.name, { model: modelForSave() });
+  setStatus(status === 200 ? "✓ saved · " + new Date().toLocaleTimeString() : "✗ " + ((j.errors || []).join("; ") || "error"));
+  if (status === 200) loadWorkflow(state.name);
+}
+async function newWf() {
+  const name = prompt("New workflow name (slug):"); if (!name) return;
+  const { status, j } = await api("POST", "/api/workflow", { name });
+  if (status === 200) { await loadList(); $("#wf-select").value = name; loadWorkflow(name); } else alert((j.errors || ["error"]).join("; "));
+}
+async function cloneWf() {
+  const name = prompt("Name of the copy (slug) — duplicates " + state.name + ":"); if (!name) return;
+  const { status, j } = await api("POST", "/api/workflow", { name, from: state.name });
+  if (status === 200) { await loadList(); $("#wf-select").value = name; loadWorkflow(name); } else alert((j.errors || ["error"]).join("; "));
+}
 
-window.addEventListener("resize",()=>{ if(state.view) drawEdges(); });
-document.addEventListener('DOMContentLoaded',()=>{
+// --- tabs / boot -----------------------------------------------------------
+function switchTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+  document.querySelectorAll(".panel").forEach(pn => pn.classList.toggle("active", pn.id === "panel-" + tab));
+  applyDrawerLayout();
+  if (tab === "grid") schedulePaint();
+  if (tab === "settings") renderSettings($("#settings"), settingsCtx());
+  if (tab === "dataflow") dataflow.render();
+}
+
+window.addEventListener("resize", () => { if (state.tab === "grid") schedulePaint(); if (state.tab === "dataflow") dataflow.paintEdges(); });
+document.addEventListener("DOMContentLoaded", () => {
+  dataflow = createDataflow({ getModel: () => state.model, getAgents: () => state.agents, refreshView, setStatus });
   loadList();
-  $('#wf-select').addEventListener('change',e=>loadWorkflow(e.target.value));
-  $('#wf-new').addEventListener('click',newWf);
-  $('#wf-clone').addEventListener('click',cloneWf);
-  $('#add-phase').addEventListener('click',addPhase);
-  $('#add-agent').addEventListener('click',openAgentForm);
-  $('#wf-save').addEventListener('click',save);
-  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
-    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
-    t.classList.add('active'); $('#panel-'+t.dataset.tab).classList.add('active');
-    if(t.dataset.tab==='grid' && state.view) drawEdges();
-    if(t.dataset.tab==='settings') renderSettings();
-    if(t.dataset.tab==='dataflow') renderDataflow();
-  }));
+  $("#wf-select").addEventListener("change", e => loadWorkflow(e.target.value));
+  $("#wf-new").addEventListener("click", newWf);
+  $("#wf-clone").addEventListener("click", cloneWf);
+  $("#wf-save").addEventListener("click", save);
+  $("#add-phase").addEventListener("click", addPhase);
+  $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
+  $("#issues-badge").addEventListener("click", () => { switchTab("dataflow"); dataflow.openIssues(); });
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 });

@@ -2,37 +2,121 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>bb-workflow editor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>awok editor</title>
 <style>/*__EDITOR_CSS__*/</style>
 </head>
 <body>
+  <!-- Top bar -->
   <header id="topbar">
-    <select id="wf-select"></select>
-    <button id="wf-new">+ new</button>
-    <button id="wf-clone">duplicate</button>
-    <button id="add-phase">+ phase</button>
-    <button id="add-agent">+ agent</button>
-    <button id="wf-save">💾 save</button>
-    <span id="status"></span>
+    <div class="brand">
+      <img id="brand-logo" src="/editor/awok-mascot.png" alt="awok" width="34" height="34">
+      <span class="wordmark">awok</span>
+    </div>
+    <div class="vsep"></div>
+    <div class="wf-picker">
+      <div class="wf-select-wrap">
+        <select id="wf-select" title="Active workflow — switch workflow"></select>
+        <span class="wf-caret" aria-hidden="true">▾</span>
+      </div>
+      <button id="wf-new" class="icon-btn" title="New workflow">＋</button>
+      <button id="wf-clone" class="icon-btn" title="Duplicate this workflow">⧉</button>
+    </div>
+    <span id="wf-subtitle" class="wf-subtitle"></span>
+    <div class="top-right">
+      <button id="wf-save" class="btn-accent">Save</button>
+    </div>
   </header>
+
+  <!-- Tab bar -->
   <nav id="tabs">
-    <button class="tab active" data-tab="grid">Grid</button>
-    <button class="tab" data-tab="dataflow">Dataflow</button>
-    <button class="tab" data-tab="settings">Settings</button>
-    <button class="tab" data-tab="yaml">YAML</button>
+    <div class="tabs-left">
+      <button class="tab active" data-tab="grid">Grid</button>
+      <button class="tab" data-tab="dataflow">Dataflow</button>
+      <button class="tab" data-tab="settings">Settings</button>
+      <button class="tab tab-yaml" data-tab="yaml">YAML</button>
+    </div>
+    <div class="tabs-right">
+      <span id="status"></span>
+      <button id="issues-badge" class="issues-badge" hidden></button>
+    </div>
   </nav>
+
   <main>
+    <!-- GRID -->
     <section id="panel-grid" class="panel active">
-      <div id="grid-wrap">
-        <svg id="edge-overlay"></svg>
-        <div id="grid"></div>
+      <div id="grid-toolbar">
+        <span class="tb-title">Grid</span>
+        <span id="grid-count" class="tb-count"></span>
+        <div class="tb-right">
+          <button id="toggle-links" class="btn-ghost" title="Show dependency links">⤳ Dependencies</button>
+          <button id="add-phase" class="btn-ghost">+ Action</button>
+        </div>
+      </div>
+      <div id="grid-scroll">
+        <div id="grid-inner">
+          <svg id="dep-svg"></svg>
+          <div id="grid"></div>
+          <div id="groups-legend"></div>
+        </div>
       </div>
     </section>
-    <section id="panel-dataflow" class="panel"><div id="dataflow-render" class="mermaid-out">(open this tab to load the diagram)</div></section>
-    <section id="panel-settings" class="panel"><div id="settings"></div></section>
+
+    <!-- DATAFLOW (interactive canvas) -->
+    <section id="panel-dataflow" class="panel">
+      <div id="df-toolbar">
+        <span class="tb-title">Dataflow</span>
+        <span id="df-count" class="tb-count"></span>
+        <div id="df-modebar"></div>
+        <!-- Centered control: resting opacity of the dataflow links. Hovering a
+             block always isolates its links at full opacity (ignores the slider). -->
+        <div class="link-opacity" title="Default link opacity — links you hover always stay full">
+          <span class="label">Links</span>
+          <svg width="20" height="14" viewBox="0 0 20 14" fill="none" style="opacity:.3">
+            <path d="M2 11 C 7 11, 8 4, 13 4" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/>
+            <circle cx="2.4" cy="11" r="1.8" fill="#94a3b8"/>
+            <polygon points="11.5,1.8 11.5,6.2 15,4" fill="#94a3b8"/>
+          </svg>
+          <input id="df-link-opacity" type="range" min="0.05" max="1" step="0.05" value="0.3">
+          <svg width="20" height="14" viewBox="0 0 20 14" fill="none">
+            <path d="M2 11 C 7 11, 8 4, 13 4" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="2.4" cy="11" r="2" fill="#38bdf8"/>
+            <polygon points="11.3,1.5 11.3,6.5 15.2,4" fill="#38bdf8"/>
+          </svg>
+          <span class="pct" id="df-link-pct">30%</span>
+        </div>
+        <div class="tb-right">
+          <span class="df-legend"><i class="dot-in"></i>input<i class="dot-out"></i>output</span>
+          <button id="df-ns" class="btn-ghost">Namespaces <span id="df-ns-count" class="tb-count"></span></button>
+          <button id="df-add-file" class="btn-ghost">+ File block</button>
+        </div>
+      </div>
+      <div id="df-nspanel" hidden></div>
+      <div id="df-scroll">
+        <div id="df-inner">
+          <svg id="df-svg"></svg>
+          <div id="df-columns"></div>
+          <div id="df-empty" class="df-empty" hidden>No artifacts yet — add a file block to get started.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="panel-settings" class="panel">
+      <div id="settings-toolbar">
+        <span class="tb-title">Settings</span>
+        <span class="tb-count">workflow globals · <span id="settings-wf"></span>.yaml</span>
+      </div>
+      <div id="settings-scroll"><div id="settings"></div></div>
+    </section>
+
+    <!-- YAML (read-only view, unchanged) -->
     <section id="panel-yaml" class="panel"><pre id="yaml-src"></pre></section>
   </main>
+
+  <!-- Drawer (action editor) -->
   <aside id="edit-panel" hidden></aside>
+
 <script type="module" src="/editor/editor.js"></script>
 </body>
 </html>
