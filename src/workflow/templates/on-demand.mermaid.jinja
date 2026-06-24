@@ -7,6 +7,7 @@ flowchart TB
 {%- set nid = 'ondemand_' ~ (od.agent|node_id) -%}
 {%- set meta_parts = [] -%}
 {%- if od.model -%}{%- set _ = meta_parts.append(od.model) -%}{%- endif -%}
+{%- if od.effort and od.effort != 'inherit' -%}{%- set _ = meta_parts.append(od.effort + ' effort') -%}{%- endif -%}
         {{ nid }}["`**{{ od.agent }}**{% if meta_parts %}
 _{{ meta_parts|join(' · ') }}_{% endif %}{% if od.when %}
 {{ od.when|truncate(110, end='…') }}{% endif %}`"]:::ondemand

@@ -94,6 +94,7 @@
         "agent": { "type": "string" },
         "description": { "type": "string" },
         "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
+        "effort": { "enum": ["low", "medium", "high", "xhigh", "max", "inherit"] },
         "background": { "type": "boolean" },
         "depends_on_invocation": { "type": "string" },
         "skip_if": { "type": "string" },
@@ -166,6 +167,7 @@
         "agent": { "type": "string" },
         "description": { "type": "string" },
         "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
+        "effort": { "enum": ["low", "medium", "high", "xhigh", "max", "inherit"] },
         "triggered_by": {
           "type": "array",
           "items": { "type": "string" }

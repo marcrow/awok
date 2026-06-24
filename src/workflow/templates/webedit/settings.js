@@ -178,6 +178,7 @@ export function renderSettings(root, ctx) {
     const b = block();
     b.appendChild(withHelp(H.fieldSelect("agent", o.agent || "", ["", ...(ctx.getAgents() || [])], v => { o.agent = v; }), "Which agent (from src/agents/) to launch."));
     b.appendChild(H.fieldSelect("model", o.model || "inherit", ["inherit", "haiku", "sonnet", "opus"], v => { o.model = v; }));
+    b.appendChild(H.fieldSelect("effort", o.effort || "inherit", ["inherit", "low", "medium", "high", "xhigh", "max"], v => { if (v === "inherit") delete o.effort; else o.effort = v; }));
     b.appendChild(span2(fieldArea("description", o.description || "", v => { o.description = v; })));
     b.appendChild(span2(fieldArea("when (signal that triggers it)", o.when || "", v => { if (v) o.when = v; else delete o.when; }, "Plain-language trigger condition — e.g. 'an old/abandoned dependency is spotted'.")));
     b.appendChild(removeBtn(() => { m.on_demand_agents.splice(idx, 1); rerender(); }));

@@ -19,6 +19,14 @@ description: |
 > model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
 > the session model, often a costlier one.
 {% endif %}
+{% if any_invocation_effort %}
+>
+> **Effort is set on the agent, not at launch.** An invocation that pins an `effort`
+> has that effort written into the deployed agent's frontmatter
+> (`~/.claude/agents/<name>.md`) by `awok deploy`, so the sub-agent applies it on its
+> own. The `Task` tool has **no** `effort` argument — unlike `model`, you pass nothing
+> at launch. The ⚙️ line records the effort for reference.
+{% endif %}
 
 Pipeline of {{ phase_count }} actions, organized into {{ group_count }} groups:
 {% for gname, g in groups.items() %}`{{ gname }}` ({{ g.description }}){% if not loop.last %}, {% endif %}{% endfor %}.
@@ -148,7 +156,7 @@ _External tool outside the pipeline. Expected outputs:_{% for out in phase.outpu
 These agents are available but are **not** invoked automatically in the pipeline.
 {% for od in on_demand_agents %}
 
-### `{{ od.agent }}`{% if od.model %} [{{ od.model }}]{% endif %}
+### `{{ od.agent }}`{% if od.model %} [{{ od.model }}]{% endif %}{% if od.effort and od.effort != 'inherit' %} ⚙️ `{{ od.effort }}` effort{% endif %}
 
 > {{ od.description|trim|replace('\n', '\n> ') }}
 

@@ -538,7 +538,7 @@ function tabInvocations(body, p) {
     const wrap = document.createElement("div");
     const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "+ add invocation (existing agent)…"; pick.appendChild(o0);
     state.agents.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; pick.appendChild(o); });
-    pick.addEventListener("change", () => { if (!pick.value) return; p.invocations = p.invocations || []; if (!p.invocations.some(i => i.agent === pick.value)) p.invocations.push({ agent: pick.value, model: "inherit" }); refreshView().then(() => selectPhase(p.id)); });
+    pick.addEventListener("change", () => { if (!pick.value) return; p.invocations = p.invocations || []; if (!p.invocations.some(i => i.agent === pick.value)) p.invocations.push({ agent: pick.value }); refreshView().then(() => selectPhase(p.id)); });
     wrap.appendChild(pick); body.appendChild(wrap);
   } else { body.appendChild(helpNote("No agent in src/agents/.")); }
   const create = document.createElement("button"); create.className = "add-mini"; create.style.marginTop = "8px"; create.textContent = "+ create a new agent…";
@@ -556,10 +556,18 @@ function invocationCard(p, inv, idx) {
     inv.agent = ag.value; refreshView().then(() => selectPhase(p.id));
   });
   top.appendChild(ag);
-  const model = document.createElement("select"); model.className = "inv-model";
+  const model = document.createElement("select"); model.className = "inv-model"; model.title = "Model for this sub-agent. “inherit” = the session/main-agent model.";
   ["inherit", "haiku", "sonnet", "opus"].forEach(mm => { const o = document.createElement("option"); o.value = mm; o.textContent = mm; if (mm === (inv.model || "inherit")) o.selected = true; model.appendChild(o); });
-  model.addEventListener("change", () => { inv.model = model.value; refreshView(); });
+  model.addEventListener("change", () => { if (model.value === "inherit") delete inv.model; else inv.model = model.value; refreshView(); });
   top.appendChild(model);
+  // Reasoning effort, configured per-invocation alongside the model. At `awok deploy`
+  // it's written into the sub-agent's frontmatter (the Task tool has no effort arg), where
+  // it overrides the session effort. Absent / "inherit" → the sub-agent runs at the main
+  // agent's effort (kept out of the YAML).
+  const effort = document.createElement("select"); effort.className = "inv-effort"; effort.title = "Reasoning effort — written into the sub-agent's frontmatter at deploy (overrides the session effort; the Task tool has no effort argument). “inherit” = the session/main-agent effort.";
+  ["inherit", "low", "medium", "high", "xhigh", "max"].forEach(ef => { const o = document.createElement("option"); o.value = ef; o.textContent = ef === "inherit" ? "effort: inherit" : "effort: " + ef; if (ef === (inv.effort || "inherit")) o.selected = true; effort.appendChild(o); });
+  effort.addEventListener("change", () => { if (effort.value === "inherit") delete inv.effort; else inv.effort = effort.value; refreshView(); });
+  top.appendChild(effort);
   const rm = document.createElement("button"); rm.className = "inv-rm"; rm.textContent = "×";
   rm.addEventListener("click", () => { p.invocations.splice(idx, 1); if (!p.invocations.length) delete p.invocations; refreshView().then(() => selectPhase(p.id)); });
   top.appendChild(rm); box.appendChild(top);

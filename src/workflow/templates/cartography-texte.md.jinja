@@ -39,7 +39,7 @@ Level {{ loop.index0 }}: {{ level|join(' || ') }}
 {%- if phase.invocations %}
 - Invocations:
 {% for inv in phase.invocations %}
-  - `{{ inv.agent }}` ({{ inv.model|default('inherit') }}){% if inv.background %} [bg]{% endif %}
+  - `{{ inv.agent }}` ({{ inv.model|default('inherit') }}{% if inv.effort and inv.effort != 'inherit' %}, {{ inv.effort }} effort{% endif %}){% if inv.background %} [bg]{% endif %}
 {% endfor %}
 {%- endif %}
 {% if phase._opp and phase._opp.mark == 'opportunistic' %}

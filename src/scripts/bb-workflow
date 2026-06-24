@@ -543,6 +543,34 @@ def join_agent_md(frontmatter_raw: str, body: str) -> str:
     return f"{body}\n"
 
 
+def _set_frontmatter_effort(fm_raw: str, effort):
+    """Idempotently set or remove the top-level `effort:` key in raw agent frontmatter,
+    preserving everything else verbatim (line-level edit — never re-dumps the YAML, so
+    literal-block descriptions and block-sequence `tools:` survive). `effort=None`
+    removes the key; a value sets/replaces it (in place if present, else right after the
+    top-level `model:` line, else appended). Only the column-0 `effort:` is touched, so
+    nested keys are safe."""
+    lines = fm_raw.split("\n")
+    key_re = re.compile(r"^effort\s*:")
+    idx = next((i for i, ln in enumerate(lines) if key_re.match(ln)), None)
+    if effort is None:
+        if idx is not None:
+            del lines[idx]
+        return "\n".join(lines)
+    new_line = f"effort: {effort}"
+    if idx is not None:
+        lines[idx] = new_line
+    else:
+        m_idx = next((i for i, ln in enumerate(lines) if re.match(r"^model\s*:", ln)), None)
+        if m_idx is not None:
+            lines.insert(m_idx + 1, new_line)
+        else:
+            while lines and lines[-1].strip() == "":
+                lines.pop()
+            lines.append(new_line)
+    return "\n".join(lines)
+
+
 def _all_agent_names(agents_dir: Path) -> set:
     """Set of agent names from <agents_dir>/*.md frontmatter."""
     names = set()
@@ -988,6 +1016,46 @@ def render_snippet(snippet: Snippet, invocation: dict) -> str:
 # Generator
 # ============================================================================
 
+def _pinned_tier(value) -> bool:
+    """A per-invocation `model`/`effort` value is *pinned* (worth an explicit Task
+    directive) only when set to a concrete tier. None / "" / "inherit" all mean
+    "defer to the session (the main agent)", so they render nothing — that is how
+    an unspecified effort silently inherits the orchestrator's effort."""
+    return value not in (None, "", "inherit")
+
+
+def _invocation_run_directive(inv: dict):
+    """Build the ⚙️ line for an invocation.
+
+    `model` and `effort` reach the runtime by DIFFERENT mechanisms, so they render
+    differently:
+      - `model` is a launch argument of the `Task` tool — the orchestrator MUST pass
+        it, else the sub-agent silently inherits the session model (the headless-tiering
+        loss). Rendered as an imperative.
+      - `effort` is NOT a `Task`-tool argument (Claude Code has no such parameter). The
+        only way to set a sub-agent's effort is the `effort:` field in its frontmatter,
+        which `awok deploy` writes into `~/.claude/agents/<name>.md`. So effort is shown
+        for reference only — there is nothing to pass at launch.
+
+    Returns None when neither is pinned (pure inherit → the session default wins). The
+    model-only output is kept byte-identical to the historical wording (no SKILL drift)."""
+    model_p = _pinned_tier(inv.get("model"))
+    effort_p = _pinned_tier(inv.get("effort"))
+    if not (model_p or effort_p):
+        return None
+    if model_p:
+        line = (f"> ⚙️ **Run on `{inv['model']}`** — launch via the `Task` tool "
+                f"with `model: {inv['model']}` (not inherited from the session model).")
+        if effort_p:
+            line += (f" Effort `{inv['effort']}` is set in the agent's frontmatter at "
+                     f"`deploy` (applied automatically — the `Task` tool has no effort arg).")
+        return line
+    # effort only — nothing to launch with; it lives in the agent frontmatter.
+    return (f"> ⚙️ **Effort `{inv['effort']}`** — written into the agent's frontmatter at "
+            f"`deploy` (`effort: {inv['effort']}`); the sub-agent applies it automatically, "
+            f"nothing to pass at launch.")
+
+
 def generate_skill_md(workflow_path: Path, output_path: Path,
                      templates_dir: Path = None, agents_dir: Path = None,
                      invocations_dir: Path = None) -> None:
@@ -1035,15 +1103,13 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
             snippet = load_snippet(snippet_path)
             rendered = render_snippet(snippet, inv)
             block = f"#### Invocation `{inv['agent']}`\n\n{rendered}"
-            if inv.get("model"):
-                # The model lives in workflow.yaml (source of truth); render it as an
-                # IMPERATIVE so the orchestrator passes it to the Task tool, instead of
-                # a decorative [model] label the sub-agent silently inherits past. The
-                # session model wins by default — see the model convention in the header.
-                block = block.rstrip("\n") + (
-                    f"\n\n> ⚙️ **Run on `{inv['model']}`** — launch via the `Task` tool "
-                    f"with `model: {inv['model']}` (not inherited from the session model).\n"
-                )
+            # model/effort live in workflow.yaml (source of truth); render them as an
+            # IMPERATIVE so the orchestrator passes them to the Task tool, instead of a
+            # decorative label the sub-agent silently inherits past. Unpinned (inherit)
+            # → nothing rendered, the session default wins.
+            directive = _invocation_run_directive(inv)
+            if directive:
+                block = block.rstrip("\n") + "\n\n" + directive + "\n"
             rendered_invocations.append(block)
         phase["rendered_invocations"] = rendered_invocations
         phases_rendered.append(phase)
@@ -1092,10 +1158,15 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         else:
             manual_blocks_at_end.append(content)
 
-    # Whether any planned invocation pins a model — gates the "model is not
-    # inherited" convention note in the header (noise when no tiering is used).
+    # Whether any planned invocation pins a model / an effort — gates the matching
+    # "not inherited" convention notes in the header (noise when no tiering is used).
     any_invocation_model = any(
-        inv.get("model")
+        _pinned_tier(inv.get("model"))
+        for phase in workflow.get("phases", [])
+        for inv in (phase.get("invocations") or [])
+    )
+    any_invocation_effort = any(
+        _pinned_tier(inv.get("effort"))
         for phase in workflow.get("phases", [])
         for inv in (phase.get("invocations") or [])
     )
@@ -1135,6 +1206,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         on_demand_agents=workflow.get("on_demand_agents", []),
         opportunistic_global=opportunistic_global,
         any_invocation_model=any_invocation_model,
+        any_invocation_effort=any_invocation_effort,
         any_parallelism=any_parallelism,
     )
 
@@ -2921,17 +2993,113 @@ def cmd_init(args):
     return 0
 
 
+# awok model tiers that do NOT support output_config.effort (would error at runtime).
+# The schema's model enum is haiku/sonnet/opus/inherit; "sonnet" maps to the current
+# Sonnet (4.6, supports effort) and "opus" to Opus 4.5+ (supports effort), so only
+# "haiku" is expressible as unsupported. "inherit"/absent → session model, assumed
+# supported (the maintainer controls it).
+EFFORT_UNSUPPORTED_MODELS = {"haiku"}
+
+
+def resolve_agent_efforts(workflows_dir: Path = None):
+    """Decide, per agent, the `effort` to materialize in its deployed frontmatter.
+
+    Scans every workflow's phase invocations AND on-demand agents, keeping only PINNED
+    efforts (≠ absent, ≠ 'inherit'). Returns (efforts, warnings):
+      efforts:  {agent_name: 'low'|'medium'|'high'|'xhigh'|'max'} — only injectable ones
+      warnings: [str] — model-gating skips and conflicts
+
+    Rules:
+      - Model gating: an effort pinned on a model that can't run effort (haiku) is
+        dropped with a warning — injecting it would make the sub-agent error.
+      - Conflict: ≥2 distinct supported efforts for one agent can't fit a single
+        frontmatter → warn, inject nothing for that agent.
+      - Exactly one supported effort → inject it.
+    """
+    workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
+    pins = {}  # agent -> list[(model, effort)]
+    for _name, path in discover_workflows(workflows_dir):
+        try:
+            wf = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        for phase in wf.get("phases", []) or []:
+            for inv in phase.get("invocations", []) or []:
+                if _pinned_tier(inv.get("effort")):
+                    pins.setdefault(inv.get("agent"), []).append(
+                        (inv.get("model"), inv["effort"]))
+        for od in wf.get("on_demand_agents", []) or []:
+            if _pinned_tier(od.get("effort")):
+                pins.setdefault(od.get("agent"), []).append(
+                    (od.get("model"), od["effort"]))
+    efforts, warnings = {}, []
+    for agent, lst in sorted(pins.items()):
+        if not agent:
+            continue
+        supported = []
+        for model, eff in lst:
+            if model in EFFORT_UNSUPPORTED_MODELS:
+                warnings.append(
+                    f"agent '{agent}': effort '{eff}' pinned on model '{model}', which "
+                    f"does not support effort — not injected (would error at runtime).")
+            else:
+                supported.append(eff)
+        distinct = sorted(set(supported))
+        if not distinct:
+            continue
+        if len(distinct) > 1:
+            warnings.append(
+                f"agent '{agent}': conflicting efforts {distinct} across invocations — a "
+                f"single agent frontmatter holds only one; not injected. Split into "
+                f"distinct agents or align the efforts.")
+            continue
+        efforts[agent] = distinct[0]
+    return efforts, warnings
+
+
+def deploy_agents(agents_src: Path, workflows_dir: Path, dest_dir: Path):
+    """Deploy agents_src/*.md to dest_dir, materializing each pinned per-invocation
+    `effort` into the deployed agent's frontmatter (the `Task` tool has no effort arg).
+
+    The SOURCE agents stay clean (`effort` lives only in workflow.yaml) — so removing an
+    effort from the YAML and re-deploying clears it, because we always re-derive from the
+    pristine source. Returns (n_agents, warnings)."""
+    import shutil
+    efforts, warnings = resolve_agent_efforts(workflows_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for f in sorted(agents_src.glob("*.md")):
+        name = f.stem
+        dest = dest_dir / f.name
+        eff = efforts.get(name)
+        if eff is None:
+            shutil.copy2(f, dest)  # verbatim — also clears any stale effort from a prior deploy
+        else:
+            fm, body = split_agent_md(f.read_text(encoding="utf-8"))
+            if fm:
+                dest.write_text(join_agent_md(_set_frontmatter_effort(fm, eff), body),
+                                encoding="utf-8")
+            else:
+                warnings.append(
+                    f"agent '{name}': no frontmatter to hold effort '{eff}' — deployed as-is.")
+                shutil.copy2(f, dest)
+        n += 1
+    return n, warnings
+
+
 def cmd_deploy(args):
     """Deploy the content workdir's skills + agents into ~/.claude (additive).
 
     Per-workdir equivalent of what install.sh does for the engine repo. Honours
-    $CLAUDE_HOME. Never deletes skills/agents awok does not own.
+    $CLAUDE_HOME. Never deletes skills/agents awok does not own. Per-invocation
+    `effort` is materialized into the deployed agent frontmatter here.
     """
     import shutil
     claude_home = Path(os.environ.get("CLAUDE_HOME") or (Path.home() / ".claude"))
     skills_src = CONTENT_ROOT / "src" / "skills"
     agents_src = CONTENT_ROOT / "src" / "agents"
     n_skills = n_agents = 0
+    warnings = []
     if skills_src.is_dir():
         (claude_home / "skills").mkdir(parents=True, exist_ok=True)
         for child in skills_src.iterdir():
@@ -2940,10 +3108,10 @@ def cmd_deploy(args):
                                 dirs_exist_ok=True)
                 n_skills += 1
     if agents_src.is_dir():
-        (claude_home / "agents").mkdir(parents=True, exist_ok=True)
-        for f in sorted(agents_src.glob("*.md")):
-            shutil.copy2(f, claude_home / "agents" / f.name)
-            n_agents += 1
+        n_agents, warnings = deploy_agents(
+            agents_src, CONTENT_ROOT / "src" / "workflows", claude_home / "agents")
+    for w in warnings:
+        print(f"⚠ effort: {w}")
     print(f"→ deployed {n_skills} skill(s) + {n_agents} agent(s) to {claude_home}")
     print("  restart Claude Code so the new agents register as dispatchable subagents.")
     return 0

@@ -66,6 +66,7 @@ phases:                             # le DAG
     invocations:
       - agent: mon-agent            # doit exister dans src/agents/
         model: sonnet
+        effort: high                # optionnel — effort de raisonnement ; omis → hérité du main agent
         description: "..."
         inputs:  [{ path: work/demo/raw.json, kind: json, external: true }]
         outputs: [{ path: work/demo/output.md, kind: md, terminal: true }]
@@ -93,6 +94,29 @@ headless (`claude -p --model X`), chaque sous-agent tourne sur le modèle éping
 d'hériter du modèle de session. Renforcement *discrétionnaire* (pas une garantie dure) —
 les échappatoires déterministes restent `CLAUDE_CODE_SUBAGENT_MODEL` et le pinning
 frontmatter (au prix de casser la convention `model: inherit`).
+
+### `effort:` par invocation — matérialisé au frontmatter au `deploy`
+
+À côté de `model:`, une invocation peut épingler un **`effort`** de raisonnement
+(`low | medium | high | xhigh | max`, les niveaux d'effort Claude). Il vit dans le YAML ;
+le frontmatter de l'agent **source** reste propre (`model: inherit`, pas d'effort).
+**Absent (ou `inherit`)** → le sous-agent tourne à l'effort du main agent (le défaut, sans
+problème).
+
+**Mécanisme runtime — différent de `model`.** Le `Task` tool n'a **pas** d'argument
+`effort` ; on ne peut donc pas le passer au lancement comme `model`. À la place,
+`awok deploy` **inscrit** l'effort épinglé dans le frontmatter de l'agent *déployé*
+(`~/.claude/agents/<nom>.md` → `effort: <niveau>`), qui surcharge l'effort de session — le
+sous-agent l'applique seul. La ligne ⚙️ du SKILL ne fait que le rappeler. Le deploy
+re-dérive du source propre à chaque fois : retirer l'épingle puis re-déployer efface la
+clé. Deux garde-fous (warn + rien injecté) :
+- **Conflit** — un même agent invoqué avec deux efforts différents ne tient pas dans un
+  frontmatter unique.
+- **Gating modèle** — l'effort erreure sur le tier `haiku` (et tout modèle qui ne le
+  supporte pas).
+
+Modifiable par invocation dans l'éditeur web (liste déroulante à côté du modèle) et sur les
+agents on-demand — le YAML/UI reste la source de vérité ; seul `deploy` écrit le frontmatter.
 
 ### Patch du moteur ou d'un template — ça touche TOUS les workflows
 
@@ -342,7 +366,7 @@ données).
 - **Panneau d'édition** (clic sur une carte) en **onglets** : Général
   (id/name/type/group/description, + `cmd` si script, `workflow` si
   workflow_call) · Dépendances · Fichiers (inputs/outputs io_refs) · Triggers ·
-  Invocations (model/description/background/skip_if/depends_on_invocation/
+  Invocations (model/effort/description/background/skip_if/depends_on_invocation/
   triggers/io + **éditeur de prompt** plein écran). Aides en icône `?` au
   survol. Panneau redimensionnable, se ferme au clic en dehors.
 - **Onglets principaux** : Grille · Dataflow (diagramme mermaid agents↔fichiers,

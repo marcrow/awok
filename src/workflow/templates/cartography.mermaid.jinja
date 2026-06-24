@@ -8,6 +8,7 @@ flowchart TB
 {%- set meta_parts = [] -%}
 {%- if phase.type -%}{%- set _ = meta_parts.append(phase.type) -%}{%- endif -%}
 {%- if inv0 and inv0.model -%}{%- set _ = meta_parts.append(inv0.model) -%}{%- endif -%}
+{%- if inv0 and inv0.effort and inv0.effort != 'inherit' -%}{%- set _ = meta_parts.append(inv0.effort + ' effort') -%}{%- endif -%}
 {%- set opp_prefix = '' -%}
 {%- if phase._opp and phase._opp.mark == 'opportunistic' -%}{%- set opp_prefix = '🧭 ' -%}
 {%- elif phase._opp and phase._opp.mark == 'locked' -%}{%- set opp_prefix = '⛔ ' -%}

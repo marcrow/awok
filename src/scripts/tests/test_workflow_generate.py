@@ -154,6 +154,120 @@ phases:
     assert "not inherited from the session model" in content
 
 
+def test_generate_skill_emits_effort_imperative(bbw_module, tmp_path):
+    """A pinned `effort` must render as an IMPERATIVE (pass it to the Task tool),
+    like `model`, plus the header convention note. Covers effort-only and the
+    combined model+effort directive. Regression guard mirroring the model one."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: effort-flow
+  description: Invocations pin an effort
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: EffortOnly
+    group: g
+    invocations:
+      - agent: test-agent
+        effort: low
+  - id: T2
+    name: Both
+    group: g
+    depends_on: [T1]
+    invocations:
+      - agent: test-agent
+        model: sonnet
+        effort: max
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    # Header convention note for effort (gated on any_invocation_effort).
+    assert "Effort is set on the agent, not at launch" in content
+    # Effort-only invocation: recorded as frontmatter, NOT a Task-tool argument.
+    assert "**Effort `low`**" in content
+    assert "written into the agent's frontmatter" in content
+    assert "effort: low" in content
+    # Combined: model stays a Task-tool arg; effort is frontmatter (applied automatically).
+    assert "Run on `sonnet`" in content
+    assert "model: sonnet" in content
+    assert "Effort `max` is set in the agent's frontmatter" in content
+    # Regression: effort must NEVER be rendered as a Task-tool launch argument
+    # (the Task tool has no effort parameter — the old wording was broken at runtime).
+    assert "and `effort:" not in content
+    assert "with `effort:" not in content
+    assert "Pass it explicitly to the `Task` tool (`effort" not in content
+
+
+def test_generate_skill_omits_directive_when_inherit(bbw_module, tmp_path):
+    """An invocation left at the inherit default (model/effort unset, or the literal
+    'inherit') renders NO ⚙️ directive and no convention note — the session default
+    silently wins. Guards the latent 'Run on inherit' bug a web-UI default could hit."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: inherit-flow
+  description: An invocation left at inherit
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: Inherited
+    group: g
+    invocations:
+      - agent: test-agent
+        model: inherit
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    assert "Run on `inherit`" not in content
+    assert "⚙️" not in content
+    assert "Model is not inherited" not in content
+
+
 def test_generate_skill_emits_parallel_reminder(bbw_module, tmp_path):
     """An action listing >=2 invocations renders the ⚡ intra-action parallel
     reminder (launch them in ONE message), since that parallelism is otherwise
@@ -333,3 +447,66 @@ def test_wrap_mermaid_strips_fences(bbw_module, tmp_path):
     # The actual mermaid content must be present
     assert "flowchart TB" in content
     assert "A --> B" in content
+
+
+def test_deploy_agents_materializes_effort(bbw_module, tmp_path):
+    """deploy_agents writes a pinned per-invocation effort into the DEPLOYED agent
+    frontmatter (source stays clean), gates unsupported models (haiku) with a warning,
+    flags conflicts, and clears the key on re-deploy when the pin is removed. This is
+    the real runtime path — the Task tool has no effort argument."""
+    workflows = tmp_path / "workflows"; workflows.mkdir()
+    agents = tmp_path / "agents"; agents.mkdir()
+    dest = tmp_path / "deployed"
+    # Clean source agents (convention: model inherit, NO effort — effort lives in YAML).
+    (agents / "deep.md").write_text(
+        "---\nname: deep\nmodel: inherit\ntools:\n  - Read\n---\n\nBody.\n")
+    (agents / "cheap.md").write_text("---\nname: cheap\nmodel: inherit\n---\n\nBody.\n")
+    (agents / "conf.md").write_text("---\nname: conf\nmodel: inherit\n---\n\nBody.\n")
+
+    (workflows / "w.yaml").write_text("""schema_version: 1
+skill: { name: w, description: d }
+groups: { g: { description: x } }
+phases:
+  - id: P1
+    name: A
+    group: g
+    invocations:
+      - { agent: deep, model: opus, effort: high }
+      - { agent: cheap, model: haiku, effort: max }
+  - id: P2
+    name: B
+    group: g
+    depends_on: [P1]
+    invocations:
+      - { agent: conf, model: opus, effort: low }
+      - { agent: conf, model: sonnet, effort: max }
+""")
+
+    efforts, warnings = bbw_module.resolve_agent_efforts(workflows)
+    assert efforts == {"deep": "high"}                       # only the supported, unambiguous pin
+    assert any("cheap" in w and "haiku" in w for w in warnings)        # model gating
+    assert any("conf" in w and "conflicting" in w for w in warnings)   # conflict
+
+    n, _ = bbw_module.deploy_agents(agents, workflows, dest)
+    assert n == 3
+    deep_deployed = (dest / "deep.md").read_text()
+    assert "effort: high" in deep_deployed
+    assert "tools:" in deep_deployed and "- Read" in deep_deployed   # rest preserved
+    assert "effort" not in (agents / "deep.md").read_text()          # source untouched
+    assert "effort:" not in (dest / "cheap.md").read_text()          # gated → not injected
+    assert "effort:" not in (dest / "conf.md").read_text()           # conflict → not injected
+
+    # Idempotent removal: drop the pin, re-deploy → the deployed key disappears
+    # (deploy always re-derives from the pristine source).
+    (workflows / "w.yaml").write_text("""schema_version: 1
+skill: { name: w, description: d }
+groups: { g: { description: x } }
+phases:
+  - id: P1
+    name: A
+    group: g
+    invocations:
+      - { agent: deep, model: opus }
+""")
+    bbw_module.deploy_agents(agents, workflows, dest)
+    assert "effort:" not in (dest / "deep.md").read_text()

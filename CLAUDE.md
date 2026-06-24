@@ -196,6 +196,7 @@ and the agents are authored on the fly rather than pre-written in `src/agents/`.
        invocations:
          - agent: my-agent
            model: sonnet
+           effort: high          # optional — reasoning effort; omit to inherit the main agent's
            description: Description specific to this invocation
            inputs:
              - { role: work:endpoints, kind: json }
@@ -329,6 +330,27 @@ All agents have `model: inherit` in their frontmatter — NEVER a fixed value.
 The actual model is set **per invocation** in `workflow.yaml` (`model: haiku/sonnet/opus`).
 This lets the same agent be invoked with different models depending on the phase, and keeps the frontmatter
 independent of orchestration. The source of truth for the model = `workflow.yaml`.
+
+### `effort:` per-invocation (optional)
+
+Alongside `model:`, an invocation may pin a reasoning **`effort`** —
+`low | medium | high | xhigh | max` (the Claude effort levels) — in `workflow.yaml`. The
+**source** agent frontmatter stays clean (`model: inherit`, no effort). **Omit it (or
+`inherit`)** and the sub-agent runs at the main agent's effort — that is the default, and
+it is fine.
+
+**Runtime mechanism — different from `model`.** The `Task` tool has **no** `effort`
+argument, so effort cannot be a launch arg the way `model` is. Instead `awok deploy`
+**materializes** the pinned effort into the *deployed* agent frontmatter
+(`~/.claude/agents/<name>.md` → `effort: <level>`), which overrides the session effort; the
+sub-agent then applies it on its own. The SKILL.md ⚙️ line only records it for reference.
+Deploy re-derives from the clean source every time, so removing the pin and re-deploying
+clears the key. Two guard rails (both emit a warning and inject nothing):
+- **Conflict** — the same agent invoked with two different efforts can't fit one frontmatter.
+- **Model gating** — effort errors on the `haiku` tier (and any model that doesn't support it).
+
+Settable per invocation in the web editor (the dropdown beside the model dropdown) and on
+on-demand agents — the YAML/UI stays the source of truth; only `deploy` writes frontmatter.
 
 ### Descriptions convention
 

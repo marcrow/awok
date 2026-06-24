@@ -163,9 +163,12 @@ so you must redeploy. **Private workdirs don't update automatically**: run
 `awok --workdir DIR generate && awok deploy --workdir DIR` in each. `awok check` turns
 red on any workflow still built by the old engine — that's your to-do list.
 
-One fix that rides this path: per-invocation **model routing now holds in headless
-`-p` runs** — each agent runs on the model pinned in its YAML invocation instead of
-silently inheriting the session model (e.g. everything on `--model opus`).
+One fix that rides this path: **per-invocation model holds in headless `-p` runs** —
+each agent runs on the model pinned in its YAML invocation (passed to the `Task` tool)
+instead of silently inheriting the session model (e.g. everything on `--model opus`). A
+pinned **`effort`** (`low…max`) reaches the runtime differently — the `Task` tool has no
+effort argument, so `awok deploy` writes it into the deployed agent's frontmatter, where it
+overrides the session effort. Both are optional; omit either to inherit the main agent's.
 
 ## Commands
 
