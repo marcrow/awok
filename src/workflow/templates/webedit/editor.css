@@ -57,6 +57,7 @@ button{cursor:pointer}
 .tabs-right{margin-left:auto;display:flex;align-items:center;gap:12px;padding:0 14px}
 #status{font-size:11.5px;color:var(--faint)}
 .issues-badge{display:flex;align-items:center;gap:8px;font:11px/1 var(--mono);background:none;border:none;padding:0}
+.issues-badge[hidden]{display:none}  /* author display:flex would otherwise beat the UA [hidden] rule → stale badge across workflows */
 .issues-badge .err{color:var(--bad);background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.35);
   border-radius:5px;padding:3px 8px}
 .issues-badge .warn{color:var(--warn-2);background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);

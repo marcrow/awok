@@ -64,8 +64,11 @@ function renderWorkflowSelect() {
   state.workflows.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
 }
 async function loadWorkflow(name) {
+  const switching = name !== state.name;   // real switch vs. same-workflow reload (e.g. after Save)
   const { j } = await api("GET", "/api/workflow/" + name);
   state = { ...state, name, model: j.model, view: null, selected: null };
+  state.savedSnapshot = snapshot();              // baseline for unsaved-changes detection
+  if (switching && dataflow) dataflow.reset();   // drop the previous workflow's dataflow filters
   $("#edit-panel").hidden = true;
   applyDrawerLayout();
   await refreshView();
@@ -711,17 +714,30 @@ function modelForSave() {
   // leak into the persisted YAML.
   const m = JSON.parse(JSON.stringify(state.model)); delete m.files; return m;
 }
+// Canonical string of what would be persisted — the unit of unsaved-changes
+// detection (compares against the snapshot taken at load/save time, so it
+// matches the YAML on disk, not transient editor-only file blocks).
+function snapshot() { return state.model ? JSON.stringify(modelForSave()) : null; }
+function isDirty() { return state.savedSnapshot != null && snapshot() !== state.savedSnapshot; }
+// Gate a workflow change behind an explicit confirm when there's unsaved work.
+// Returns true to proceed, false to stay put.
+function confirmDiscard() {
+  if (!isDirty()) return true;
+  return confirm("Unsaved changes in “" + state.name + "” will be lost.\nSwitch without saving?");
+}
 async function save() {
   const { status, j } = await api("PUT", "/api/workflow/" + state.name, { model: modelForSave() });
   setStatus(status === 200 ? "✓ saved · " + new Date().toLocaleTimeString() : "✗ " + ((j.errors || []).join("; ") || "error"));
   if (status === 200) loadWorkflow(state.name);
 }
 async function newWf() {
+  if (!confirmDiscard()) return;
   const name = prompt("New workflow name (slug):"); if (!name) return;
   const { status, j } = await api("POST", "/api/workflow", { name });
   if (status === 200) { await loadList(); $("#wf-select").value = name; loadWorkflow(name); } else alert((j.errors || ["error"]).join("; "));
 }
 async function cloneWf() {
+  if (!confirmDiscard()) return;
   const name = prompt("Name of the copy (slug) — duplicates " + state.name + ":"); if (!name) return;
   const { status, j } = await api("POST", "/api/workflow", { name, from: state.name });
   if (status === 200) { await loadList(); $("#wf-select").value = name; loadWorkflow(name); } else alert((j.errors || ["error"]).join("; "));
@@ -742,7 +758,12 @@ window.addEventListener("resize", () => { if (state.tab === "grid") schedulePain
 document.addEventListener("DOMContentLoaded", () => {
   dataflow = createDataflow({ getModel: () => state.model, getAgents: () => state.agents, refreshView, setStatus });
   loadList();
-  $("#wf-select").addEventListener("change", e => loadWorkflow(e.target.value));
+  $("#wf-select").addEventListener("change", e => {
+    const next = e.target.value;
+    if (next === state.name) return;
+    if (!confirmDiscard()) { e.target.value = state.name; return; }  // keep the dropdown on the current workflow
+    loadWorkflow(next);
+  });
   $("#wf-new").addEventListener("click", newWf);
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);

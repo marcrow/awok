@@ -344,6 +344,16 @@ export function createDataflow({ getModel, refreshView, setStatus }) {
 
   function openIssues() { ui.issues = true; ui.focus = null; ui.link = null; ui.editFile = null; render(); }
 
+  // Clear every per-workflow transient view-state. Called when the editor
+  // switches workflows so a focus/link/issue/edit filter from the previous
+  // workflow never leaks onto the next one (its labels don't even exist there).
+  // The Links opacity slider is a global display preference, so it's untouched.
+  function reset() {
+    ui.focus = null; ui.link = null; ui.issues = false; ui.editFile = null; ui.nsPanel = false;
+    hoverId = null;
+    const nsBtn = $("#df-ns"); if (nsBtn) nsBtn.classList.remove("on");
+  }
+
   // toolbar buttons (wired once)
   $("#df-add-file").addEventListener("click", addFile);
   $("#df-ns").addEventListener("click", () => { ui.nsPanel = !ui.nsPanel; $("#df-ns").classList.toggle("on", ui.nsPanel); render(); });
@@ -370,5 +380,5 @@ export function createDataflow({ getModel, refreshView, setStatus }) {
     inner.addEventListener("mouseleave", () => { if (hoverId) { hoverId = null; paintEdges(); } });
   }
 
-  return { render, paintEdges, openIssues };
+  return { render, paintEdges, openIssues, reset };
 }

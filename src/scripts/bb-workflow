@@ -2720,8 +2720,10 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
             p = urllib.parse.urlparse(self.path).path
             if p == "/":
                 return self._html(200, _read_static(templates_dir))
-            if p == "/editor/awok-mascot.png":
+            if p in ("/editor/awok-mascot.png", "/favicon.ico"):
                 # Engine branding asset (lives in ENGINE_ROOT/assets, even under --workdir).
+                # /favicon.ico is the browser's auto-request — serve the same mascot so the
+                # tab icon resolves and no stray 404 hits the log.
                 fp = ENGINE_ROOT / "assets" / "awok-mascot.png"
                 return self._png(200, fp.read_bytes()) if fp.is_file() else self._json(404, {"error": "not found"})
             if p == "/editor/mermaid.min.js":
