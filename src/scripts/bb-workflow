@@ -912,6 +912,28 @@ def check_opportunistic_warnings(workflow: dict) -> list:
     return warnings
 
 
+def check_effort_warnings(workflow: dict) -> list:
+    """Non-blocking: an `effort` pinned on a model that can't run it (the haiku tier)
+    has no effect — it errors at runtime, so awok drops it at deploy and never advertises
+    it in the SKILL. Surface it at validate so the author notices the dead pin."""
+    warnings = []
+
+    def _check(scope, agent, model, effort):
+        if _pinned_tier(effort) and model in EFFORT_UNSUPPORTED_MODELS:
+            warnings.append(
+                f"{scope} '{agent}': effort '{effort}' has no effect on model '{model}' "
+                f"(it doesn't support effort) — dropped at deploy. Remove the effort or "
+                f"use a model that supports it (sonnet/opus).")
+
+    for phase in workflow.get("phases", []) or []:
+        for inv in phase.get("invocations", []) or []:
+            _check(f"phase '{phase.get('id')}' invocation", inv.get("agent"),
+                   inv.get("model"), inv.get("effort"))
+    for od in workflow.get("on_demand_agents", []) or []:
+        _check("on_demand agent", od.get("agent"), od.get("model"), od.get("effort"))
+    return warnings
+
+
 def check_skill_name_matches_filename(workflow: dict, workflow_path) -> list:
     """Warn when the workflow filename stem differs from skill.name.
 
@@ -1024,6 +1046,21 @@ def _pinned_tier(value) -> bool:
     return value not in (None, "", "inherit")
 
 
+# awok model tiers that do NOT support output_config.effort (it errors at runtime).
+# The model enum is haiku/sonnet/opus/inherit; "sonnet" maps to the current Sonnet
+# (4.6, supports effort) and "opus" to Opus 4.5+ (supports effort), so only "haiku"
+# is expressible as unsupported. "inherit"/absent → session model, assumed supported
+# (the maintainer controls it).
+EFFORT_UNSUPPORTED_MODELS = {"haiku"}
+
+
+def _effort_applies(inv: dict) -> bool:
+    """True when an invocation's pinned effort will actually take effect — pinned AND
+    on a model that can run effort. A haiku invocation's effort is dropped at deploy
+    (it would error), so it must not be advertised in the SKILL either."""
+    return _pinned_tier(inv.get("effort")) and inv.get("model") not in EFFORT_UNSUPPORTED_MODELS
+
+
 def _invocation_run_directive(inv: dict):
     """Build the ⚙️ line for an invocation.
 
@@ -1038,9 +1075,11 @@ def _invocation_run_directive(inv: dict):
         for reference only — there is nothing to pass at launch.
 
     Returns None when neither is pinned (pure inherit → the session default wins). The
-    model-only output is kept byte-identical to the historical wording (no SKILL drift)."""
+    model-only output is kept byte-identical to the historical wording (no SKILL drift).
+    Effort on a model that can't run it (haiku) is NOT advertised — it is dropped at
+    deploy, so claiming it here would be a lie."""
     model_p = _pinned_tier(inv.get("model"))
-    effort_p = _pinned_tier(inv.get("effort"))
+    effort_p = _effort_applies(inv)
     if not (model_p or effort_p):
         return None
     if model_p:
@@ -1166,7 +1205,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         for inv in (phase.get("invocations") or [])
     )
     any_invocation_effort = any(
-        _pinned_tier(inv.get("effort"))
+        _effort_applies(inv)
         for phase in workflow.get("phases", [])
         for inv in (phase.get("invocations") or [])
     )
@@ -2006,6 +2045,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     warnings = check_dataflow_warnings(workflow)
     warnings += check_skill_name_matches_filename(workflow, workflow_path)
     warnings += check_opportunistic_warnings(workflow)
+    warnings += check_effort_warnings(workflow)
     for e in schema_errors:
         print(f"  [{name}] SCHEMA: {e}", file=sys.stderr)
     for e in coherence_errors:
@@ -2991,14 +3031,6 @@ def cmd_init(args):
     print(f"✅ workdir ready at {root}")
     print(f"  next: awok --workdir {root} generate && awok --workdir {root} deploy")
     return 0
-
-
-# awok model tiers that do NOT support output_config.effort (would error at runtime).
-# The schema's model enum is haiku/sonnet/opus/inherit; "sonnet" maps to the current
-# Sonnet (4.6, supports effort) and "opus" to Opus 4.5+ (supports effort), so only
-# "haiku" is expressible as unsupported. "inherit"/absent → session model, assumed
-# supported (the maintainer controls it).
-EFFORT_UNSUPPORTED_MODELS = {"haiku"}
 
 
 def resolve_agent_efforts(workflows_dir: Path = None):

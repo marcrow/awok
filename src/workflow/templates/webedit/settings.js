@@ -177,8 +177,13 @@ export function renderSettings(root, ctx) {
   m.on_demand_agents.forEach((o, idx) => {
     const b = block();
     b.appendChild(withHelp(H.fieldSelect("agent", o.agent || "", ["", ...(ctx.getAgents() || [])], v => { o.agent = v; }), "Which agent (from src/agents/) to launch."));
-    b.appendChild(H.fieldSelect("model", o.model || "inherit", ["inherit", "haiku", "sonnet", "opus"], v => { o.model = v; }));
-    b.appendChild(H.fieldSelect("effort", o.effort || "inherit", ["inherit", "low", "medium", "high", "xhigh", "max"], v => { if (v === "inherit") delete o.effort; else o.effort = v; }));
+    b.appendChild(H.fieldSelect("model", o.model || "inherit", ["inherit", "haiku", "sonnet", "opus"], v => { o.model = v; if (v === "haiku") delete o.effort; rerender(); }));
+    const effortRow = H.fieldSelect("effort", o.effort || "inherit", ["inherit", "low", "medium", "high", "xhigh", "max"], v => { if (v === "inherit") delete o.effort; else o.effort = v; });
+    if (o.model === "haiku") {
+      const sel = effortRow.querySelector("select"); if (sel) sel.disabled = true;   // greyed via CSS
+      effortRow.title = "Haiku doesn't support reasoning effort — pick sonnet/opus to set it.";  // hover msg on the row (disabled select won't show its own)
+    }
+    b.appendChild(effortRow);
     b.appendChild(span2(fieldArea("description", o.description || "", v => { o.description = v; })));
     b.appendChild(span2(fieldArea("when (signal that triggers it)", o.when || "", v => { if (v) o.when = v; else delete o.when; }, "Plain-language trigger condition — e.g. 'an old/abandoned dependency is spotted'.")));
     b.appendChild(removeBtn(() => { m.on_demand_agents.splice(idx, 1); rerender(); }));

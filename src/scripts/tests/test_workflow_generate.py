@@ -510,3 +510,71 @@ phases:
 """)
     bbw_module.deploy_agents(agents, workflows, dest)
     assert "effort:" not in (dest / "deep.md").read_text()
+
+
+def test_check_effort_warnings_flags_unsupported_model(bbw_module):
+    """validate warns when an effort is pinned on a model that can't run it (haiku),
+    for both phase invocations and on-demand agents; supported models are silent."""
+    wf = {
+        "phases": [{"id": "P1", "invocations": [
+            {"agent": "a", "model": "haiku", "effort": "high"},   # flagged
+            {"agent": "b", "model": "sonnet", "effort": "high"},  # fine
+            {"agent": "c", "model": "opus"},                      # no effort
+            {"agent": "e", "effort": "low"},                      # inherit model — fine
+        ]}],
+        "on_demand_agents": [{"agent": "d", "model": "haiku", "effort": "max"}],  # flagged
+    }
+    warns = bbw_module.check_effort_warnings(wf)
+    assert len(warns) == 2
+    assert any("'a'" in w and "haiku" in w for w in warns)
+    assert any("'d'" in w and "haiku" in w for w in warns)
+    assert not any(f"'{x}'" in w for w in warns for x in ("b", "c", "e"))
+
+
+def test_generate_skill_drops_effort_on_unsupported_model(bbw_module, tmp_path):
+    """An effort pinned on haiku is NOT advertised in the SKILL (it's dropped at deploy,
+    so claiming it would be a lie). The model line still renders; the effort note and the
+    effort header note do not."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: haiku-effort
+  description: Effort pinned on haiku (unsupported)
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: Cheap
+    group: g
+    invocations:
+      - agent: test-agent
+        model: haiku
+        effort: high
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    assert "Run on `haiku`" in content                          # model still rendered
+    assert "Effort `high`" not in content                       # effort NOT advertised
+    assert "is set in the agent's frontmatter" not in content
+    assert "Effort is set on the agent, not at launch" not in content  # header note gated off
