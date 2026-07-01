@@ -59,15 +59,12 @@ phases:
     outputs:
       - { role: work:change-request, kind: md }
       - { role: work:target-name, kind: text }
-  - id: S2-PROBE
-    name: Gate 1 — value probes (parallel)
+  - id: S2-WORTH
+    name: Gate 1 — worth probe
     group: decide
     type: agent
     depends_on: [S1-FRAME]
-    description: >
-      The CHEAP gate, run FIRST so a bad idea is killed before any impact tokens are spent.
-      Fan out three independent assessments of the raw change IN PARALLEL — launch all three
-      in a single message (three Task calls), never one at a time.
+    parallel_with: [S2-DEVIL, S2-PREMORTEM]
     invocations:
       - agent: worth-verifier
         model: sonnet
@@ -76,6 +73,13 @@ phases:
           - { role: work:change-request, kind: md }
         outputs:
           - { role: work:value-probe, kind: md }
+  - id: S2-DEVIL
+    name: Gate 1 — devil's advocate
+    group: decide
+    type: agent
+    depends_on: [S1-FRAME]
+    parallel_with: [S2-WORTH, S2-PREMORTEM]
+    invocations:
       - agent: devils-advocate
         model: sonnet
         description: Steelman then attack the change; trust only the artifact, not the framing
@@ -83,6 +87,13 @@ phases:
           - { role: work:change-request, kind: md }
         outputs:
           - { role: work:panel-devil, kind: md }
+  - id: S2-PREMORTEM
+    name: Gate 1 — pre-mortem
+    group: decide
+    type: agent
+    depends_on: [S1-FRAME]
+    parallel_with: [S2-WORTH, S2-DEVIL]
+    invocations:
       - agent: premortem
         model: sonnet
         description: Assume the change shipped and broke the workflow; trace the specific causes
@@ -95,13 +106,14 @@ phases:
     group: decide
     type: main_agent
     interactive: true
-    depends_on: [S2-PROBE]
+    depends_on: [S2-WORTH, S2-DEVIL, S2-PREMORTEM]
     description: >
-      Weave the three probes back to the maintainer — ONE at a time, stopping after each;
-      never stack them. Force the maintainer to weigh alternatives — do-nothing /
-      smaller-scope / different-approach — then converge on a verdict: ABANDON, REFORMULATE
-      (loop back to S2-PROBE), or PROCEED. Only on PROCEED, firm the raw request into a
-      written change-intent (what / why / acceptance criteria). Never advance on their behalf.
+      The three value probes (worth / devil / pre-mortem) ran in parallel — weave them back to
+      the maintainer ONE at a time, stopping after each; never stack them. Force the maintainer
+      to weigh alternatives — do-nothing / smaller-scope / different-approach — then converge on
+      a verdict: ABANDON, REFORMULATE (loop back to the S2 probes), or PROCEED. Only on PROCEED,
+      firm the raw request into a written change-intent (what / why / acceptance criteria). Never
+      advance on their behalf.
     inputs:
       - { role: work:change-request, kind: md }
       - { role: work:value-probe, kind: md }

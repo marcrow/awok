@@ -4,7 +4,7 @@
 
 ## Overview
 
-9 phases, organized into 4 groups.
+11 phases, organized into 4 groups.
 > 🧭 Opportunistic workflow: the orchestrator may launch ad-hoc sub-agents (except phases marked ⛔).
 
 ## Groups
@@ -18,7 +18,7 @@
 
 ```
 Level 0: S1-FRAME
-Level 1: S2-PROBE
+Level 1: S2-DEVIL || S2-PREMORTEM || S2-WORTH
 Level 2: S2-VOTE
 Level 3: S3-IMPACT
 Level 4: S4-IMPLEMENT
@@ -34,15 +34,25 @@ Level 8: S8-HANDOFF
 
 - Group: `frame`
 - Type: `main_agent`
-### S2-PROBE — Gate 1 — value probes (parallel)
+### S2-WORTH — Gate 1 — worth probe
 
 - Group: `decide`
-- Type: `agent`- Depends on: S1-FRAME- Invocations:
-  - `worth-verifier` (sonnet)  - `devils-advocate` (sonnet)  - `premortem` (sonnet)
+- Type: `agent`- Depends on: S1-FRAME- Parallel with: S2-DEVIL, S2-PREMORTEM- Invocations:
+  - `worth-verifier` (sonnet)
+### S2-DEVIL — Gate 1 — devil's advocate
+
+- Group: `decide`
+- Type: `agent`- Depends on: S1-FRAME- Parallel with: S2-WORTH, S2-PREMORTEM- Invocations:
+  - `devils-advocate` (sonnet)
+### S2-PREMORTEM — Gate 1 — pre-mortem
+
+- Group: `decide`
+- Type: `agent`- Depends on: S1-FRAME- Parallel with: S2-WORTH, S2-DEVIL- Invocations:
+  - `premortem` (sonnet)
 ### S2-VOTE — Gate 1 — converge on the verdict
 
 - Group: `decide`
-- Type: `main_agent`- Depends on: S2-PROBE
+- Type: `main_agent`- Depends on: S2-WORTH, S2-DEVIL, S2-PREMORTEM
 ### S3-IMPACT — Gate 2 — predict the blast-radius
 
 - Group: `decide`

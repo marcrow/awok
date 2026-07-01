@@ -26,7 +26,7 @@ description: |
 > model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
 > the session model, often a costlier one.
 
-Pipeline of 9 actions, organized into 4 groups:
+Pipeline of 11 actions, organized into 4 groups:
 `frame` (Load awok's mechanics and the target workflow, capture the change), `decide` (Gate the change on value first, then predict its impact), `build` (Implement the change and regenerate the artifacts), `ship` (Sync the human docs and hand off to the doctor).
 
 ---
@@ -81,11 +81,8 @@ Load awok's mechanics LIVE so nothing drifts: read src/workflow/workflow.schema.
 
 
 
-### S2-PROBE — Gate 1 — value probes (parallel)
-> `decide` · agent · ⇐ S1-FRAME
-The CHEAP gate, run FIRST so a bad idea is killed before any impact tokens are spent. Fan out three independent assessments of the raw change IN PARALLEL — launch all three in a single message (three Task calls), never one at a time.
-
-> ⚡ **Parallel — 3 independent agents** (no order between them). Launch all 3 in a single message (3 `Task` blocks), not one at a time; wait for all to return before moving on.
+### S2-WORTH — Gate 1 — worth probe
+> `decide` · agent · ⇐ S1-FRAME · ∥ S2-DEVIL, S2-PREMORTEM
 
 #### Invocation `worth-verifier`
 
@@ -102,6 +99,11 @@ finance-shaped instance. Advisory; the maintainer decides.
 
 > ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 
+
+
+### S2-DEVIL — Gate 1 — devil's advocate
+> `decide` · agent · ⇐ S1-FRAME · ∥ S2-WORTH, S2-PREMORTEM
+
 #### Invocation `devils-advocate`
 
 
@@ -115,6 +117,11 @@ carry a structural flaw? Trust only the artifact, never the author's framing. Re
 two sharp, concrete provocations, not a survey. Advisory; the maintainer decides.
 
 > ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
+
+
+### S2-PREMORTEM — Gate 1 — pre-mortem
+> `decide` · agent · ⇐ S1-FRAME · ∥ S2-WORTH, S2-DEVIL
 
 #### Invocation `premortem`
 
@@ -133,8 +140,8 @@ excited about the idea. Advisory; the maintainer decides.
 
 
 ### S2-VOTE — Gate 1 — converge on the verdict
-> `decide` · main_agent · ⇐ S2-PROBE
-Weave the three probes back to the maintainer — ONE at a time, stopping after each; never stack them. Force the maintainer to weigh alternatives — do-nothing / smaller-scope / different-approach — then converge on a verdict: ABANDON, REFORMULATE (loop back to S2-PROBE), or PROCEED. Only on PROCEED, firm the raw request into a written change-intent (what / why / acceptance criteria). Never advance on their behalf.
+> `decide` · main_agent · ⇐ S2-WORTH, S2-DEVIL, S2-PREMORTEM
+The three value probes (worth / devil / pre-mortem) ran in parallel — weave them back to the maintainer ONE at a time, stopping after each; never stack them. Force the maintainer to weigh alternatives — do-nothing / smaller-scope / different-approach — then converge on a verdict: ABANDON, REFORMULATE (loop back to the S2 probes), or PROCEED. Only on PROCEED, firm the raw request into a written change-intent (what / why / acceptance criteria). Never advance on their behalf.
 
 > ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
