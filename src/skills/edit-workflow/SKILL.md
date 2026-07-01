@@ -26,8 +26,30 @@ description: |
 > model explicitly** (`model: <model>`) — otherwise the sub-agent silently runs on
 > the session model, often a costlier one.
 
-Pipeline of 8 actions, organized into 4 groups:
+Pipeline of 9 actions, organized into 4 groups:
 `frame` (Load awok's mechanics and the target workflow, capture the change), `decide` (Gate the change on value first, then predict its impact), `build` (Implement the change and regenerate the artifacts), `ship` (Sync the human docs and hand off to the doctor).
+
+---
+
+## ⚙️ Execution protocol — order vs. parallelism
+
+The pipeline below is a **dependency graph**, not a checklist. Two markers on each
+action's header drive how you run it:
+
+- `⇐ A, B` — this action **depends on** A and B. **Hard rule: never start it until
+  every `⇐` dependency has returned** — its inputs are the files those actions wrote.
+- `∥ A` — this action is **independent** of A (same stage, no edge between them).
+
+Within that ordering, **launch independent agents together in a single message**
+(one `Task` block each), never one at a time:
+
+- actions on the **same stage** (marked `∥`), once their shared `⇐` dependency has
+  returned;
+- and, when one action lists several agents, all of them at once (no order between them).
+
+Each separate message re-reads the whole accumulated context, so launching N
+independent agents one-per-message multiplies cost and serializes work that could
+run concurrently.
 
 ---
 
@@ -59,9 +81,60 @@ Load awok's mechanics LIVE so nothing drifts: read src/workflow/workflow.schema.
 
 
 
-### S2-VALUE — Gate 1 — pertinence & value
-> `decide` · main_agent · ⇐ S1-FRAME
-The CHEAP gate, run FIRST so a bad idea is killed before any impact tokens are spent. Launch, in parallel and in the background (one message, several Task calls): the independent challenge panel — devils-advocate + premortem (they never lived the framing, so they genuinely challenge "should we even do this") — AND worth-verifier, which proposes a LOW-COST empirical way to settle whether the change is worth it (a financial backtest is only one special case; it must generalize to any domain). Force the maintainer to weigh alternatives — do-nothing / smaller-scope / different-approach — then converge with them on a verdict: ABANDON, REFORMULATE (loop back here), or PROCEED. Only on PROCEED, firm the raw request into a written change-intent (what / why / acceptance criteria). Present ONE thing at a time and STOP for the maintainer; never advance on their behalf.
+### S2-PROBE — Gate 1 — value probes (parallel)
+> `decide` · agent · ⇐ S1-FRAME
+The CHEAP gate, run FIRST so a bad idea is killed before any impact tokens are spent. Fan out three independent assessments of the raw change IN PARALLEL — launch all three in a single message (three Task calls), never one at a time.
+
+> ⚡ **Parallel — 3 independent agents** (no order between them). Launch all 3 in a single message (3 `Task` blocks), not one at a time; wait for all to return before moving on.
+
+#### Invocation `worth-verifier`
+
+
+**worth-verifier** [sonnet] · Proposes the cheapest empirical way to settle whether the change is worth doing.
+- Reads : `work:change-request` (md) → work/edit-workflow/change-request.md
+- Writes : `work:value-probe` (md) → work/edit-workflow/value-probe.md
+
+**Task**: From the raw change request, name the implicit bet and its load-bearing
+assumption, do light targeted research where the assumption is publicly checkable, and
+recommend ONE concrete low-cost verification (with its cost) — or state plainly that the
+worth is self-evident and no probe is needed. Domain-agnostic: a backtest is only the
+finance-shaped instance. Advisory; the maintainer decides.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
+#### Invocation `devils-advocate`
+
+
+**devils-advocate** [sonnet] · Steelmans the change, then attacks the strongest version of it.
+- Reads : `work:change-request` (md) → work/edit-workflow/change-request.md
+- Writes : `work:panel-devil` (md) → work/edit-workflow/panel-devil.md
+
+**Task**: Build the strongest case FOR the proposed change, then attack that strongest
+version — is it worth doing at all, does it duplicate an existing awok mechanism, does it
+carry a structural flaw? Trust only the artifact, never the author's framing. Return one or
+two sharp, concrete provocations, not a survey. Advisory; the maintainer decides.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
+#### Invocation `premortem`
+
+
+**premortem** [sonnet] · Assumes the change shipped and broke the workflow, then traces the specific causes.
+- Reads : `work:change-request` (md) → work/edit-workflow/change-request.md
+- Writes : `work:panel-premortem` (md) → work/edit-workflow/panel-premortem.md
+
+**Task**: Assume the change shipped and quietly broke the target workflow. Work backward to
+the specific causes — each with a named trigger, a threshold, and a concrete consequence
+(not "might be slow"). Surface the design errors the maintainer won't volunteer while
+excited about the idea. Advisory; the maintainer decides.
+
+> ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
+
+
+
+### S2-VOTE — Gate 1 — converge on the verdict
+> `decide` · main_agent · ⇐ S2-PROBE
+Weave the three probes back to the maintainer — ONE at a time, stopping after each; never stack them. Force the maintainer to weigh alternatives — do-nothing / smaller-scope / different-approach — then converge on a verdict: ABANDON, REFORMULATE (loop back to S2-PROBE), or PROCEED. Only on PROCEED, firm the raw request into a written change-intent (what / why / acceptance criteria). Never advance on their behalf.
 
 > ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
@@ -69,8 +142,8 @@ The CHEAP gate, run FIRST so a bad idea is killed before any impact tokens are s
 
 
 ### S3-IMPACT — Gate 2 — predict the blast-radius
-> `decide` · main_agent · ⇐ S2-VALUE
-Runs only after S2 returns PROCEED. Launch risk-cartographer to PREDICT the change's blast-radius from the change-intent + the target workflow: which I/O roles and producer→consumer seams it touches, and the risk CATEGORIES it opens (cost/tokens, cadence mismatch, regression on a downstream seam, redundancy with an existing phase, idempotency breakage, model/effort mismatch, and any class the maintainer did not enumerate). This is prediction, not measurement — the deterministic structural checks fire later where they can actually see the change: awok validate's dataflow warning in S5 (an output nobody consumes) and /workflow-doctor's seam audit in S7. Aggregate the prediction with the maintainer and decide: proceed to implement, revise the intent, or STOP if the impact is prohibitive. Present findings, then STOP for the maintainer.
+> `decide` · main_agent · ⇐ S2-VOTE
+Runs only after S2-VOTE returns PROCEED. Launch risk-cartographer to PREDICT the change's blast-radius from the change-intent + the target workflow: which I/O roles and producer→consumer seams it touches, and the risk CATEGORIES it opens (cost/tokens, cadence mismatch, regression on a downstream seam, redundancy with an existing phase, idempotency breakage, model/effort mismatch, and any class the maintainer did not enumerate). This is prediction, not measurement — the deterministic structural checks fire later where they can actually see the change: awok validate's dataflow warning in S5 (an output nobody consumes) and /workflow-doctor's seam audit in S7. Aggregate the prediction with the maintainer and decide: proceed to implement, revise the intent, or STOP if the impact is prohibitive. Present findings, then STOP for the maintainer.
 
 > ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 
@@ -144,16 +217,6 @@ Read the doctor's verdict. If it surfaces a defect introduced by the change, loo
 
 These agents are available but are **not** invoked automatically in the pipeline.
 
-### `worth-verifier` [sonnet]
-> Value prober for a proposed workflow change. Given the raw change request, proposes the
-> cheapest empirical way to settle whether the change is worth doing — light research plus
-> a concrete low-cost test/probe — domain-agnostic (a financial backtest is only one case).
-
-**When to invoke it**: In the value gate (S2), to settle empirically whether a change earns its cost.
-
-**Triggered by**: S2-VALUE
-
-
 ### `risk-cartographer` [sonnet]
 > Blast-radius predictor for a proposed workflow change. From the change-intent + the target
 > workflow, maps the I/O roles and producer→consumer seams it touches and surfaces the risk
@@ -162,24 +225,6 @@ These agents are available but are **not** invoked automatically in the pipeline
 **When to invoke it**: In the impact gate (S3), to predict what the change touches and what could go wrong.
 
 **Triggered by**: S3-IMPACT
-
-
-### `devils-advocate` [sonnet]
-> Independent devil's-advocate panelist. Steelmans the change, then attacks the strongest
-> version; trusts only the artifact, never the author's framing.
-
-**When to invoke it**: In the value gate (S2), when the change idea is going unchallenged (the tunnel effect).
-
-**Triggered by**: S2-VALUE
-
-
-### `premortem` [sonnet]
-> Independent pre-mortem panelist. Assumes the change shipped and broke the workflow, then
-> traces specific causes (named trigger, threshold, consequence).
-
-**When to invoke it**: In the value gate (S2), to stress-test the change before committing to it.
-
-**Triggered by**: S2-VALUE
 
 
 

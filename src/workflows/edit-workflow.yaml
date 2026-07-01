@@ -59,26 +59,54 @@ phases:
     outputs:
       - { role: work:change-request, kind: md }
       - { role: work:target-name, kind: text }
-  - id: S2-VALUE
-    name: Gate 1 — pertinence & value
+  - id: S2-PROBE
+    name: Gate 1 — value probes (parallel)
     group: decide
-    type: main_agent
-    interactive: true
+    type: agent
     depends_on: [S1-FRAME]
     description: >
       The CHEAP gate, run FIRST so a bad idea is killed before any impact tokens are spent.
-      Launch, in parallel and in the background (one message, several Task calls): the
-      independent challenge panel — devils-advocate + premortem (they never lived the
-      framing, so they genuinely challenge "should we even do this") — AND worth-verifier,
-      which proposes a LOW-COST empirical way to settle whether the change is worth it
-      (a financial backtest is only one special case; it must generalize to any domain).
-      Force the maintainer to weigh alternatives — do-nothing / smaller-scope /
-      different-approach — then converge with them on a verdict: ABANDON, REFORMULATE
-      (loop back here), or PROCEED. Only on PROCEED, firm the raw request into a written
-      change-intent (what / why / acceptance criteria). Present ONE thing at a time and
-      STOP for the maintainer; never advance on their behalf.
+      Fan out three independent assessments of the raw change IN PARALLEL — launch all three
+      in a single message (three Task calls), never one at a time.
+    invocations:
+      - agent: worth-verifier
+        model: sonnet
+        description: Propose the cheapest empirical way to settle whether the change is worth doing
+        inputs:
+          - { role: work:change-request, kind: md }
+        outputs:
+          - { role: work:value-probe, kind: md }
+      - agent: devils-advocate
+        model: sonnet
+        description: Steelman then attack the change; trust only the artifact, not the framing
+        inputs:
+          - { role: work:change-request, kind: md }
+        outputs:
+          - { role: work:panel-devil, kind: md }
+      - agent: premortem
+        model: sonnet
+        description: Assume the change shipped and broke the workflow; trace the specific causes
+        inputs:
+          - { role: work:change-request, kind: md }
+        outputs:
+          - { role: work:panel-premortem, kind: md }
+  - id: S2-VOTE
+    name: Gate 1 — converge on the verdict
+    group: decide
+    type: main_agent
+    interactive: true
+    depends_on: [S2-PROBE]
+    description: >
+      Weave the three probes back to the maintainer — ONE at a time, stopping after each;
+      never stack them. Force the maintainer to weigh alternatives — do-nothing /
+      smaller-scope / different-approach — then converge on a verdict: ABANDON, REFORMULATE
+      (loop back to S2-PROBE), or PROCEED. Only on PROCEED, firm the raw request into a
+      written change-intent (what / why / acceptance criteria). Never advance on their behalf.
     inputs:
       - { role: work:change-request, kind: md }
+      - { role: work:value-probe, kind: md }
+      - { role: work:panel-devil, kind: md }
+      - { role: work:panel-premortem, kind: md }
     outputs:
       - { role: work:change-intent, kind: md }
   - id: S3-IMPACT
@@ -86,9 +114,9 @@ phases:
     group: decide
     type: main_agent
     interactive: true
-    depends_on: [S2-VALUE]
+    depends_on: [S2-VOTE]
     description: >
-      Runs only after S2 returns PROCEED. Launch risk-cartographer to PREDICT the change's
+      Runs only after S2-VOTE returns PROCEED. Launch risk-cartographer to PREDICT the change's
       blast-radius from the change-intent + the target workflow: which I/O roles and
       producer→consumer seams it touches, and the risk CATEGORIES it opens (cost/tokens,
       cadence mismatch, regression on a downstream seam, redundancy with an existing phase,
@@ -177,14 +205,6 @@ phases:
       - { role: work:impact-report, kind: md }
       - { role: work:docsync-report, kind: md }
 on_demand_agents:
-  - agent: worth-verifier
-    model: sonnet
-    description: |
-      Value prober for a proposed workflow change. Given the raw change request, proposes the
-      cheapest empirical way to settle whether the change is worth doing — light research plus
-      a concrete low-cost test/probe — domain-agnostic (a financial backtest is only one case).
-    triggered_by: [S2-VALUE]
-    when: In the value gate (S2), to settle empirically whether a change earns its cost.
   - agent: risk-cartographer
     model: sonnet
     description: |
@@ -193,17 +213,3 @@ on_demand_agents:
       CATEGORIES it opens — generatively, not against a fixed checklist.
     triggered_by: [S3-IMPACT]
     when: In the impact gate (S3), to predict what the change touches and what could go wrong.
-  - agent: devils-advocate
-    model: sonnet
-    description: |
-      Independent devil's-advocate panelist. Steelmans the change, then attacks the strongest
-      version; trusts only the artifact, never the author's framing.
-    triggered_by: [S2-VALUE]
-    when: In the value gate (S2), when the change idea is going unchallenged (the tunnel effect).
-  - agent: premortem
-    model: sonnet
-    description: |
-      Independent pre-mortem panelist. Assumes the change shipped and broke the workflow, then
-      traces specific causes (named trigger, threshold, consequence).
-    triggered_by: [S2-VALUE]
-    when: In the value gate (S2), to stress-test the change before committing to it.

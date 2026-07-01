@@ -4,7 +4,7 @@
 
 ## Overview
 
-8 phases, organized into 4 groups.
+9 phases, organized into 4 groups.
 > 🧭 Opportunistic workflow: the orchestrator may launch ad-hoc sub-agents (except phases marked ⛔).
 
 ## Groups
@@ -18,13 +18,14 @@
 
 ```
 Level 0: S1-FRAME
-Level 1: S2-VALUE
-Level 2: S3-IMPACT
-Level 3: S4-IMPLEMENT
-Level 4: S5-GENERATE
-Level 5: S6-DOCSYNC
-Level 6: S7-VERIFY
-Level 7: S8-HANDOFF
+Level 1: S2-PROBE
+Level 2: S2-VOTE
+Level 3: S3-IMPACT
+Level 4: S4-IMPLEMENT
+Level 5: S5-GENERATE
+Level 6: S6-DOCSYNC
+Level 7: S7-VERIFY
+Level 8: S8-HANDOFF
 ```
 
 ## Phases
@@ -33,14 +34,19 @@ Level 7: S8-HANDOFF
 
 - Group: `frame`
 - Type: `main_agent`
-### S2-VALUE — Gate 1 — pertinence & value
+### S2-PROBE — Gate 1 — value probes (parallel)
 
 - Group: `decide`
-- Type: `main_agent`- Depends on: S1-FRAME
+- Type: `agent`- Depends on: S1-FRAME- Invocations:
+  - `worth-verifier` (sonnet)  - `devils-advocate` (sonnet)  - `premortem` (sonnet)
+### S2-VOTE — Gate 1 — converge on the verdict
+
+- Group: `decide`
+- Type: `main_agent`- Depends on: S2-PROBE
 ### S3-IMPACT — Gate 2 — predict the blast-radius
 
 - Group: `decide`
-- Type: `main_agent`- Depends on: S2-VALUE
+- Type: `main_agent`- Depends on: S2-VOTE
 ### S4-IMPLEMENT — Implement the change
 
 - Group: `build`
