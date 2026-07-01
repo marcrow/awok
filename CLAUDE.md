@@ -36,6 +36,7 @@ every `awok generate`).
 | `onboard` | `workflows/onboard.yaml` | `skills/onboard/SKILL.md` | `onboard.html` |
 | `create-workflow` | `workflows/create-workflow.yaml` | `skills/create-workflow/SKILL.md` | `create-workflow.html` |
 | `workflow-doctor` | `workflows/workflow-doctor.yaml` | `skills/workflow-doctor/SKILL.md` | `workflow-doctor.html` |
+| `edit-workflow` | `workflows/edit-workflow.yaml` | `skills/edit-workflow/SKILL.md` | `edit-workflow.html` |
 
 **Commands** (no arg → all; `--workflow NAME|PATH` → a single one):
 ```bash
