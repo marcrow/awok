@@ -107,19 +107,23 @@ YAML I/O. The weakest seam governs the verdict; non-decidable issues surface as
 
 ### Keep a sub-agent honest — the `completeness-critic` gate
 
-Sub-agents rush: they try two payloads, hit a WAF, and declare "not exploitable." Drop the
-bundled **`completeness-critic`** agent after any hunt or validation phase and it judges whether
-the work was actually *thorough* — every warranted attack class tried, every block treated as a
-checkpoint not a verdict, every characterization method sufficient — then returns a one-line
-verdict a `main_agent` gate uses to **loop the previous agent until it's done** (bounded by a
-file-backed cap in a ledger, so it never busy-loops on work that's genuinely finished). It judges
-what was *tried* (an attempt-log), not just what was *found*, and needs **no edit to the watched
-agent** — you enable the log with a single line in the watched phase's description. Its knowledge
-lives in four layers (a generic *posture* in its body, the model's native attack knowledge, an
-optional skill/reference file per placement, and the per-invocation description), so the same
-agent drops in across seams — and, with an inverted doctrine, later doubles as a false-positive
-*validator*. Full wiring recipe:
-`docs/superpowers/specs/2026-07-03-completeness-critic-design.md`.
+Sub-agents cut corners: they accept the first plausible answer and move on, skipping the
+follow-ups a careful human would have chased. Drop the bundled **`completeness-critic`** agent
+after any *produce* or *decide* phase — in **any** domain — and it judges whether the work was
+actually *thorough*, then returns a one-line verdict a `main_agent` gate uses to **loop the
+previous agent until it's done** (bounded by a file-backed cap in a ledger, so it never busy-loops
+on work that's genuinely finished). It judges what was *tried* (an attempt-log), not just what was
+*found*, and needs **no edit to the watched agent** — you enable the log with a single line in the
+watched phase's description. Its knowledge lives in four layers — a generic *posture* in its body,
+the model's native domain knowledge, an optional reference file per placement, and the
+per-invocation description — so the same agent drops in across seams, and with an inverted doctrine
+later doubles as a false-positive *validator*.
+
+For example, in a vulnerability-hunting workflow it would catch a sub-agent that fired two payloads,
+hit a WAF, and called the endpoint safe — looping it to try bypasses and the attack classes it
+skipped before the pipeline advances. Swap the posture and the same gate keeps a research
+summariser from stopping at one source, or an extraction agent from quitting at the first parse
+error. Full wiring recipe: `docs/superpowers/specs/2026-07-03-completeness-critic-design.md`.
 
 ### Edit visually — `awok edit`
 
