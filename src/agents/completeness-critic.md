@@ -126,7 +126,18 @@ Mapping: SUFFICIENT → DIR=PROCEED STOP=bar-met; INSUFFICIENT → DIR=RE-DISPAT
 DIR=RE-TEST-METHOD (method incapable of deciding) OR DIR=PROCEED with
 STOP ∈ {unsafe, no-substrate, diminishing-returns, cap}.
 
+STATUS, DIR and STOP are INDEPENDENT fields: STATUS assesses the work, DIR routes the orchestrator,
+STOP is the terminal reason. The mapping above is the DEFAULT; a terminal STOP overrides DIR. So a
+HUNT that hits the cap or diminishing-returns with gaps still open keeps its true STATUS
+(INSUFFICIENT) while emitting DIR=PROCEED STOP=cap|diminishing-returns — the gate obeys DIR, not
+STATUS.
+
 ### (b) APPEND one line to the stage ledger (`ledger.jsonl`)
+
+You have only `Write` (which overwrites), no append tool. So APPEND means: read the FULL prior
+ledger (substrate #5), then `Write` the file back with EVERY prior line unchanged plus your new line
+last. Never drop or rewrite a prior line — the pass counter is `lines + 1`, so a truncated ledger
+silently resets the count and can evade the cap (the only hard termination bound).
 
 ```json
 {"pass":1,"watched_phase":"<id>","status":"INSUFFICIENT","dir":"RE-DISPATCH","blocking_count":1,"gaps":[{"id":"g1","class":"waf-bypass","target":"param q","severity":"BLOCKING","state":"IGNORED","action":"double-URL-encode + case-mutation + HPP on q","applicability":"reflected sink present","first_pass":1}],"credited":["xss-reflected-basic"],"stop_reason":"none"}
