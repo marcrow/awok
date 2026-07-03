@@ -244,7 +244,7 @@ Movement 3 of the brainstorm. Converge on the surviving design — the maintaine
 
 ### S3-DECOMPOSE — Decompose into blocks
 > `shape` · main_agent · ⇐ S2C-CONVERGE
-Translate the converged design intent into a draft awok DAG: stages, groups, action blocks, and per-block I/O roles. Before settling on one, render 2-3 alternative DAG shapes as a small self-contained HTML at work/create-workflow/dag-alternatives.html — match the visual style of awok's generated cartography (reuse the palette/CSS from src/workflow/templates/html-wrapper.html), one mermaid diagram per alternative, and give each node a hover tooltip that explains what that action actually does (not just its id). Add a one-line note per alternative on what differs (what's parallelized, where the reduce sits, which blocks split/merge) — open it and let the maintainer pick the shape (a table hides parallelism; a diagram shows it). Keep the result a draft — the block review (S4) and the maintainer will revise it. Inherit the workflow name chosen in S2C.
+Translate the converged design intent into a draft awok DAG: stages, groups, action blocks, and per-block I/O roles. Before settling on one, render 2-3 alternative DAG shapes as a small self-contained HTML at work/create-workflow/dag-alternatives.html — match the visual style of awok's generated cartography (reuse the palette/CSS from src/workflow/templates/html-wrapper.html), one mermaid diagram per alternative, and give each node a hover tooltip that explains what that action actually does (not just its id). Add a one-line note per alternative on what differs (what's parallelized, where the reduce sits, which blocks split/merge) — open it and let the maintainer pick the shape (a table hides parallelism; a diagram shows it). Keep the result a draft — the block review (S4) and the maintainer will revise it. Inherit the workflow name chosen in S2C. One shape rule to apply up front: any block that must persist to a growing journal/registry (`.jsonl`/`.md` that is appended/merged across runs) is drawn as its OWN `script` action — the producing agent writes a fresh per-run file or payload, the script does the idempotent append. Never fold a growing append into the producing agent (it forces a full re-read+rewrite — slow and corruption-prone; this is the persistence anti-pattern S4's nature-critic also screens for).
 
 
 
@@ -279,7 +279,10 @@ maintainer decides per block.
 
 **Task**: For each block in the draft DAG (skipping ones the reuse-report flags as
 borrowable), recommend its optimal awok action nature, hunting especially for
-LLM-where-a-script-suffices and script-where-judgment-is-needed. Advisory only.
+LLM-where-a-script-suffices, script-where-judgment-is-needed, and the persistence
+anti-pattern — an agent that appends/merges a growing `.jsonl`/`.md` journal or
+registry. Split it: the agent writes a fresh per-run file/payload, a `script` does the
+idempotent append. Advisory only.
 
 > ⚙️ **Run on `sonnet`** — launch via the `Task` tool with `model: sonnet` (not inherited from the session model).
 

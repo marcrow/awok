@@ -121,7 +121,13 @@ phases:
       parallelized, where the reduce sits, which blocks split/merge) — open it and let
       the maintainer pick the shape (a table hides parallelism; a diagram shows it).
       Keep the result a draft — the block review (S4) and the maintainer will revise
-      it. Inherit the workflow name chosen in S2C.
+      it. Inherit the workflow name chosen in S2C. One shape rule to apply up front:
+      any block that must persist to a growing journal/registry (`.jsonl`/`.md` that is
+      appended/merged across runs) is drawn as its OWN `script` action — the producing
+      agent writes a fresh per-run file or payload, the script does the idempotent
+      append. Never fold a growing append into the producing agent (it forces a full
+      re-read+rewrite — slow and corruption-prone; this is the persistence anti-pattern
+      S4's nature-critic also screens for).
     inputs:
       - { role: work:design-intent, kind: md }
     outputs:
