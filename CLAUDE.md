@@ -151,6 +151,40 @@ that carry their own content and ⛔ locked phases.
 `triggered_by:` (hooks, skills); `opportunistic` is in-DAG, attached to a phase,
 and the agents are authored on the fly rather than pre-written in `src/agents/`.
 
+### Completeness-gate pattern (`completeness-critic`)
+
+A **reusable thoroughness gate** you drop after any hunt/validation agent so a rushed
+sub-agent (one that stops at the first WAF/403/no-IDOR and declares "not exploitable") is
+caught and looped until it has really tried. It is a shared agent
+(`src/agents/completeness-critic.md`) plus a wiring idiom — **no engine feature**. Full recipe:
+`docs/superpowers/specs/2026-07-03-completeness-critic-design.md`.
+
+Wire it as **two forward phases** after the watched phase (the DAG stays acyclic; the loop is
+prose in the gate, so no back-edge):
+
+1. **Enable the attempt-log** — add one line to the *watched phase's* `description` telling the
+   orchestrator to inject "log every attempt AND abandonment to `work/<ns>/attempt-log.md`" at
+   launch. This edits the phase prose, **never the watched agent's `.md`** — the critic judges what
+   was *tried*, not just what was *found* (a findings draft is positives-only, so judging from
+   absence would false-loop).
+2. **The critic** (`type: agent`, `depends_on` the watched phase): reads the attempt-log + draft
+   (+ optional skill/reference via a `path:` input, + optional watched spec) and returns ONE line —
+   `COMPLETENESS <SUFFICIENT|INSUFFICIENT|INCONCLUSIVE> | DIR=<PROCEED|RE-DISPATCH|RE-TEST-METHOD> | … | GAPS=<path>`.
+   It writes depth to `gaps.md` + an append-only `ledger.jsonl` (the file-backed pass counter that
+   bounds the loop and survives compaction).
+3. **The gate** (`type: main_agent`, `depends_on` the critic): a PURE ROUTER — reads only the
+   token, and on `DIR=RE-DISPATCH` (and `ATTEMPT<cap`) re-launches the watched agent with the gaps
+   *path* appended; on `PROCEED`/cap/unparseable it advances. It never re-reads or re-judges the
+   output — the judgment lives entirely in the critic. Nesting=1 holds: the gate (main agent)
+   re-dispatches, the critic never spawns.
+
+Its domain knowledge lives in **four layers**, so the body stays generic and reusable across
+seams (even beyond pentest): (1) a POSTURE doctrine in the agent body — *not* an attack catalog,
+the model already knows the classes; (2) the model's native attack knowledge; (3) an optional
+skill/reference file per placement (`{ path: "refs/ssti.md", kind: md, optional: true, external: true }`);
+(4) the per-invocation `description` (`stage`/`frame`/`cap`/rigor-bar). Pin it on `sonnet`. The
+same agent + gate skeleton, with an inverted doctrine, later gives you a false-positive *validator*.
+
 ### Add or modify a pipeline phase
 
 > **Modular workflow**: each workflow is defined in
