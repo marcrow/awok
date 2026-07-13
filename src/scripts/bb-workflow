@@ -1560,6 +1560,35 @@ def render_orchestration(workflow: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def _collect_ref_ids(blocks):
+    ids = []
+    for b in _iter_blocks(blocks):
+        if "ref" in b:
+            ids.append(b["ref"])
+    return ids
+
+
+def build_orchestration_overlay(workflow: dict) -> dict:
+    """Overlay data for the cartography: branch diamonds + loop subgraphs."""
+    overlay = {"branches": [], "loops": []}
+    for b in _iter_blocks(workflow.get("orchestration", [])):
+        if "if" in b:
+            overlay["branches"].append({
+                "cond": _render_condition(b["if"]),
+                "then_ids": _collect_ref_ids(b.get("then")),
+                "else_ids": _collect_ref_ids(b.get("else")),
+            })
+        if "while" in b or "until" in b or "for_each" in b:
+            label = (b.get("for_each") and f"for each {b['for_each']}") or \
+                    _render_condition(b.get("while") or b.get("until"))
+            overlay["loops"].append({
+                "label": label,
+                "cap": b.get("cap"),
+                "body_ids": _collect_ref_ids(b.get("body")),
+            })
+    return overlay
+
+
 def build_edge_labels(workflow: dict) -> dict:
     """For each (parent_id, child_id) depends_on pair, produce an edge label string.
 
@@ -1851,6 +1880,7 @@ def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> st
         phases=workflow.get("phases", []),
         groups=workflow.get("groups", {}),
         group_colors=_resolve_group_colors(workflow),
+        orchestration_overlay=build_orchestration_overlay(workflow),
     )
 
 
@@ -2054,6 +2084,7 @@ def generate_cartography_texte(workflow_path: Path, output_path: Path,
         groups=workflow.get("groups", {}),
         execution_levels=dag.execution_levels(),
         opportunistic_global=opportunistic_global,
+        orchestration_overlay=build_orchestration_overlay(workflow),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")

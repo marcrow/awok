@@ -51,3 +51,13 @@ Level {{ loop.index0 }}: {{ level|join(' || ') }}
 {% endif %}
 
 {% endfor %}
+{% if orchestration_overlay.loops or orchestration_overlay.branches %}
+## Orchestration
+
+{% for lp in orchestration_overlay.loops %}
+- 🔁 Loop (cap {{ lp.cap }}): {{ lp.label }} — body: {{ lp.body_ids|join(', ') }}
+{% endfor %}
+{% for br in orchestration_overlay.branches %}
+- ❓ If {{ br.cond }} → then: {{ br.then_ids|join(', ') }}{% if br.else_ids %}, else: {{ br.else_ids|join(', ') }}{% endif %}
+{% endfor %}
+{% endif %}
