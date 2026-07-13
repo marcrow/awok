@@ -210,6 +210,6 @@ cd src/scripts/tests/webedit && bun test   # front-end (after `bun install`)
 
 ## TBD
 
-Security review -> So you should not exposed the awok edit service.
-Improve the WebUI workflow editor.
-Fix invocation file in WEBui
+The project backlog now lives in [`TODO.md`](TODO.md) — features to integrate,
+follow-ups, and known gaps (security review, web UI editor improvements, dynamic
+workflows, orchestration-awareness of the meta-workflows, …).
