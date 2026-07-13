@@ -78,6 +78,8 @@ async function loadWorkflow(name) {
   hydrateBlockIds(state.model);
   state.showOrch = !!(state.model.orchestration && state.model.orchestration.length);
   state.selectedGate = null;
+  $("#toggle-orch").classList.toggle("on", state.showOrch);
+  $("#add-gate").hidden = !state.showOrch;
   state.savedSnapshot = snapshot();              // baseline for unsaved-changes detection
   if (switching && dataflow) dataflow.reset();   // drop the previous workflow's dataflow filters
   $("#edit-panel").hidden = true;
