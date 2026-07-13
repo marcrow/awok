@@ -676,6 +676,7 @@ def collect_signals(workflow: dict) -> dict:
 
 
 _NUMERIC_OPS = {"<", ">", "<=", ">="}
+_SIGNAL_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 def _iter_blocks(blocks):
@@ -738,8 +739,6 @@ def _validate_condition(cond, signals, caps, target):
     errors = []
     # escape-hatch (string predicate)
     if isinstance(cond, str):
-        if not caps["operands"]["escape_hatch"].get(target if target == "standard" else "js_safe", False):
-            pass  # standard: allowed
         if target == "js":
             errors.append("orchestration: escape-hatch predicate is standard-only (not js-safe)")
         return errors
@@ -768,7 +767,7 @@ def _validate_condition(cond, signals, caps, target):
 
     # signal existence: a dotted string operand that looks like a ref must resolve
     for operand in (left, right):
-        if isinstance(operand, str) and "." in operand and operand.split(".")[0].isidentifier():
+        if isinstance(operand, str) and "." in operand and _SIGNAL_PREFIX_RE.match(operand.split(".")[0]):
             # heuristic: treat 'a.b' as a signal ref
             if operand not in signals and not _looks_like_literal(operand):
                 errors.append(f"orchestration: condition references unknown signal '{operand}'")

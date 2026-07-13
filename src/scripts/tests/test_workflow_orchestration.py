@@ -67,6 +67,15 @@ def test_condition_references_unknown_signal(bbw_module):
     assert any("ghost.v" in e for e in errs)
 
 
+def test_condition_unknown_signal_on_hyphenated_phase(bbw_module):
+    wf = _wf(
+        [{"if": {"op": "==", "left": "o2-deps.ghost", "right": "x"}, "then": [{"ref": "O2-DEPS"}]}],
+        phases=[{"id": "O2-DEPS", "name": "d", "group": "g"}],
+    )
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("o2-deps.ghost" in e for e in errs)
+
+
 def test_numeric_operator_on_string_signal(bbw_module):
     wf = _wf([{"if": {"op": "<", "left": "t1.v", "right": 3}, "then": [{"ref": "T1"}]}],
              emits=[{"name": "v", "type": "string", "source": "token"}])
