@@ -118,6 +118,20 @@ clé. Deux garde-fous (warn + rien injecté) :
 Modifiable par invocation dans l'éditeur web (liste déroulante à côté du modèle) et sur les
 agents on-demand — le YAML/UI reste la source de vérité ; seul `deploy` écrit le frontmatter.
 
+### `$AWOK_DEFAULT_TOOLS` — seed d'outils au scaffold d'un agent
+
+Confort de scaffolding : quand `create_agent` crée un agent **sans** `tools` explicite, il
+initialise le frontmatter `tools:` depuis la variable d'env `$AWOK_DEFAULT_TOOLS` (liste
+séparée par des virgules) au lieu de le laisser vide. La **source de vérité reste le
+frontmatter de l'agent** (les outils sont l'identité de l'agent, stable d'un workflow à
+l'autre) : un agent spécifique peut ensuite **réduire** le set dans son propre frontmatter —
+un agent en lecture seule garde juste `Read, Glob, Grep`. `deploy` ne touche pas aux `tools`
+(copie verbatim).
+
+```bash
+export AWOK_DEFAULT_TOOLS="Bash,Read,Edit,Grep,Glob"
+```
+
 ### Patch du moteur ou d'un template — ça touche TOUS les workflows
 
 `bb-workflow` et les templates Jinja (`src/workflow/templates/*.jinja`) sont

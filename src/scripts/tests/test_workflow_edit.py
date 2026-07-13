@@ -151,6 +151,33 @@ def test_create_agent_writes_both_files(bbw_module, tmp_path):
     assert (inv_dir / "my-agent.md").exists()
 
 
+def test_create_agent_seeds_tools_from_env(bbw_module, tmp_path, monkeypatch):
+    """An empty `tools` is seeded from $AWOK_DEFAULT_TOOLS so a new agent inherits the
+    project baseline instead of being scaffolded tool-less."""
+    monkeypatch.setenv("AWOK_DEFAULT_TOOLS", "Bash, Read, Edit, Grep, Glob")
+    agents_dir = tmp_path / "agents"; inv_dir = tmp_path / "invocations"
+    agents_dir.mkdir(); inv_dir.mkdir()
+    errors = bbw_module.create_agent(
+        "seeded", description="d", tools="", model="inherit", prompt="p",
+        agents_dir=agents_dir, invocations_dir=inv_dir)
+    assert errors == []
+    assert "tools: Bash, Read, Edit, Grep, Glob" in (agents_dir / "seeded.md").read_text()
+
+
+def test_create_agent_explicit_tools_override_env(bbw_module, tmp_path, monkeypatch):
+    """A specific agent may narrow the default to a subset: an explicit `tools` wins
+    over $AWOK_DEFAULT_TOOLS (the env only seeds the unspecified case)."""
+    monkeypatch.setenv("AWOK_DEFAULT_TOOLS", "Bash, Read, Edit, Grep, Glob")
+    agents_dir = tmp_path / "agents"; inv_dir = tmp_path / "invocations"
+    agents_dir.mkdir(); inv_dir.mkdir()
+    bbw_module.create_agent(
+        "reader", description="read-only", tools="Read, Glob, Grep",
+        model="inherit", prompt="p", agents_dir=agents_dir, invocations_dir=inv_dir)
+    md = (agents_dir / "reader.md").read_text()
+    assert "tools: Read, Glob, Grep" in md
+    assert "Edit" not in md   # a default-only tool the subset dropped
+
+
 def test_create_agent_rejects_bad_slug(bbw_module, tmp_path):
     errors = bbw_module.create_agent("../evil", description="x", tools="",
                                      model="inherit", prompt="p",

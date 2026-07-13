@@ -499,6 +499,11 @@ def create_agent(name: str, description: str, tools: str, model: str,
     invocations_dir = invocations_dir or DEFAULT_INVOCATIONS_DIR
     if not is_valid_slug(name):
         return [f"invalid agent name: {name!r}"]
+    # Seed an unspecified tool allow-list from the project default ($AWOK_DEFAULT_TOOLS)
+    # so a new agent inherits the baseline instead of being scaffolded tool-less. A
+    # specific agent still overrides by passing its own (narrower) `tools`.
+    if not (tools and str(tools).strip()):
+        tools = os.environ.get("AWOK_DEFAULT_TOOLS", "").strip()
     agent_md = (
         f"---\nname: {name}\ndescription: {description}\n"
         f"tools: {tools}\nmodel: {model}\n---\n\n{prompt}\n"
