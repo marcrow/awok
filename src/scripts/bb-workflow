@@ -675,6 +675,118 @@ def collect_signals(workflow: dict) -> dict:
     return signals
 
 
+_NUMERIC_OPS = {"<", ">", "<=", ">="}
+
+
+def _iter_blocks(blocks):
+    """Yield every block in the tree, depth-first."""
+    for b in blocks or []:
+        yield b
+        for key in ("then", "else", "body", "parallel"):
+            yield from _iter_blocks(b.get(key))
+
+
+def _operand_type(operand, signals):
+    """Best-effort type of a condition operand. None = unknown/untyped."""
+    if isinstance(operand, bool):
+        return "bool"
+    if isinstance(operand, (int, float)):
+        return "number"
+    if isinstance(operand, str):
+        # a signal reference '<pid>.<field>' if declared, else a literal string
+        return signals.get(operand, {}).get("type") if operand in signals else "string"
+    if isinstance(operand, dict):
+        return "builtin"
+    return None
+
+
+def validate_orchestration(workflow, capabilities=None, target="standard"):
+    """Validate the orchestration block tree: refs, caps, signal coherence,
+    operator/type compatibility, js-safe frontier."""
+    if "orchestration" not in workflow:
+        return []
+    caps = capabilities or load_capabilities()
+    signals = collect_signals(workflow)
+    known_pids = {p["id"] for p in workflow.get("phases", [])}
+    errors = []
+
+    for b in _iter_blocks(workflow["orchestration"]):
+        # ref -> existing phase
+        if "ref" in b and b["ref"] not in known_pids:
+            errors.append(f"orchestration: block ref '{b['ref']}' is not an existing phase")
+        # loops need a cap
+        if ("while" in b or "until" in b or "for_each" in b) and "cap" not in b:
+            errors.append(f"orchestration: loop block {b.get('while') or b.get('for_each')} missing mandatory 'cap'")
+        # for_each collection must be a declared list signal
+        if "for_each" in b:
+            coll = b["for_each"]
+            sig = signals.get(coll)
+            if sig is None:
+                errors.append(f"orchestration: for_each references unknown signal '{coll}'")
+            elif sig["type"] not in (None, "list"):
+                errors.append(f"orchestration: for_each '{coll}' is type '{sig['type']}', expected list")
+
+        # conditions
+        cond = b.get("if") or b.get("while") or b.get("until")
+        if cond is not None:
+            errors.extend(_validate_condition(cond, signals, caps, target))
+
+    return errors
+
+
+def _validate_condition(cond, signals, caps, target):
+    errors = []
+    # escape-hatch (string predicate)
+    if isinstance(cond, str):
+        if not caps["operands"]["escape_hatch"].get(target if target == "standard" else "js_safe", False):
+            pass  # standard: allowed
+        if target == "js":
+            errors.append("orchestration: escape-hatch predicate is standard-only (not js-safe)")
+        return errors
+    if not isinstance(cond, dict):
+        return errors
+
+    op = cond.get("op")
+    op_meta = caps["operators"].get(op)
+    if op_meta is None:
+        errors.append(f"orchestration: unknown operator '{op}'")
+        return errors
+    if target == "js" and not op_meta.get("js_safe", False):
+        errors.append(f"orchestration: operator '{op}' is standard-only in a js target")
+
+    left, right = cond.get("left"), cond.get("right")
+
+    # builtin operand (file_exists/dir_exists) js-safety
+    for operand in (left, right):
+        if isinstance(operand, dict):
+            for bname in operand:
+                bmeta = caps["builtins"].get(bname)
+                if bmeta is None:
+                    errors.append(f"orchestration: unknown builtin '{bname}'")
+                elif target == "js" and not bmeta.get("js_safe", False):
+                    errors.append(f"orchestration: builtin '{bname}' is standard-only in a js target")
+
+    # signal existence: a dotted string operand that looks like a ref must resolve
+    for operand in (left, right):
+        if isinstance(operand, str) and "." in operand and operand.split(".")[0].isidentifier():
+            # heuristic: treat 'a.b' as a signal ref
+            if operand not in signals and not _looks_like_literal(operand):
+                errors.append(f"orchestration: condition references unknown signal '{operand}'")
+
+    # operator/type compatibility
+    if op in _NUMERIC_OPS:
+        for operand in (left, right):
+            t = _operand_type(operand, signals)
+            if t is not None and t not in ("number", "builtin"):
+                errors.append(f"orchestration: operator '{op}' needs number operands, got '{operand}' (type {t})")
+    return errors
+
+
+def _looks_like_literal(s):
+    """A dotted string that is a literal value, not a signal ref (e.g. a version)."""
+    return s.replace(".", "").isdigit()
+
+
 def validate_coherence(workflow: dict, agents_dir: Path = None,
                        workflows_dir: Path = None) -> list:
     """Validate cross-references: agents exist, depends_on valid, conditions
@@ -774,6 +886,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
             ag = inv.get("agent", "?")
             for io in (inv.get("inputs") or []) + (inv.get("outputs") or []):
                 _check_io(io, f"phase {pid}/{ag}")
+
+    errors.extend(validate_orchestration(workflow))
 
     return errors
 
