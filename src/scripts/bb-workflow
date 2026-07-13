@@ -396,6 +396,16 @@ def load_schema(schema_path: Path = None) -> dict:
         return json.load(f)
 
 
+DEFAULT_CAPABILITIES_PATH = ENGINE_ROOT / "src" / "workflow" / "orchestration-capabilities.yaml"
+
+
+def load_capabilities(path: Path = None) -> dict:
+    """Load the js-safe/standard-only capability catalogue (single source of truth)."""
+    path = path or DEFAULT_CAPABILITIES_PATH
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
 def validate_schema(workflow: dict, schema: dict = None) -> list:
     """Validate workflow dict against JSON Schema. Returns list of error messages (empty if valid)."""
     schema = schema or load_schema()
