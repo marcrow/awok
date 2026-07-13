@@ -152,6 +152,12 @@ def load_workflow(path: Path) -> dict:
     return model
 
 
+def read_workflow_payload(path: Path) -> dict:
+    """Editor GET payload: merged model (+ orchestration sibling) and levels."""
+    model = load_workflow(path)
+    return {"model": model, "levels": compute_levels(model)}
+
+
 def workflow_output_paths(skill_name: str) -> dict:
     """Per-workflow output paths derived from the skill name."""
     carto_dir = CONTENT_ROOT / "docs" / "architecture-cartography"
@@ -3128,9 +3134,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 fp = workflows_dir / f"{name}.yaml"
                 if not fp.exists():
                     return self._json(404, {"error": "not found"})
-                model = yaml.safe_load(fp.read_text())
-                return self._json(200, {"model": model,
-                                        "levels": compute_levels(model)})
+                return self._json(200, read_workflow_payload(fp))
             if p.startswith("/api/invocation/"):
                 agent = p.rsplit("/", 1)[-1]
                 if not is_valid_slug(agent):
