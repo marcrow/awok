@@ -84,7 +84,20 @@
         "inputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
         "outputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
         "opportunistic": { "$ref": "#/definitions/opportunistic" },
-        "interactive": { "type": "boolean", "description": "Human-gated checkpoint: render a hard STOP-and-wait instruction so the orchestrator does not advance past this phase without the maintainer's input." }
+        "interactive": { "type": "boolean", "description": "Human-gated checkpoint: render a hard STOP-and-wait instruction so the orchestrator does not advance past this phase without the maintainer's input." },
+        "emits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "source"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+              "type": { "enum": ["number", "string", "bool", "enum", "list"] },
+              "source": { "enum": ["field", "token"] },
+              "from": { "type": "string", "description": "For source=field: 'role' or 'role.field' of an existing json output." }
+            }
+          }
+        }
       }
     },
     "invocation": {

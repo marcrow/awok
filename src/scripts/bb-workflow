@@ -428,6 +428,16 @@ def load_capabilities(path: Path = None) -> dict:
         return yaml.safe_load(f) or {}
 
 
+DEFAULT_ORCH_SCHEMA_PATH = ENGINE_ROOT / "src" / "workflow" / "orchestration.schema.json"
+
+
+def load_orchestration_schema(path: Path = None) -> dict:
+    """Load orchestration.schema.json (the block-tree schema)."""
+    path = path or DEFAULT_ORCH_SCHEMA_PATH
+    with open(path) as f:
+        return json.load(f)
+
+
 def validate_schema(workflow: dict, schema: dict = None) -> list:
     """Validate workflow dict against JSON Schema. Returns list of error messages (empty if valid)."""
     schema = schema or load_schema()
@@ -436,6 +446,13 @@ def validate_schema(workflow: dict, schema: dict = None) -> list:
     for err in validator.iter_errors(workflow):
         path = ".".join(str(p) for p in err.absolute_path) or "<root>"
         errors.append(f"{path}: {err.message}")
+
+    if "orchestration" in workflow:
+        try:
+            jsonschema.validate(workflow["orchestration"], load_orchestration_schema())
+        except jsonschema.ValidationError as e:
+            errors.append(f"orchestration schema: {e.message}")
+
     return errors
 
 
