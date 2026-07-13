@@ -6,11 +6,12 @@ import { safeDropDepends, blockedDependents, buildNotice,
          opportunisticMode, opportunisticGuidance, setOpportunistic,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
-         aggregateInvocationIo } from "./editlogic.js";
+         aggregateInvocationIo, iterBlocks } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
 import { createDataflow } from "./dataflow.js";
+import * as orch from "./orchestration.js";
 
 const $ = s => document.querySelector(s);
 const api = (m, p, b) => fetch(p, { method: m, headers: { "Content-Type": "application/json" },
@@ -31,6 +32,7 @@ let state = {
   name: null, model: null, view: null, selected: null, workflows: [], agents: [],
   tab: "grid", drawerTab: "wiring", panelWidth: 480, showLinks: false,
   dragId: null, legendOpen: true,
+  showOrch: false, selectedGate: null,
 };
 
 let dataflow = null;
@@ -63,10 +65,19 @@ function renderWorkflowSelect() {
   const sel = $("#wf-select"); sel.replaceChildren();
   state.workflows.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
 }
+let _blkSeq = 0;
+function hydrateBlockIds(model) {
+  _blkSeq = 0;
+  if (!model || !model.orchestration) return;
+  iterBlocks(model.orchestration, b => { if (!b._id) b._id = "b" + (++_blkSeq); });
+}
 async function loadWorkflow(name) {
   const switching = name !== state.name;   // real switch vs. same-workflow reload (e.g. after Save)
   const { j } = await api("GET", "/api/workflow/" + name);
   state = { ...state, name, model: j.model, view: null, selected: null };
+  hydrateBlockIds(state.model);
+  state.showOrch = !!(state.model.orchestration && state.model.orchestration.length);
+  state.selectedGate = null;
   state.savedSnapshot = snapshot();              // baseline for unsaved-changes detection
   if (switching && dataflow) dataflow.reset();   // drop the previous workflow's dataflow filters
   $("#edit-panel").hidden = true;
@@ -111,6 +122,7 @@ function rowsFromView() {
   return rows;
 }
 function renderGrid() {
+  if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors }); renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
   const byId = {}; (state.model.phases || []).forEach(p => byId[p.id] = p);
@@ -733,9 +745,11 @@ function settingsCtx() {
 
 // --- save / new / clone ----------------------------------------------------
 function modelForSave() {
-  // Strip editor-only transient keys (standalone file blocks) so they never
-  // leak into the persisted YAML.
-  const m = JSON.parse(JSON.stringify(state.model)); delete m.files; return m;
+  // Strip editor-only transient keys (standalone file blocks, block _id) so they
+  // never leak into the persisted YAML.
+  const m = JSON.parse(JSON.stringify(state.model)); delete m.files;
+  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
+  return m;
 }
 // Canonical string of what would be persisted — the unit of unsaved-changes
 // detection (compares against the snapshot taken at load/save time, so it
@@ -792,6 +806,13 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-save").addEventListener("click", save);
   $("#add-phase").addEventListener("click", addPhase);
   $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
+  $("#toggle-orch").addEventListener("click", () => {
+    state.showOrch = !state.showOrch; state.selectedGate = null;
+    $("#toggle-orch").classList.toggle("on", state.showOrch);
+    $("#add-gate").hidden = !state.showOrch;
+    if (!state.showOrch && state.selected == null) $("#edit-panel").hidden = true;
+    renderGrid(); applyDrawerLayout();
+  });
   $("#issues-badge").addEventListener("click", () => { switchTab("dataflow"); dataflow.openIssues(); });
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 });
