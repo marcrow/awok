@@ -6,7 +6,8 @@ import { safeDropDepends, blockedDependents, buildNotice,
          opportunisticMode, opportunisticGuidance, setOpportunistic,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
-         aggregateInvocationIo, iterBlocks, blockConstruct, findBlock } from "./editlogic.js";
+         aggregateInvocationIo, iterBlocks, blockConstruct, findBlock,
+         orchestrationIssues } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
@@ -36,6 +37,13 @@ let state = {
 };
 
 let dataflow = null;
+
+// Task 13: warning-only live validation. _lastOrchWarn tracks the previous
+// orchestration-warning count across refreshView calls so the toast only
+// fires when that count RISES (never on an unchanged/decreased count) —
+// prevents spamming a toast on every keystroke-triggered refresh.
+let _lastOrchWarn = 0;
+let _orchToastTimer = null;
 
 // --- notice overlay --------------------------------------------------------
 function showNotice(title, lines) {
@@ -95,6 +103,24 @@ async function refreshView() {
   renderIssues();
   if (state.tab === "dataflow") dataflow.render();
   setStatus(j.errors && j.errors.length ? "⚠ " + j.errors.length + " schema issue(s)" : "");
+  const orchCount = orchestrationWarnList().length;
+  if (orchCount > _lastOrchWarn) showOrchToast(orchCount);
+  _lastOrchWarn = orchCount;
+}
+// Server list (state.view.orchestration_warnings, the authority) preferred;
+// falls back to the client mirror orchestrationIssues() for instant feedback
+// between server round-trips (e.g. right after a local edit, before the next
+// /api/view response lands).
+function orchestrationWarnList() {
+  const ov = (state.view && state.view.orchestration_warnings) || [];
+  return ov.length ? ov : orchestrationIssues(state.model).map(i => i.msg);
+}
+function showOrchToast(n) {
+  const toast = $("#orch-toast"); if (!toast) return;
+  toast.querySelector(".t").textContent = n + " orchestration warning" + (n === 1 ? "" : "s");
+  toast.hidden = false;
+  clearTimeout(_orchToastTimer);
+  _orchToastTimer = setTimeout(() => { toast.hidden = true; }, 4500);
 }
 
 function renderHeader() {
@@ -107,12 +133,66 @@ function renderHeader() {
 }
 function renderIssues() {
   const v = validateModel(state.model);
+  const extraWarn = orchestrationWarnList();
+  const warnCount = v.warnings.length + extraWarn.length;
   const badge = $("#issues-badge");
-  if (!v.errors.length && !v.warnings.length) { badge.hidden = true; return; }
+  if (!v.errors.length && !warnCount) { badge.hidden = true; return; }
   badge.hidden = false; badge.replaceChildren();
-  badge.title = v.errors.concat(v.warnings).join("\n");
+  badge.title = v.errors.concat(v.warnings, extraWarn).join("\n");
   if (v.errors.length) { const s = document.createElement("span"); s.className = "err"; s.textContent = "⛔ " + v.errors.length; badge.appendChild(s); }
-  if (v.warnings.length) { const s = document.createElement("span"); s.className = "warn"; s.textContent = "⚠ " + v.warnings.length; badge.appendChild(s); }
+  if (warnCount) { const s = document.createElement("span"); s.className = "warn"; s.textContent = "⚠ " + warnCount; badge.appendChild(s); }
+}
+
+// --- orchestration issues popover (Task 13) ---------------------------------
+// Sourced from the client mirror (not the server string list) because each
+// item needs the offending block's `_id` to jump to it — same
+// outside-click/Escape dismiss idiom as orchestration.js's openGateMenu.
+let _orchIssuesPopEl = null;
+function closeOrchIssuesPopover() {
+  if (_orchIssuesPopEl) { _orchIssuesPopEl.remove(); _orchIssuesPopEl = null; }
+  document.removeEventListener("mousedown", onOrchIssuesPopOutsideClick, true);
+  document.removeEventListener("keydown", onOrchIssuesPopKeydown, true);
+}
+function onOrchIssuesPopOutsideClick(e) {
+  if (_orchIssuesPopEl && !_orchIssuesPopEl.contains(e.target)) closeOrchIssuesPopover();
+}
+function onOrchIssuesPopKeydown(e) { if (e.key === "Escape") closeOrchIssuesPopover(); }
+function openOrchIssuesPopover(anchorEl) {
+  closeOrchIssuesPopover();
+  const issues = orchestrationIssues(state.model);
+  if (!issues.length) return;
+  const pop = document.createElement("div"); pop.className = "orch-issues-popover";
+  const head = document.createElement("div"); head.className = "orch-issues-head";
+  head.textContent = issues.length + " orchestration warning" + (issues.length === 1 ? "" : "s");
+  pop.appendChild(head);
+  issues.forEach(issue => {
+    const item = document.createElement("button"); item.type = "button"; item.className = "orch-issue-item";
+    item.textContent = issue.msg;
+    item.addEventListener("click", () => {
+      closeOrchIssuesPopover();
+      if (!state.showOrch) {
+        state.showOrch = true; $("#toggle-orch").classList.add("on"); $("#add-gate").hidden = false;
+      }
+      switchTab("grid");
+      selectGate(issue.id);
+      requestAnimationFrame(() => {
+        const el = document.querySelector('[data-block-id="' + issue.id + '"]');
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
+    pop.appendChild(item);
+  });
+  document.body.appendChild(pop);
+  const ref = anchorEl || $("#issues-badge");
+  const rect = ref.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + "px";
+  pop.style.right = (window.innerWidth - rect.right) + "px";
+  _orchIssuesPopEl = pop;
+  // deferred so the click that opened the popover doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener("mousedown", onOrchIssuesPopOutsideClick, true);
+    document.addEventListener("keydown", onOrchIssuesPopKeydown, true);
+  }, 0);
 }
 
 // --- grid ------------------------------------------------------------------
@@ -852,6 +932,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!state.showOrch && state.selected == null) $("#edit-panel").hidden = true;
     renderGrid(); applyDrawerLayout();
   });
-  $("#issues-badge").addEventListener("click", () => { switchTab("dataflow"); dataflow.openIssues(); });
+  $("#issues-badge").addEventListener("click", (e) => {
+    // Orchestration issues take over the badge's click ONLY when the orch
+    // view is on and there's something to show — the classic dataflow-issues
+    // path (unrelated to orchestration) stays untouched otherwise.
+    if (state.showOrch && orchestrationIssues(state.model).length) { openOrchIssuesPopover(e.currentTarget); return; }
+    switchTab("dataflow"); dataflow.openIssues();
+  });
+  $("#orch-toast").addEventListener("click", (e) => {
+    const t = e.currentTarget;
+    openOrchIssuesPopover(t);      // anchor to the toast's rect before hiding it
+    clearTimeout(_orchToastTimer); t.hidden = true;
+  });
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 });

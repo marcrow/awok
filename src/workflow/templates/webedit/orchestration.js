@@ -6,7 +6,7 @@
 // (construct name is the key: {if:{cond},then,else} / {while:{cond},cap,body} /
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
-import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray } from "./editlogic.js";
+import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, orchestrationIssues } from "./editlogic.js";
 import { fieldText, fieldSelect } from "./formfields.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
@@ -152,6 +152,17 @@ function gateEl(b, depth) {
 
   if (kind === "for_each") head.appendChild(forEachHeaderEl(b, sigKeys));
   else head.appendChild(condEl(condOf(b), sigKeys));
+
+  // Task 13: inline "condition incomplete" marker — additive, keyed off this
+  // block's own _id (never the top-level dep-crossing issues), never touches
+  // the cap chip below (that one is Task 7, untouched).
+  const condWarn = orchestrationIssues(state.model).some(i => i.id === b._id &&
+    ["if", "while", "until"].includes(i.kind) &&
+    /condition incomplete|left operand|right operand|unknown signal/.test(i.msg));
+  if (condWarn) {
+    const warn = document.createElement("span"); warn.className = "gate-warn"; warn.textContent = "⚠ condition incomplete";
+    head.appendChild(warn);
+  }
 
   if (loop) {
     const capOk = Number.isInteger(b.cap) && b.cap > 0;

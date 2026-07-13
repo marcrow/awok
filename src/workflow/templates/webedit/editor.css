@@ -549,6 +549,17 @@ select:disabled{opacity:.42;cursor:not-allowed}
 #orch-toast .s{font-size:10.5px;color:var(--muted);margin-top:1px}
 @keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 
+/* orchestration issues popover (badge/toast click — Task 13); same fixed-
+   dropdown pattern as .gate-menu/.sig-popover, tinted amber (warning-only) */
+.orch-issues-popover{position:fixed;z-index:95;background:var(--panel);border:1px solid var(--warn);
+  border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,0.5);padding:6px;display:flex;flex-direction:column;
+  gap:2px;min-width:220px;max-width:360px;max-height:320px;overflow-y:auto}
+.orch-issues-head{font:9.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--warn-2);
+  font-weight:700;padding:6px 8px 8px}
+.orch-issue-item{background:transparent;border:none;color:var(--text);font:12px/1.5 var(--sans);
+  text-align:left;padding:8px 9px;border-radius:6px;cursor:pointer;width:100%}
+.orch-issue-item:hover{background:var(--well);color:var(--warn-2)}
+
 /* orchestration program view */
 .orch-rows{position:relative;display:flex;flex-direction:column;gap:6px}
 .orch-row{display:flex;gap:14px;align-items:stretch}
@@ -575,6 +586,9 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .cap-chip{font:10px/1 var(--mono);font-weight:700;color:var(--warn-2);background:rgba(251,191,36,0.12);
   border:1px solid rgba(251,191,36,0.35);border-radius:5px;padding:3px 7px}
 .cap-chip.bad{color:var(--bad);background:rgba(248,113,113,0.12);border:1px dashed rgba(248,113,113,0.5)}
+/* inline condition-incompleteness marker (Task 13) — additive, distinct from .cap-chip */
+.gate-warn{font:10px/1 var(--mono);font-weight:700;color:var(--warn-2);background:rgba(251,191,36,0.12);
+  border:1px dashed rgba(251,191,36,0.45);border-radius:5px;padding:3px 7px}
 .gate-edit{margin-left:auto;color:var(--muted);font-size:11px;cursor:pointer;font-weight:600}
 .gate.selected .gate-edit{color:var(--accent)}
 .drop-slot{border:1.5px dashed var(--border-2);border-radius:10px;padding:9px;display:flex;align-items:center;
