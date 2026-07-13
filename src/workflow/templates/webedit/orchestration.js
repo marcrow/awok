@@ -123,7 +123,7 @@ function refVignette(b) {
   card.addEventListener("dragstart", e => {
     try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {}
   });
-  card.addEventListener("click", e => { e.stopPropagation(); CTX.selectPhase(p.id); });
+  card.addEventListener("click", e => { e.stopPropagation(); CTX.selectPhase(p.id, b._id); });
   return card;
 }
 

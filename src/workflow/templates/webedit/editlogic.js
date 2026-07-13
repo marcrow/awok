@@ -307,6 +307,27 @@ export function containerArray(blocks, containerId, slot) {
   const f = findBlock(blocks, containerId); if (!f) return null;
   if (!Array.isArray(f.block[slot])) f.block[slot] = []; return f.block[slot];
 }
+// Ancestor chain of `targetId` as [{construct, slot}, ...] — one entry per
+// enclosing gate on the path from the root down to (but not including) the
+// target block, each naming the gate's construct and which slot the path
+// continues through (then/else/body). [] if the target is top-level (no
+// enclosing gate) or not found — findBlock/iterBlocks don't track ancestors,
+// so this is a dedicated recursive walk (Task 14 breadcrumb).
+export function ancestorChain(blocks, targetId) {
+  function walk(arr, path) {
+    for (const b of arr || []) {
+      if (b._id === targetId) return path;
+      for (const slot of _SLOTS) {
+        if (Array.isArray(b[slot])) {
+          const found = walk(b[slot], path.concat([{ construct: blockConstruct(b), slot }]));
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+  return walk(blocks, []) || [];
+}
 export function signalsOf(model) {
   const out = [];
   for (const p of (model && model.phases) || [])

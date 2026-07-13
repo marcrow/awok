@@ -7,7 +7,7 @@ import { safeDropDepends, blockedDependents, buildNotice,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
          aggregateInvocationIo, iterBlocks, blockConstruct, findBlock,
-         orchestrationIssues } from "./editlogic.js";
+         orchestrationIssues, ancestorChain } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
@@ -457,13 +457,33 @@ function applyDrawerLayout() {
 }
 function curPhase() { return (state.model.phases || []).find(x => x.id === state.selected); }
 
-function selectPhase(id) {
+function selectPhase(id, blockId) {
   state.selected = id; state.selectedGate = null;
   const p = curPhase(); if (!p) return;
   const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
   panel.style.width = state.panelWidth + "px";
   ensureResizeGrip(panel);
   const colors = resolveGroupColors(state.model);
+
+  // breadcrumb (Task 14): only when the click came from a specific ref block
+  // inside the orchestration view AND that block is nested under a gate
+  // (top-level refs show no crumb). blockId is optional — every classic
+  // caller (grid card, "Done"/refresh re-selects, etc.) omits it, so this
+  // stays a no-op there.
+  if (state.showOrch && blockId) {
+    const chain = ancestorChain(state.model.orchestration || [], blockId);
+    if (chain.length) {
+      const crumb = document.createElement("div"); crumb.className = "drawer-crumb";
+      crumb.appendChild(document.createTextNode("in "));
+      chain.forEach((a, i) => {
+        if (i > 0) crumb.appendChild(document.createTextNode(" › "));
+        const kw = document.createElement("span"); kw.className = "crumb-kw"; kw.textContent = a.construct;
+        crumb.appendChild(kw);
+        crumb.appendChild(document.createTextNode(" › " + a.slot));
+      });
+      panel.appendChild(crumb);
+    }
+  }
 
   // header
   const head = document.createElement("div"); head.className = "drawer-head";
@@ -891,7 +911,11 @@ function confirmDiscard() {
 }
 async function save() {
   const { status, j } = await api("PUT", "/api/workflow/" + state.name, { model: modelForSave() });
-  setStatus(status === 200 ? "✓ saved · " + new Date().toLocaleTimeString() : "✗ " + ((j.errors || []).join("; ") || "error"));
+  // Warnings never block save (already non-blocking server-side) — just
+  // surfaced in the status line alongside the badge that already covers them.
+  const warn = (j.warnings || []).length ? " · ⚠ " + j.warnings.length + " orchestration warning(s)" : "";
+  setStatus(status === 200 ? "✓ saved · " + new Date().toLocaleTimeString() + warn
+                           : "✗ " + ((j.errors || []).join("; ") || "error"));
   if (status === 200) loadWorkflow(state.name);
 }
 async function newWf() {

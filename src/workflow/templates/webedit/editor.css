@@ -199,6 +199,13 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
   display:flex;flex-direction:column}
 #edit-panel[hidden]{display:none}
 .resize-grip{position:absolute;left:-4px;top:0;width:9px;height:100%;cursor:ew-resize;z-index:60}
+/* Task 14: nesting breadcrumb — shown only when an action is selected from
+   inside a gate (orchestration view). Prepended before .drawer-head, so it
+   reads as "in <construct> › <slot> [› <construct> › <slot> ...]". */
+.drawer-crumb{flex:0 0 auto;padding:9px 18px 0;font:10.5px/1.3 var(--mono);
+  color:var(--muted);letter-spacing:.02em}
+.drawer-crumb::before{content:"↳ "}
+.drawer-crumb .crumb-kw{color:var(--violet-2);font-weight:700}
 .drawer-head{flex:0 0 auto;padding:16px 18px 14px;border-bottom:1px solid var(--border)}
 .drawer-head .top{display:flex;align-items:center;gap:10px}
 .drawer-head .badge{font-size:10px;padding:3px 8px}
