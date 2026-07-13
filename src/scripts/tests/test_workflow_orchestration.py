@@ -1,5 +1,8 @@
 """Tests for the orchestration layer (block tree + merge)."""
 import textwrap
+from pathlib import Path
+
+FIX = Path(__file__).parent / "fixtures" / "workflows"
 
 
 def _write(dirpath, name, text):
@@ -116,3 +119,11 @@ def test_for_each_valid(bbw_module):
     wf = _wf([{"for_each": "t1.items", "cap": 5, "body": [{"ref": "T1"}]}],
              emits=[{"name": "items", "type": "list", "source": "field"}])
     assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_fixture_validates_and_renders(bbw_module):
+    model = bbw_module.load_workflow(FIX / "orchestrated.yaml")
+    assert bbw_module.validate_schema(model) == []
+    assert bbw_module.validate_orchestration(model) == []
+    md = bbw_module.render_orchestration(model)
+    assert "For each" in md and "recon.endpoints" in md

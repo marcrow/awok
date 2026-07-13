@@ -265,6 +265,99 @@ objet global désactivé sans aucune phase qui l'active (config morte).
 `triggered_by:` (hooks, skills) ; `opportunistic` est dans le DAG, rattaché à une
 phase, et les agents sont fabriqués à la volée (pas pré-écrits dans `src/agents/`).
 
+## Orchestration : portes logiques (boucles/conditions)
+
+Le DAG (`depends_on`) dit *ce qui peut tourner une fois ses deps finies* — il ne
+sait pas exprimer une boucle ou une branche. L'orchestration est un **second
+fichier YAML, optionnel**, en sibling du workflow :
+`src/workflows/<name>.orchestration.yaml`, une simple liste de blocs de
+contrôle. `load_workflow` le greffe sous `model["orchestration"]` s'il existe.
+**Absent ⇒ pas de clé ⇒ DAG pur, rendu identique** — rien ne change pour un
+workflow existant tant qu'on n'ajoute pas ce fichier.
+
+**Les 6 constructs** (arbre de blocs, imbricables) :
+
+| Bloc | Rôle |
+|---|---|
+| `ref: PID` | Exécute la phase `PID` |
+| `if / then / else` | Branche sur une condition |
+| `while` | Boucle tant que la condition est vraie |
+| `until` | Boucle jusqu'à ce que la condition soit vraie |
+| `for_each` (+ `as`) | Itère une collection (signal de type `list`) |
+| `parallel` | Liste de blocs à lancer ensemble |
+
+Toute boucle (`while`/`until`/`for_each`) **exige un `cap`** (nombre max
+d'itérations) — `validate_orchestration` rejette une boucle sans cap.
+
+Exemple (fixture `src/scripts/tests/fixtures/workflows/orchestrated.*`) :
+
+```yaml
+# orchestrated.orchestration.yaml
+- ref: RECON
+- for_each: recon.endpoints
+  as: ep
+  cap: 100
+  body:
+    - ref: SCAN
+    - if: {op: "==", left: scan.status, right: vuln}
+      then: [{ref: EXPLOIT}]
+```
+
+### Déclarer un signal : `emits`
+
+Une phase émet un signal en opt-in via `emits: [{name, type, source, from?}]` :
+
+```yaml
+phases:
+  - id: RECON
+    emits: [{name: endpoints, type: list, source: field, from: recon.json}]
+  - id: SCAN
+    emits: [{name: status, type: enum, source: token}]
+```
+
+- `source: field` — le signal est un champ d'un output json (`from:` pointe le
+  fichier/rôle).
+- `source: token` — le signal est lu depuis une ligne compacte en fin de sortie
+  de l'agent (p.ex. `SIGNALS: status=vuln`), pas depuis un artifact.
+- Rien n'est émis si non déclaré ; `collect_signals` construit la table des
+  signaux connus à partir des seuls `emits`.
+
+**Clé du signal** : `<phase_id en minuscules>.<name>` — la phase `RECON` qui
+émet `endpoints` se lit `recon.endpoints` dans une condition.
+
+**Règle d'or** : une condition ne lit **qu'un champ de signal nommé ou un
+token compact — jamais un artifact entier rechargé**. Ça garde l'évaluation
+d'une boucle/branche bon marché et évite à l'orchestrateur de re-parser un
+gros rapport juste pour vérifier un statut.
+
+### Frontière js-safe / standard-only
+
+`src/workflow/orchestration-capabilities.yaml` est la **source unique** de la
+frontière : quels opérateurs/builtins/types d'opérande sont autorisés pour
+chaque cible de compilation (`standard` = Claude Code seul ; `js` = doit aussi
+tourner dans un interpréteur côté navigateur). `validate_orchestration(model,
+target=...)` la lit ; rien d'autre ne code cette matrice en dur.
+
+**Limite connue (heuristique)** : la détection signal-vs-littéral sur
+l'opérande droit d'une condition est une heuristique (`_looks_like_literal` +
+"dotted string qui ressemble à un ref"). Un littéral pointé qui n'est PAS un
+signal — un hostname (`api.example.com`), un nom de fichier, ou un nombre
+entre guillemets (`"1.2"`) comparé avec un opérateur numérique — peut être
+signalé à tort comme "signal inconnu" ou erreur de type. Le plan accepte ce
+compromis. Si vous devez comparer à un littéral pointé, déclarez-le comme
+signal (`emits`) plutôt que de compter sur l'heuristique ; sinon, le prédicat
+échappatoire (chaîne libre, `standard` uniquement) contourne le typage des
+opérandes.
+
+**Rendu** :
+- SKILL.md → section "## Orchestration program" (`render_orchestration`),
+  un programme d'instructions imbriqué qui pilote le DAG en dessous, plus la
+  liste des signaux et comment les lire.
+- Cartography → `build_orchestration_overlay` ajoute les losanges de branche
+  et les sous-graphes de boucle par-dessus le DAG.
+
+Spec complète : `docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md`.
+
 ## Modèle I/O — comment les fichiers arrivent aux agents
 
 > Modèle complet (qui sait quoi / produit quoi / vérifie quoi) + schéma :
