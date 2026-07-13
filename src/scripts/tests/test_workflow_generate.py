@@ -624,3 +624,31 @@ def test_existing_skills_unchanged_after_regen(tmp_path):
         assert out.read_text() == committed, (
             f"{name} SKILL.md drifted after regen (backward-compat broken)"
         )
+
+
+def test_render_orchestration_for_each_and_if(bbw_module):
+    wf = {
+        "phases": [
+            {"id": "SCAN", "name": "s", "group": "g",
+             "emits": [{"name": "status", "type": "enum", "source": "token"}]},
+            {"id": "RECON", "name": "r", "group": "g",
+             "emits": [{"name": "endpoints", "type": "list", "source": "field", "from": "recon.json"}]},
+            {"id": "EXPLOIT", "name": "e", "group": "g"},
+        ],
+        "orchestration": [
+            {"ref": "RECON"},
+            {"for_each": "recon.endpoints", "as": "ep", "cap": 200, "body": [
+                {"ref": "SCAN"},
+                {"if": {"op": "==", "left": "scan.status", "right": "vuln"},
+                 "then": [{"ref": "EXPLOIT"}]},
+            ]},
+        ],
+    }
+    md = bbw_module.render_orchestration(wf)
+    assert "Orchestration program" in md
+    assert "For each" in md and "recon.endpoints" in md and "ep" in md
+    assert "EXPLOIT" in md and "scan.status" in md
+
+
+def test_render_orchestration_empty_without_key(bbw_module):
+    assert bbw_module.render_orchestration({"phases": []}) == ""
