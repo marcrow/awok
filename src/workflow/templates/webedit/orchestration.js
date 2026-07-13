@@ -6,7 +6,7 @@
 // (construct name is the key: {if:{cond},then,else} / {while:{cond},cap,body} /
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
-import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock } from "./editlogic.js";
+import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray } from "./editlogic.js";
 import { fieldText, fieldSelect } from "./formfields.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
@@ -260,9 +260,30 @@ function dropSlot(containerId, slot) {
   el.addEventListener("dragleave", () => el.classList.remove("hover"));
   el.addEventListener("drop", e => {
     e.preventDefault(); el.classList.remove("hover");
-    CTX.onDrop(containerId, slot, e);
+    CTX.onDrop(CTX, containerId, slot, e);
   });
   return el;
+}
+
+// Two explicit drag gestures, distinguished by dataTransfer payload (never by
+// container/slot): a ref vignette drags "text/refid" (its own `_id`) → MOVE —
+// splice it out of its current parent array and push it into the target, no
+// duplicate; a palette/tray chip drags "text/phase" (a phase id) → REFERENCE —
+// push a brand-new {_id, ref} block, leaving the palette/tray source untouched
+// (the palette is a source of references, not a slot something is removed from).
+export function orchDrop(ctx, containerId, slot, ev) {
+  ev.preventDefault();
+  const refId = ev.dataTransfer.getData("text/refid");
+  const phase = ev.dataTransfer.getData("text/phase");
+  const bs = ctx.state.model.orchestration;
+  const target = containerArray(bs, containerId, slot); if (!target) return;
+  if (refId) {                                   // MOVE existing ref
+    const f = findBlock(bs, refId); if (!f) return;
+    const [moved] = f.parent.splice(f.index, 1); target.push(moved);
+  } else if (phase) {                            // REFERENCE from palette/tray
+    target.push({ _id: newId(), ref: phase });
+  }
+  ctx.refreshView().then(() => ctx.rerender());
 }
 
 // --- palette + library tray --------------------------------------------------

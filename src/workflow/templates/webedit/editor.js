@@ -125,7 +125,7 @@ function rowsFromView() {
 }
 function renderGrid() {
   if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors,
-      onDrop: () => {}, onSelectGate: selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } });
+      onDrop: orch.orchDrop, onSelectGate: selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } });
     renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
