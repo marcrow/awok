@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  html,body{height:100%;margin:0;background:#0b1120;overflow:hidden}
+  *{box-sizing:border-box}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#243049;border-radius:5px;border:2px solid #0b1120}
+  ::-webkit-scrollbar-thumb:hover{background:#33415c}
+  input,select,button,textarea{font-family:inherit}
+  select{appearance:none;-webkit-appearance:none}
+  textarea{resize:vertical}
+  @keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</helmet>
+<div style="height:100vh;display:flex;flex-direction:column;background:#0b1120;color:#e2e8f0;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+
+  <!-- header -->
+  <header style="display:flex;align-items:center;gap:10px;padding:8px 16px;background:#050a14;border-bottom:1px solid #243049;flex:0 0 auto;">
+    <img src="awok-mascot.png" alt="awok" style="width:32px;height:32px;border-radius:8px;">
+    <span style="font:15px/1 ui-monospace,'SF Mono',Menlo,monospace;font-weight:700;letter-spacing:.04em;">awok</span>
+    <div style="width:1px;height:20px;background:#243049;margin:0 2px;"></div>
+    <span style="font:13px/1 ui-monospace,monospace;font-weight:600;color:#7dd3fc;">recon-flow</span>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+      <span style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.07em;">target</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;background:#0f172a;border:1px solid #243049;border-radius:7px;padding:5px 9px;"><span style="font:11px/1 ui-monospace,monospace;color:#7dd3fc;font-weight:600;">standard</span><span style="font-size:9px;color:#475569;">▾</span></span>
+    </div>
+    <div style="margin-left:auto;">
+      <button onClick="{{ save }}" style="background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid #38bdf8;border-radius:6px;padding:6px 14px;font-size:12.5px;font-weight:600;cursor:pointer;">Save</button>
+    </div>
+  </header>
+
+  <!-- toolbar -->
+  <div style="flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid #243049;background:rgba(5,10,20,0.65);flex-wrap:wrap;position:relative;z-index:20;">
+    <span style="font-size:13px;font-weight:700;color:#e2e8f0;">Grid</span>
+    <span style="font-size:11.5px;color:#475569;">{{ counts }}</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:9px;position:relative;">
+      <button title="Not wired in this demo — see the ⓘ list" style="background:#131c30;color:#64748b;border:1px dashed #33415c;border-radius:6px;padding:6px 11px;font-size:12px;cursor:not-allowed;">＋ Action</button>
+      <div style="position:relative;">
+        <button onClick="{{ toggleGateMenu }}" style="display:flex;align-items:center;gap:6px;background:{{ gateBtnBg }};color:{{ gateBtnColor }};border:1px solid {{ gateBtnBorder }};border-radius:6px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;">＋ Gate <span style="font-size:9px;">▾</span></button>
+        <sc-if value="{{ gateMenuOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:calc(100% + 6px);right:0;width:220px;background:#0f172a;border:1px solid #243049;border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,0.55);overflow:hidden;z-index:30;">
+            <div style="padding:7px 11px;font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#475569;border-bottom:1px solid #1a2438;">New gate</div>
+            <div onClick="{{ addIf }}" style="display:flex;align-items:center;gap:9px;padding:10px 11px;cursor:pointer;" style-hover="background:rgba(167,139,250,0.08);"><span style="width:14px;height:14px;background:#a78bfa;transform:rotate(45deg);border-radius:3px;flex:0 0 auto;"></span><div><div style="font-size:12px;font-weight:600;color:#e2e8f0;">Condition</div><div style="font:9.5px/1 ui-monospace,monospace;color:#64748b;margin-top:2px;">if · then / else</div></div></div>
+            <div onClick="{{ addLoop }}" style="display:flex;align-items:center;gap:9px;padding:10px 11px;border-top:1px solid #1a2438;cursor:pointer;" style-hover="background:rgba(167,139,250,0.08);"><span style="width:17px;height:17px;border-radius:50%;border:2px solid #a78bfa;color:#c4b5fd;display:inline-flex;align-items:center;justify-content:center;font-size:10px;flex:0 0 auto;">↻</span><div><div style="font-size:12px;font-weight:600;color:#e2e8f0;">Loop</div><div style="font:9.5px/1 ui-monospace,monospace;color:#64748b;margin-top:2px;">while · until · for each</div></div></div>
+          </div>
+        </sc-if>
+      </div>
+      <button onClick="{{ toggleDeps }}" style="display:flex;align-items:center;gap:6px;background:{{ depsBtnBg }};color:{{ depsBtnColor }};border:1px solid {{ depsBtnBorder }};border-radius:6px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;">⤳ Dependencies</button>
+      <button onClick="{{ toggleOrch }}" style="display:flex;align-items:center;gap:6px;background:{{ orchBtnBg }};color:{{ orchBtnColor }};border:1px solid {{ orchBtnBorder }};border-radius:6px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;">◆ Orchestration</button>
+      <sc-if value="{{ hasIssues }}" hint-placeholder-val="{{ false }}">
+        <div style="position:relative;">
+          <button onClick="{{ issuesToggle }}" style="display:flex;align-items:center;gap:5px;font:11px/1 ui-monospace,monospace;color:#f87171;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.4);border-radius:5px;padding:5px 9px;cursor:pointer;">⛔ {{ issueCount }}</button>
+          <sc-if value="{{ issuesOpen }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;top:calc(100% + 6px);right:0;z-index:30;">{{ issuesEl }}</div></sc-if>
+        </div>
+      </sc-if>
+      <div style="position:relative;">
+        <button onClick="{{ infoToggle }}" title="What's not implemented in this demo" style="font:11px/1 ui-monospace,monospace;color:{{ infoColor }};background:{{ infoBg }};border:1px solid {{ infoBorder }};border-radius:5px;padding:5px 9px;cursor:pointer;">ⓘ demo</button>
+        <sc-if value="{{ infoOpen }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;top:calc(100% + 6px);right:0;z-index:30;">{{ infoEl }}</div></sc-if>
+      </div>
+    </div>
+  </div>
+
+  <!-- palette (drag actions into gates) -->
+  <sc-if value="{{ showPalette }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid #1a2438;background:#0a1020;">
+      <span style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#475569;flex:0 0 auto;">drag into a gate</span>
+      {{ paletteEl }}
+    </div>
+  </sc-if>
+
+  <!-- main -->
+  <div style="flex:1 1 auto;display:flex;min-height:0;">
+    <div style="flex:1 1 auto;overflow:auto;min-height:0;background:radial-gradient(circle at 1px 1px,#16223c 1px,transparent 0) 0 0/24px 24px,#0b1120;">
+      <div style="max-width:900px;padding:22px 22px 120px;">
+        <sc-if value="{{ showDepsBanner }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:flex-start;gap:9px;margin-bottom:16px;padding:10px 13px;border:1px solid rgba(96,165,250,0.3);background:rgba(96,165,250,0.07);border-radius:10px;font-size:11.5px;line-height:1.5;color:#bfdbfe;">
+            <span style="color:#60a5fa;flex:0 0 auto;">⤳</span>
+            <span>Une dépendance <strong>action → action</strong> n'est tracée que si les deux actions sont dans le <strong>même bloc</strong> ; sinon la flèche relie l'action au <strong>bloc</strong> concerné (action → bloc). Têtes de flèche colorées par le groupe de l'action dépendante.</span>
+          </div>
+        </sc-if>
+        {{ bodyEl }}
+      </div>
+    </div>
+    <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:0 0 {{ drawerWidth }};border-left:1px solid #243049;background:#0f172a;display:flex;flex-direction:column;min-height:0;position:relative;">
+        <div title="Resize handle (not wired in this demo)" style="position:absolute;left:-3px;top:0;bottom:0;width:6px;cursor:col-resize;"></div>
+        {{ panelEl }}
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- spontaneous error toast (top-right) -->
+  <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ issuesToggle }}" style="position:fixed;top:14px;right:16px;z-index:80;display:flex;align-items:center;gap:9px;background:#1a0f14;border:1px solid rgba(248,113,113,0.5);border-radius:10px;padding:10px 13px;box-shadow:0 16px 40px rgba(0,0,0,0.5);cursor:pointer;animation:toastIn .18s ease;">
+      <span style="font-size:15px;">⛔</span>
+      <div><div style="font-size:12.5px;font-weight:700;color:#fca5a5;">{{ toastTitle }}</div><div style="font-size:10.5px;color:#94a3b8;margin-top:1px;">Clique pour voir le détail</div></div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;}}">
+class Component extends DCLogic {
+  state = {
+    orchestration: true,
+    showDeps: false,
+    gateMenuOpen: false,
+    selectedGate: null,
+    selectedAction: null,
+    operandPicker: null,
+    declareOpen: false,
+    declareForm: null,
+    dropTarget: null,
+    issuesOpen: false,
+    infoOpen: false,
+    toast: null,
+    depPaths: [],
+    drawerWidth: 380,
+    status: '',
+    phases: {
+      RECON:   { id:'RECON',   name:'Recon',        group:'scan',    type:'agent',  desc:'Enumerate the target surface: hosts, endpoints, and WAF fingerprint.', depends_on:[], emits:[ {name:'endpoints',type:'list',source:'field',from:'recon.json'}, {name:'waf',type:'bool',source:'token'} ] },
+      SCAN:    { id:'SCAN',    name:'Scan endpoint',group:'scan',    type:'agent',  desc:'Probe one endpoint for exposed services and misconfigurations.', depends_on:['RECON'], emits:[ {name:'status',type:'enum',source:'token'}, {name:'risk',type:'number',source:'token'} ] },
+      EXPLOIT: { id:'EXPLOIT', name:'Exploit',      group:'exploit', type:'script', desc:'Attempt exploitation of a high-risk finding.', depends_on:['SCAN'], emits:[] },
+      REPORT:  { id:'REPORT',  name:'Report',       group:'exploit', type:'agent',  desc:'Compile findings into a client-ready report.', depends_on:['EXPLOIT'], emits:[] },
+    },
+    order: ['RECON','SCAN','EXPLOIT','REPORT'],
+    blocks: [
+      { id:'b1', type:'ref', phase:'RECON' },
+      { id:'b2', type:'if', cond:{op:'==',left:{kind:'signal',value:'recon.waf'},right:{kind:'literal',value:'true'}}, then:[{id:'b2t',type:'ref',phase:'SCAN'}], else:[{id:'b2e',type:'ref',phase:'SCAN'}] },
+      { id:'b3', type:'for_each', list:'recon.endpoints', as:'ep', cap:200, body:[ {id:'b3s',type:'ref',phase:'SCAN'}, {id:'b3if',type:'if',cond:{op:'>',left:{kind:'signal',value:'scan.risk'},right:{kind:'literal',value:'7'}},then:[{id:'b3ex',type:'ref',phase:'EXPLOIT'}],else:[]} ] },
+      { id:'b4', type:'while', cond:{op:'==',left:{kind:'signal',value:'scan.status'},right:{kind:'literal',value:'retry'}}, cap:5, body:[{id:'b4s',type:'ref',phase:'SCAN'}] },
+    ],
+  };
+
+  GROUPS = { scan:'#60a5fa', exploit:'#4ade80' };
+  OPS = ['==','!=','<','>','<=','>=','contains','matches','exists'];
+  KIND_HELP = { signal:'A value read from a phase’s emits (◈ <phase>.<name>). Conditions read a named field or compact token — never a whole artifact.', literal:'A fixed value you type: a number, string, or bool. Usually the RIGHT operand.', builtin:'A standard-only check: file_exists / dir_exists. Not available on the js target.' };
+  NOT_DONE = [
+    '＋ Action (create/duplicate a phase) — stubbed',
+    'Resizable edit drawer — handle shown, drag not wired (the real editor already has this)',
+    'Move an existing ref between blocks by drag — today: add from palette + delete',
+    'Drag-reorder / re-nest gates',
+    'Real save to <name>.orchestration.yaml + emits write-back to <name>.yaml',
+    'Backend: GET/PUT merge the orchestration sibling; /api/view overlay',
+    'JS target (dynamic) — capability frontier greying',
+    'Settings / Dataflow / YAML tabs',
+  ];
+  uid(){ return 'b' + Math.random().toString(36).slice(2,8); }
+  acc(g){ return this.GROUPS[g] || '#38bdf8'; }
+  typeStyle(t){ return ({agent:{c:'#86efac',bg:'rgba(74,222,128,0.12)'},script:{c:'#fcd34d',bg:'rgba(251,191,36,0.12)'},main_agent:{c:'#7dd3fc',bg:'rgba(56,189,248,0.12)'},external:{c:'#cbd5e1',bg:'rgba(148,163,184,0.14)'},workflow_call:{c:'#c4b5fd',bg:'rgba(167,139,250,0.14)'}})[t] || {c:'#cbd5e1',bg:'rgba(148,163,184,0.14)'}; }
+
+  clone(){ return JSON.parse(JSON.stringify(this.state.blocks)); }
+  walk(arr, fn){ arr.forEach((b,i)=>{ fn(b, arr, i); ['then','else','body'].forEach(k=>{ if(Array.isArray(b[k])) this.walk(b[k], fn); }); }); }
+  findBlock(arr, id){ let found=null; this.walk(arr, (b,parent,i)=>{ if(b.id===id) found={block:b,parent,index:i}; }); return found; }
+  containerArr(arr, containerId, slot){ if(containerId==='root') return arr; const f=this.findBlock(arr, containerId); if(!f) return null; if(!Array.isArray(f.block[slot])) f.block[slot]=[]; return f.block[slot]; }
+
+  signals(){ const out=[]; this.state.order.forEach(pid=>{ (this.state.phases[pid].emits||[]).forEach(e=>{ out.push({key: pid.toLowerCase()+'.'+e.name, name:e.name, type:e.type, phase:pid}); }); }); return out; }
+  signalType(key){ const s=this.signals().find(x=>x.key===key); return s?s.type:null; }
+  isLoop(t){ return t==='while'||t==='until'||t==='for_each'; }
+  loopOK(b){ return this.isLoop(b.type) ? (Number.isInteger(b.cap) && b.cap>0) : true; }
+
+  issueList(){ const out=[]; this.walk(this.state.blocks,(b)=>{
+    if(this.isLoop(b.type) && !this.loopOK(b)) out.push({id:b.id, kind:b.type, msg:'cap manquant (entier > 0 requis)'});
+    if((b.type==='if'||b.type==='while'||b.type==='until') && b.cond && typeof b.cond==='object'){ if(!b.cond.left||!b.cond.left.value) out.push({id:b.id,kind:b.type,msg:'condition incomplète (opérande gauche)'}); else if(b.cond.op!=='exists' && (!b.cond.right||b.cond.right.value==='')) out.push({id:b.id,kind:b.type,msg:'condition incomplète (opérande droite)'}); }
+    if(b.type==='for_each' && !b.list) out.push({id:b.id,kind:b.type,msg:'signal de liste requis'});
+  }); return out; }
+
+  set(fn, status){ const blocks=this.clone(); fn(blocks); this.setState({blocks, status: status||this.state.status}); }
+  addIf = () => { const id=this.uid(); this.set(bs=>bs.push({id,type:'if',cond:{op:'==',left:{kind:'signal',value:''},right:{kind:'literal',value:''}},then:[],else:[]}),'Condition gate added'); this.setState({selectedGate:id, selectedAction:null, gateMenuOpen:false}); };
+  addLoop = () => { const id=this.uid(); this.set(bs=>bs.push({id,type:'while',cond:{op:'==',left:{kind:'signal',value:''},right:{kind:'literal',value:''}},cap:null,body:[]}),'Loop gate added'); this.setState({selectedGate:id, selectedAction:null, gateMenuOpen:false}); };
+  addRef = (containerId, slot, phase) => { this.set(bs=>{ const arr=this.containerArr(bs, containerId, slot); if(arr) arr.push({id:this.uid(), type:'ref', phase}); }, phase+' added'); this.setState({dropTarget:null}); };
+  removeBlock = (id) => { this.set(bs=>{ this.walk(bs,(b,parent,i)=>{ if(b.id===id) parent.splice(i,1); }); }, 'Block removed'); this.setState(s=>({selectedGate: s.selectedGate===id?null:s.selectedGate, selectedAction: s.selectedAction===id?null:s.selectedAction})); };
+  setConstruct = (id, type) => { this.set(bs=>{ const f=this.findBlock(bs,id); if(!f) return; const b=f.block; const kids=(b.then||b.body||[]).concat(b.else||[]); if(type==='if'){ b.type='if'; b.then=(b.then&&b.then.length?b.then:kids); b.else=b.else||[]; delete b.cap; delete b.list; delete b.as; delete b.body; if(!b.cond||typeof b.cond!=='object') b.cond={op:'==',left:{kind:'signal',value:''},right:{kind:'literal',value:''}}; } else { b.type=type; b.body=(b.body&&b.body.length?b.body:kids); delete b.then; delete b.else; if(b.cap===undefined) b.cap=null; if(type==='for_each'){ if(!b.list) b.list=''; if(!b.as) b.as='item'; delete b.cond; } else { if(!b.cond||typeof b.cond!=='object') b.cond={op:'==',left:{kind:'signal',value:''},right:{kind:'literal',value:''}}; delete b.list; delete b.as; } } }, 'Construct changed'); };
+  editCond = (id, fn) => this.set(bs=>{ const f=this.findBlock(bs,id); if(f) fn(f.block); });
+  setOp = (id,op)=> this.editCond(id,b=>{ if(typeof b.cond!=='object') b.cond={op,left:{kind:'signal',value:''},right:{kind:'literal',value:''}}; else b.cond.op=op; });
+  setOperand = (id,side,patch)=> this.editCond(id,b=>{ if(typeof b.cond!=='object') return; b.cond[side]={...b.cond[side], ...patch}; });
+  toggleEscape = (id)=> this.editCond(id,b=>{ if(typeof b.cond==='string') b.cond={op:'==',left:{kind:'signal',value:''},right:{kind:'literal',value:''}}; else b.cond=''; });
+  setFree = (id,v)=> this.editCond(id,b=>{ b.cond=v; });
+  setCap = (id,v)=> this.set(bs=>{ const f=this.findBlock(bs,id); if(f){ const n=parseInt(v,10); f.block.cap=(v===''||isNaN(n))?null:n; } });
+  setList = (id,v)=> this.set(bs=>{ const f=this.findBlock(bs,id); if(f) f.block.list=v; });
+  setAs = (id,v)=> this.set(bs=>{ const f=this.findBlock(bs,id); if(f) f.block.as=v; });
+  pickSignal = (side, key) => { this.setOperand(this.state.selectedGate, side, {kind:'signal', value:key}); this.setState({operandPicker:null}); };
+  openDeclare = () => this.setState({declareOpen:true, declareForm:{phaseId:this.state.order[0], name:'', type:'string', source:'token', from:''}});
+  submitDeclare = () => { const f=this.state.declareForm; if(!f||!/^[a-z][a-z0-9_]*$/.test(f.name)) { this.setState({status:'Signal name must match ^[a-z][a-z0-9_]*$'}); return; } const phases=JSON.parse(JSON.stringify(this.state.phases)); phases[f.phaseId].emits.push({name:f.name, type:f.type, source:f.source, from: f.source==='field'? (f.from||'output.json'):undefined}); const key=f.phaseId.toLowerCase()+'.'+f.name; const side=this.state.operandPicker?this.state.operandPicker.side:'left'; this.setState({phases}); this.setOperand(this.state.selectedGate, side, {kind:'signal', value:key}); this.setState({declareOpen:false, declareForm:null, operandPicker:null, status:'Signal '+key+' declared on '+f.phaseId}); };
+
+  // phase (action) edits — shared library, apply everywhere
+  editPhase = (id, patch) => { const phases=JSON.parse(JSON.stringify(this.state.phases)); Object.assign(phases[id], patch); this.setState({phases}); };
+  addDep = (id, dep) => { if(!dep) return; const phases=JSON.parse(JSON.stringify(this.state.phases)); if(phases[id].depends_on.indexOf(dep)<0) phases[id].depends_on.push(dep); this.setState({phases}); };
+  removeDep = (id, dep) => { const phases=JSON.parse(JSON.stringify(this.state.phases)); phases[id].depends_on = phases[id].depends_on.filter(d=>d!==dep); this.setState({phases}); };
+
+  toggleGateMenu = () => this.setState(s=>({gateMenuOpen:!s.gateMenuOpen}));
+  toggleDeps = () => this.setState(s=>({showDeps:!s.showDeps}));
+  toggleOrch = () => this.setState(s=>({orchestration:!s.orchestration, selectedGate:null, selectedAction:null}));
+  save = () => this.setState({status:'Saved · recon-flow.orchestration.yaml', gateMenuOpen:false});
+  selectGate = (id) => this.setState({selectedGate:id, selectedAction:null, operandPicker:null, declareOpen:false, infoOpen:false, issuesOpen:false});
+  selectAction = (refId) => this.setState({selectedAction:refId, selectedGate:null, operandPicker:null, infoOpen:false, issuesOpen:false});
+  issuesToggle = () => this.setState(s=>({issuesOpen:!s.issuesOpen, infoOpen:false, toast:null}));
+  infoToggle = () => this.setState(s=>({infoOpen:!s.infoOpen, issuesOpen:false}));
+
+  // ===== deps arrows =====
+  componentDidMount(){ this._lastIss=this.issueList().length; this.computeDeps(); }
+  componentDidUpdate(){ this.computeDeps(); const n=this.issueList().length; if(this._lastIss==null){ this._lastIss=n; } else if(n>this._lastIss){ this._lastIss=n; this.showToast(n); } else { this._lastIss=n; } }
+  showToast(n){ clearTimeout(this._tt); this.setState({toast:n}); this._tt=setTimeout(()=>this.setState({toast:null}), 4500); }
+  topLevelOf(){ const map={}; this.state.blocks.forEach(tb=>{ this.walk([tb],(b)=>{ if(b.type==='ref' && !(b.phase in map)) map[b.phase]='blk:'+tb.id; }); }); return map; }
+  classicLevelOf(){ const lv={RECON:0,SCAN:1,EXPLOIT:2,REPORT:2}; const map={}; Object.keys(lv).forEach(p=>map[p]='lvl:'+lv[p]); return map; }
+  computeDeps(){ const s=this.state; if(!(s.showDeps) || !this._wrap){ if(s.depPaths.length){ this._depSig=''; this.setState({depPaths:[]}); } return; }
+    const map = s.orchestration ? this.topLevelOf() : this.classicLevelOf();
+    const seen={}, edges=[];
+    const scan=(P)=>{ const deps=(s.phases[P]&&s.phases[P].depends_on)||[]; const tR=map[P]; if(tR==null) return; deps.forEach(D=>{ const tD=map[D]; if(tD==null||tD===tR) return; const key=tD+'>'+tR; if(seen[key]) return; seen[key]=1; edges.push([tD,tR,this.acc(s.phases[P].group)]); }); };
+    if(s.orchestration){ this.walk(s.blocks,(b)=>{ if(b.type==='ref') scan(b.phase); }); } else { s.order.forEach(scan); }
+    const wrap=this._wrap.getBoundingClientRect(); const paths=[];
+    edges.forEach(([src,dst,color])=>{ const se=this._nodes&&this._nodes[src], de=this._nodes&&this._nodes[dst]; if(!se||!de) return; const sr=se.getBoundingClientRect(), dr=de.getBoundingClientRect(); const sx=sr.left-wrap.left+sr.width/2, sy=sr.top-wrap.top+sr.height/2; const dcx=dr.left-wrap.left+dr.width/2, dy=dr.top-wrap.top+dr.height/2; const tx=dcx-15; const bx=Math.min(sx,tx)-16; paths.push({d:`M ${sx} ${sy} C ${bx} ${sy}, ${bx} ${dy}, ${tx} ${dy}`, color, tx, dy}); });
+    const sig=JSON.stringify(paths); if(sig!==this._depSig){ this._depSig=sig; this.setState({depPaths:paths}); }
+  }
+  nodeRef(id){ if(!this._nodes) this._nodes={}; return (el)=>{ if(el) this._nodes[id]=el; }; }
+
+  // ===== vignette =====
+  vignette(phase, opts){ const h=React.createElement; opts=opts||{}; const p=this.state.phases[phase]; if(!p) return null; const a=this.acc(p.group); const ts=this.typeStyle(p.type); const sel=opts.selected;
+    const chips=(p.emits||[]).map((e,i)=> h('span',{key:'e'+i, style:{font:'9px/1.3 ui-monospace,monospace',color:'#7dd3fc',background:'rgba(56,189,248,0.08)',border:'1px solid rgba(56,189,248,0.22)',borderRadius:4,padding:'2px 6px'}}, 'emits ◈ '+e.name+' · '+e.type));
+    return h('div',{onClick:opts.onClick, style:{display:'flex',flexDirection:'column',gap:6,padding:opts.small?'9px 11px':'12px 14px',borderRadius:opts.small?10:12,border:'1px solid '+(sel?'#38bdf8':'#243049'),borderLeft:'3px solid '+a,background:'#0f172a', width: opts.grow?undefined:'max-content', maxWidth:'100%', cursor:'pointer', boxShadow: sel?'0 0 0 2px #38bdf8,0 0 18px rgba(56,189,248,0.2)':'none', transition:'box-shadow .12s,border-color .12s'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+        h('span',{style:{font:(opts.small?'12px':'12.5px')+'/1 ui-monospace,monospace',fontWeight:700,color:'#e2e8f0'}}, phase),
+        h('span',{style:{fontSize:8.5,fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',padding:'2px 5px',borderRadius:4,color:ts.c,background:ts.bg}}, p.type),
+        h('span',{style:{marginLeft:'auto',fontSize:9.5,color:a,fontWeight:600,textTransform:'capitalize'}}, p.group)
+      ),
+      h('div',{style:{fontSize:opts.small?12:13,fontWeight:600,color:'#f1f5f9'}}, p.name),
+      opts.small?null:h('div',{style:{fontSize:11.5,color:'#94a3b8',lineHeight:1.5}}, p.desc),
+      chips.length? h('div',{style:{display:'flex',flexWrap:'wrap',gap:5}}, chips):null
+    );
+  }
+
+  condPretty(cond){ const h=React.createElement; if(typeof cond==='string'){ return h('span',{style:{display:'inline-flex',alignItems:'center',gap:6,font:'11px/1 ui-monospace,monospace',background:'#0b1120',border:'1px solid #243049',borderRadius:7,padding:'5px 9px'}}, h('span',{style:{color:'#fcd34d'}},'⚡'), h('span',{style:{color:'#cbd5e1',fontStyle:'italic'}}, cond||'free predicate')); }
+    if(!cond) return null; const opnd=(o)=>{ if(!o) return h('span',{style:{color:'#64748b'}},'—'); if(o.kind==='signal') return h('span',{style:{color:'#7dd3fc'}}, '◈ '+(o.value||'…')); if(o.kind==='builtin') return h('span',{style:{color:'#c4b5fd'}}, o.value||'builtin(…)'); return h('span',{style:{color:'#fcd34d'}}, o.value===''?'…':o.value); };
+    return h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,font:'11px/1 ui-monospace,monospace',background:'#0b1120',border:'1px solid #243049',borderRadius:7,padding:'5px 9px'}}, opnd(cond.left), h('span',{style:{color:'#64748b'}}, cond.op), cond.op==='exists'?null:opnd(cond.right));
+  }
+
+  dropZone(containerId, slot, label){ const h=React.createElement; const key=containerId+':'+slot; const hot=this.state.dropTarget===key;
+    return h('div',{ onDragOver:(e)=>{e.preventDefault(); if(this.state.dropTarget!==key) this.setState({dropTarget:key});}, onDragLeave:()=>{ if(this.state.dropTarget===key) this.setState({dropTarget:null}); }, onDrop:(e)=>{ e.preventDefault(); const phase=(e.dataTransfer&&e.dataTransfer.getData('text/phase'))|| this._drag; if(phase) this.addRef(containerId, slot, phase); },
+      style:{border:'1.5px dashed '+(hot?'#38bdf8':'#33415c'),borderRadius:10,padding:hot?'12px':'9px',display:'flex',alignItems:'center',justifyContent:'center',gap:8,color:hot?'#7dd3fc':'#64748b',fontSize:11,background:hot?'rgba(56,189,248,0.08)':'transparent',transition:'all .12s'}},
+      h('span',{style:{color:'#7dd3fc'}},'＋'), label||'add action', h('span',{style:{color:'#334155'}},'·'),'or drag an action here');
+  }
+
+  gateContainer(b, depth){ const h=React.createElement; const loop=this.isLoop(b.type); const sel=this.state.selectedGate===b.id; const bad=loop&&!this.loopOK(b);
+    const border = loop? '1.5px dashed rgba(167,139,250,0.6)':'1.5px solid rgba(167,139,250,0.55)';
+    const icon = loop? h('span',{style:{width:19,height:19,borderRadius:'50%',border:'2px solid #a78bfa',color:'#c4b5fd',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,flex:'0 0 auto'}},'↻') : h('span',{style:{width:16,height:16,background:'#a78bfa',transform:'rotate(45deg)',borderRadius:3,flex:'0 0 auto'}});
+    const kw = h('span',{style:{font:'11px/1 ui-monospace,monospace',fontWeight:800,letterSpacing:'.12em',textTransform:'uppercase',color:'#c4b5fd'}}, b.type.replace('_',' '));
+    const header = h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',padding:'11px 13px',borderBottom:(loop?'1px dashed':'1px solid')+' rgba(167,139,250,0.22)'}},
+      icon, kw,
+      b.type==='for_each'
+        ? h('span',{style:{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}, this.condPretty({left:{kind:'signal',value:b.list},op:'',right:null}), h('span',{style:{font:'10px/1 ui-monospace,monospace',color:'#64748b'}},'as'), h('span',{style:{font:'11px/1 ui-monospace,monospace',color:'#cbd5e1'}}, b.as))
+        : this.condPretty(b.cond),
+      loop? (bad? h('span',{style:{font:'10px/1 ui-monospace,monospace',fontWeight:700,color:'#f87171',background:'rgba(248,113,113,0.12)',border:'1px dashed rgba(248,113,113,0.5)',borderRadius:5,padding:'3px 8px'}}, 'cap required') : h('span',{style:{font:'10px/1 ui-monospace,monospace',fontWeight:700,color:'#fcd34d',background:'rgba(251,191,36,0.12)',border:'1px solid rgba(251,191,36,0.35)',borderRadius:5,padding:'3px 7px'}}, 'cap '+b.cap)) : null,
+      h('span',{onClick:(e)=>{e.stopPropagation(); this.selectGate(b.id);}, style:{marginLeft:'auto',color:sel?'#38bdf8':'#64748b',fontSize:11,cursor:'pointer',fontWeight:600}}, sel?'✎ editing':'✎')
+    );
+    let bodyContent;
+    if(b.type==='if'){
+      bodyContent = h('div',{style:{padding:'12px 13px',display:'flex',gap:10}},
+        h('div',{style:{flex:1,minWidth:0,background:'#0b1120',border:'1px solid rgba(134,239,172,0.3)',borderRadius:10,padding:9,display:'flex',flexDirection:'column',gap:8}}, h('div',{style:{font:'9.5px/1 ui-monospace,monospace',fontWeight:700,letterSpacing:'.1em',textTransform:'uppercase',color:'#86efac'}},'then'), ...this.renderList(b.then,depth+1), this.dropZone(b.id,'then')),
+        h('div',{style:{flex:1,minWidth:0,background:'#0b1120',border:'1px solid #243049',borderRadius:10,padding:9,display:'flex',flexDirection:'column',gap:8}}, h('div',{style:{font:'9.5px/1 ui-monospace,monospace',fontWeight:700,letterSpacing:'.1em',textTransform:'uppercase',color:'#94a3b8'}},'else'), ...this.renderList(b.else,depth+1), this.dropZone(b.id,'else'))
+      );
+    } else {
+      bodyContent = h('div',{style:{padding:'12px 13px',display:'flex',flexDirection:'column',gap:9}}, ...this.renderList(b.body,depth+1), this.dropZone(b.id,'body'));
+    }
+    return h('div',{onClick:(e)=>{e.stopPropagation(); this.selectGate(b.id);}, style:{border,borderLeft:'3px solid #a78bfa',borderRadius:13,background:'rgba(167,139,250,'+(depth>0?0.07:0.055)+')',cursor:'pointer',boxShadow: sel?'0 0 0 2px #38bdf8,0 0 22px rgba(56,189,248,0.22)':'none'}}, header, bodyContent);
+  }
+
+  renderList(arr, depth){ const h=React.createElement; arr=arr||[];
+    return arr.map(b=>{ if(b.type==='ref'){ return h('div',{key:b.id, draggable:true, onDragStart:(e)=>{ this._drag=b.phase; try{e.dataTransfer.setData('text/phase',b.phase);}catch(_){} } }, this.vignette(b.phase,{small:depth>1, grow:true, selected:this.state.selectedAction===b.id, onClick:(e)=>{e.stopPropagation(); this.selectAction(b.id);}})); }
+      return h('div',{key:b.id}, this.gateContainer(b, depth)); });
+  }
+
+  orchestratedBody(){ const h=React.createElement;
+    const rows=this.state.blocks.map((b,i)=>{ const last=i===this.state.blocks.length-1;
+      const rail=h('div',{style:{flex:'0 0 54px',display:'flex',flexDirection:'column',alignItems:'center'}},
+        h('div',{style:{width:1,flex:i===0?'0 0 8px':1, background:i===0?'transparent':'#243049'}}),
+        h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:2}}, h('div',{style:{font:'8px/1 ui-monospace,monospace',color:'#64748b',letterSpacing:'.08em'}},'LVL'), h('div',{ref:this.nodeRef('blk:'+b.id), style:{width:28,height:28,borderRadius:'50%',background:'#0b1120',border:'2px solid #60a5fa',display:'flex',alignItems:'center',justifyContent:'center',font:'13px/1 ui-monospace,monospace',fontWeight:700}}, i+1)),
+        h('div',{style:{width:1,flex:last?'0 0 8px':1, background:last?'transparent':'#243049'}})
+      );
+      const content = b.type==='ref' ? h('div',{style:{flex:1,minWidth:0}, draggable:true, onDragStart:(e)=>{ this._drag=b.phase; try{e.dataTransfer.setData('text/phase',b.phase);}catch(_){} }}, this.vignette(b.phase,{grow:true, selected:this.state.selectedAction===b.id, onClick:(e)=>{e.stopPropagation(); this.selectAction(b.id);}})) : h('div',{style:{flex:1,minWidth:0}}, this.gateContainer(b,0));
+      return h('div',{key:b.id, style:{display:'flex',gap:14,alignItems:'stretch'}}, rail, content);
+    });
+    return h('div',{ref:(el)=>{this._wrap=el;}, style:{position:'relative',display:'flex',flexDirection:'column',gap:4}, onClick:()=>this.setState({gateMenuOpen:false})}, this.depSvg(), ...rows);
+  }
+
+  classicBody(){ const h=React.createElement; const levels=[['RECON'],['SCAN'],['EXPLOIT','REPORT']];
+    const rows=levels.map((row,i)=>{ const last=i===levels.length-1; return h('div',{key:i, style:{display:'flex',gap:14,alignItems:'stretch'}},
+      h('div',{style:{flex:'0 0 54px',display:'flex',flexDirection:'column',alignItems:'center'}}, h('div',{style:{width:1,flex:i===0?'0 0 8px':1,background:i===0?'transparent':'#243049'}}), h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:2}}, h('div',{style:{font:'8px/1 ui-monospace,monospace',color:'#64748b',letterSpacing:'.08em'}},'LVL'), h('div',{ref:this.nodeRef('lvl:'+i), style:{width:28,height:28,borderRadius:'50%',background:'#0b1120',border:'2px solid #60a5fa',display:'flex',alignItems:'center',justifyContent:'center',font:'13px/1 ui-monospace,monospace',fontWeight:700}}, i+1)), h('div',{style:{width:1,flex:last?'0 0 8px':1,background:last?'transparent':'#243049'}})),
+      h('div',{style:{flex:1,display:'flex',flexWrap:'wrap',gap:12}}, ...row.map(pid=>h('div',{key:pid,style:{flex:'1 1 260px',minWidth:240}}, this.vignette(pid,{grow:true, onClick:()=>{}}))))
+    ); });
+    return h('div',{ref:(el)=>{this._wrap=el;}, style:{position:'relative',display:'flex',flexDirection:'column',gap:4}}, this.depSvg(), ...rows);
+  }
+
+  depSvg(){ const h=React.createElement; if(!this.state.showDeps) return null; const paths=this.state.depPaths||[];
+    return h('svg',{style:{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible',zIndex:4}}, ...paths.map((p,i)=>[
+      h('path',{key:'p'+i, d:p.d, fill:'none', stroke:p.color, strokeWidth:2, strokeOpacity:0.9}),
+      h('polygon',{key:'a'+i, points:`${p.tx-6},${p.dy-4} ${p.tx+3},${p.dy} ${p.tx-6},${p.dy+4}`, fill:p.color})
+    ]));
+  }
+
+  paletteEl(){ const h=React.createElement; return h('div',{style:{display:'flex',gap:7,flexWrap:'wrap'}}, ...this.state.order.map(pid=>{ const a=this.acc(this.state.phases[pid].group); return h('div',{key:pid, draggable:true, onDragStart:(e)=>{ this._drag=pid; try{e.dataTransfer.setData('text/phase',pid);}catch(_){} }, style:{display:'inline-flex',alignItems:'center',gap:7,padding:'5px 10px',borderRadius:8,background:'#0f172a',border:'1px solid #243049',borderLeft:'3px solid '+a,cursor:'grab'}}, h('span',{style:{width:6,height:6,borderRadius:'50%',background:a}}), h('span',{style:{font:'11.5px/1 ui-monospace,monospace',fontWeight:700,color:'#e2e8f0'}}, pid)); })); }
+
+  segmented(items, active, onPick){ const h=React.createElement; return h('div',{style:{display:'flex',gap:3,padding:3,background:'#0b1120',border:'1px solid #243049',borderRadius:9}}, ...items.map(it=>h('div',{key:it.v, onClick:()=>onPick(it.v), style:{flex:1,textAlign:'center',padding:'6px 4px',borderRadius:6,fontSize:11,fontWeight: active===it.v?700:600, cursor:'pointer', background: active===it.v?'rgba(167,139,250,0.2)':'transparent', color: active===it.v?'#c4b5fd':'#64748b'}}, it.label))); }
+
+  operandCtrl(b, side){ const h=React.createElement; const cond=b.cond; const o=cond[side]||{kind:'literal',value:''}; const picking=this.state.operandPicker && this.state.operandPicker.side===side;
+    const kinds = side==='left' ? [{v:'signal',label:'◈ signal'},{v:'literal',label:'literal'},{v:'builtin',label:'builtin'}] : [{v:'signal',label:'◈ signal'},{v:'literal',label:'literal'}];
+    const tint = o.kind==='signal'?{b:'rgba(56,189,248,0.4)',bg:'rgba(56,189,248,0.06)',c:'#7dd3fc'} : o.kind==='builtin'?{b:'rgba(167,139,250,0.4)',bg:'rgba(167,139,250,0.06)',c:'#c4b5fd'} : {b:'rgba(251,191,36,0.4)',bg:'rgba(251,191,36,0.06)',c:'#fcd34d'};
+    const kindSeg = h('div',{style:{display:'flex',gap:3,marginBottom:7}}, ...kinds.map(k=>h('span',{key:k.v, title:this.KIND_HELP[k.v], onClick:()=>this.setOperand(b.id,side,{kind:k.v}), style:{flex:1,textAlign:'center',fontSize:9.5,fontWeight: o.kind===k.v?700:400, padding:'4px 2px',borderRadius:5, cursor:'help', background: o.kind===k.v?(k.v==='literal'?'rgba(251,191,36,0.16)':k.v==='builtin'?'rgba(167,139,250,0.16)':'rgba(56,189,248,0.16)'):'transparent', color: o.kind===k.v?(k.v==='literal'?'#fcd34d':k.v==='builtin'?'#c4b5fd':'#7dd3fc'):'#64748b', border:'1px solid '+(o.kind===k.v?(k.v==='literal'?'rgba(251,191,36,0.4)':k.v==='builtin'?'rgba(167,139,250,0.4)':'rgba(56,189,248,0.4)'):'#243049')}}, k.label)));
+    let field;
+    if(o.kind==='signal'){ field=h('div',{onClick:()=>this.setState({operandPicker: picking?null:{side}}), style:{display:'flex',alignItems:'center',gap:7,background:'#0b1120',border:'1px solid '+(picking?'#38bdf8':'#243049'),borderRadius:8,padding:'8px 10px',cursor:'pointer'}}, h('span',{style:{font:'12px/1 ui-monospace,monospace',fontWeight:600,color:'#7dd3fc'}}, o.value?('◈ '+o.value):'◈ pick a signal…'), o.value&&this.signalType(o.value)?h('span',{style:{fontSize:8.5,color:'#7dd3fc',background:'rgba(56,189,248,0.12)',borderRadius:4,padding:'1px 5px'}}, this.signalType(o.value)):null, h('span',{style:{marginLeft:'auto',color:'#64748b',fontSize:10}},'▾')); }
+    else if(o.kind==='builtin'){ field=h('input',{value:o.value||'', placeholder:'file_exists: "path"', onChange:(e)=>this.setOperand(b.id,side,{value:e.target.value}), style:{width:'100%',background:'#0b1120',border:'1px solid #243049',borderRadius:8,padding:'8px 10px',color:'#c4b5fd',font:'12px/1 ui-monospace,monospace'}}); }
+    else { field=h('input',{value:o.value||'', placeholder:'literal value', onChange:(e)=>this.setOperand(b.id,side,{value:e.target.value}), style:{width:'100%',background:'#0b1120',border:'1px solid #243049',borderRadius:8,padding:'8px 10px',color:'#fcd34d',font:'12px/1 ui-monospace,monospace',fontWeight:600}}); }
+    return h('div',{style:{border:'1px solid '+tint.b,background:tint.bg,borderRadius:9,padding:9}},
+      h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}, h('span',{style:{font:'8.5px/1 ui-monospace,monospace',textTransform:'uppercase',letterSpacing:'.08em',color:tint.c,fontWeight:700}}, side+' operand')),
+      kindSeg, field, picking? this.signalPicker(side):null);
+  }
+
+  signalPicker(side){ const h=React.createElement; const byPhase={}; this.signals().forEach(s=>{ (byPhase[s.phase]=byPhase[s.phase]||[]).push(s); });
+    const cur = ()=>{ const f=this.findBlock(this.state.blocks,this.state.selectedGate); return f&&typeof f.block.cond==='object'? (f.block.cond[side]||{}).value : null; };
+    const rows=[]; Object.keys(byPhase).forEach(pid=>{ rows.push(h('div',{key:'h'+pid, style:{font:'9.5px/1 ui-monospace,monospace',color:'#60a5fa',padding:'6px 4px 2px'}}, pid)); byPhase[pid].forEach(s=>{ const on=cur()===s.key; rows.push(h('div',{key:s.key, onClick:()=>this.pickSignal(side,s.key), style:{display:'flex',alignItems:'center',gap:6,padding:'5px 8px',borderRadius:6,cursor:'pointer',background:on?'rgba(56,189,248,0.12)':'transparent'}}, h('span',{style:{font:'11px/1 ui-monospace,monospace',color:'#7dd3fc'}},'◈ '+s.name), h('span',{style:{fontSize:8.5,color:'#7dd3fc',background:'rgba(56,189,248,0.1)',borderRadius:4,padding:'1px 5px'}}, s.type), on?h('span',{style:{marginLeft:'auto',color:'#38bdf8'}},'✓'):null)); }); });
+    return h('div',{style:{marginTop:7,border:'1px solid #243049',borderRadius:9,background:'#080e1c',overflow:'hidden'}},
+      h('div',{style:{padding:'7px 10px',font:'9.5px/1 ui-monospace,monospace',textTransform:'uppercase',letterSpacing:'.06em',color:'#475569',borderBottom:'1px solid #1a2438'}},'Signals by phase'),
+      h('div',{style:{padding:'6px 8px',maxHeight:150,overflow:'auto'}}, ...rows),
+      this.state.declareOpen? this.declareForm() : h('div',{onClick:this.openDeclare, style:{borderTop:'1px solid #1a2438',padding:'8px 10px',fontSize:11,color:'#7dd3fc',fontWeight:600,cursor:'pointer'}},'＋ Declare a new signal on a phase…')
+    );
+  }
+
+  declareForm(){ const h=React.createElement; const f=this.state.declareForm; const upd=(patch)=>this.setState({declareForm:{...f,...patch}}); const inp={width:'100%',background:'#0b1120',border:'1px solid #243049',borderRadius:7,padding:'7px 9px',color:'#e2e8f0',fontSize:12,marginTop:4};
+    return h('div',{style:{borderTop:'1px solid #1a2438',padding:'10px',background:'rgba(56,189,248,0.04)'}},
+      h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',color:'#64748b',marginBottom:6}},'Declare signal · writes to <phase>.yaml'),
+      h('label',{style:{fontSize:10,color:'#94a3b8'}},'phase', h('select',{value:f.phaseId, onChange:(e)=>upd({phaseId:e.target.value}), style:inp}, ...this.state.order.map(p=>h('option',{key:p,value:p},p)))),
+      h('label',{style:{fontSize:10,color:'#94a3b8',display:'block',marginTop:6}},'name', h('input',{value:f.name, placeholder:'e.g. verdict', onChange:(e)=>upd({name:e.target.value}), style:inp})),
+      h('div',{style:{display:'flex',gap:8,marginTop:6}},
+        h('label',{style:{flex:1,fontSize:10,color:'#94a3b8'}},'type', h('select',{value:f.type,onChange:(e)=>upd({type:e.target.value}),style:inp}, ...['number','string','bool','enum','list'].map(t=>h('option',{key:t,value:t},t)))),
+        h('label',{style:{flex:1,fontSize:10,color:'#94a3b8'}},'source', h('select',{value:f.source,onChange:(e)=>upd({source:e.target.value}),style:inp}, ...['token','field'].map(t=>h('option',{key:t,value:t},t))))
+      ),
+      f.source==='field'? h('label',{style:{fontSize:10,color:'#94a3b8',display:'block',marginTop:6}},'from', h('input',{value:f.from, placeholder:'recon.json', onChange:(e)=>upd({from:e.target.value}), style:inp})):null,
+      h('div',{style:{display:'flex',gap:8,marginTop:10}},
+        h('button',{onClick:this.submitDeclare, style:{flex:1,background:'rgba(56,189,248,0.15)',color:'#38bdf8',border:'1px solid #38bdf8',borderRadius:6,padding:'7px',fontSize:12,fontWeight:600,cursor:'pointer'}},'Declare & use'),
+        h('button',{onClick:()=>this.setState({declareOpen:false,declareForm:null}), style:{background:'transparent',color:'#64748b',border:'1px solid #243049',borderRadius:6,padding:'7px 12px',fontSize:12,cursor:'pointer'}},'Cancel')
+      )
+    );
+  }
+
+  // ===== issues + info popovers, toast =====
+  issuesEl(){ const h=React.createElement; const list=this.issueList(); const pop={width:280,background:'#0f172a',border:'1px solid rgba(248,113,113,0.4)',borderRadius:11,boxShadow:'0 16px 40px rgba(0,0,0,0.55)',overflow:'hidden'};
+    return h('div',{style:pop}, h('div',{style:{padding:'9px 12px',borderBottom:'1px solid #1a2438',display:'flex',alignItems:'center',gap:7}}, h('span',null,'⛔'), h('span',{style:{fontSize:12,fontWeight:700,color:'#fca5a5'}}, list.length+' problème'+(list.length>1?'s':'')+' à corriger')),
+      h('div',{style:{maxHeight:240,overflow:'auto',padding:'6px'}}, ...list.map((it,i)=>h('div',{key:i, onClick:()=>this.selectGate(it.id), style:{display:'flex',flexDirection:'column',gap:2,padding:'8px 9px',borderRadius:8,cursor:'pointer'}, }, h('div',{style:{display:'flex',alignItems:'center',gap:7}}, h('span',{style:{font:'9px/1 ui-monospace,monospace',fontWeight:700,textTransform:'uppercase',color:'#c4b5fd',background:'rgba(167,139,250,0.14)',borderRadius:4,padding:'2px 6px'}}, it.kind.replace('_',' ')), h('span',{style:{fontSize:11,color:'#e2e8f0'}}, it.msg)), h('div',{style:{fontSize:10,color:'#64748b'}},'→ ouvrir le bloc')))),
+      h('div',{style:{padding:'8px 12px',borderTop:'1px solid #1a2438',fontSize:10.5,color:'#64748b'}},'validate_orchestration() — mêmes contrôles côté backend')
+    );
+  }
+
+  infoEl(){ const h=React.createElement; return h('div',{style:{width:320,background:'#0f172a',border:'1px solid #243049',borderRadius:11,boxShadow:'0 16px 40px rgba(0,0,0,0.55)',overflow:'hidden'}},
+    h('div',{style:{padding:'9px 12px',borderBottom:'1px solid #1a2438',fontSize:12,fontWeight:700,color:'#e2e8f0'}},'Non implémenté dans cette démo'),
+    h('div',{style:{padding:'6px',maxHeight:280,overflow:'auto'}}, ...this.NOT_DONE.map((t,i)=>h('div',{key:i, style:{display:'flex',gap:8,padding:'6px 8px',fontSize:11,lineHeight:1.45,color:'#94a3b8'}}, h('span',{style:{color:'#475569'}},'○'), t))),
+    h('div',{style:{padding:'8px 12px',borderTop:'1px solid #1a2438',fontSize:10.5,color:'#64748b'}},'Le reste (toggles, gates, condition builder, expose-signal, validation, deps) est vivant.')
+  ); }
+
+  // ===== edit panel =====
+  actionPanel(ref){ const h=React.createElement; const p=this.state.phases[ref.phase]; if(!p) return null; const inp={width:'100%',background:'#0b1120',border:'1px solid #243049',borderRadius:8,padding:'8px 10px',color:'#e2e8f0',fontSize:12.5,marginTop:5};
+    const availDeps=this.state.order.filter(x=>x!==p.id && p.depends_on.indexOf(x)<0);
+    return h('div',{style:{display:'flex',flexDirection:'column',minHeight:0,flex:1}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:9,padding:'12px 14px',borderBottom:'1px solid #243049'}}, h('span',{style:{width:9,height:9,borderRadius:2,background:this.acc(p.group)}}), h('span',{style:{font:'13px/1 ui-monospace,monospace',fontWeight:700,color:'#e2e8f0'}}, p.id), h('span',{style:{fontSize:11,color:'#64748b'}},'action'), h('span',{onClick:()=>this.setState({selectedAction:null}), style:{marginLeft:'auto',color:'#64748b',cursor:'pointer',fontSize:15}},'✕')),
+      h('div',{style:{padding:14,display:'flex',flexDirection:'column',gap:14,overflow:'auto',flex:1}},
+        h('div',{style:{fontSize:10.5,color:'#64748b',lineHeight:1.4,display:'flex',gap:6}}, h('span',{style:{color:'#38bdf8'}},'ⓘ'), h('span',null,'Les modifications s’appliquent à cette action partout où elle est référencée (librairie partagée).')),
+        h('label',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',color:'#64748b'}},'Name', h('input',{value:p.name, onChange:(e)=>this.editPhase(p.id,{name:e.target.value}), style:inp})),
+        h('div',{style:{display:'flex',gap:8}},
+          h('label',{style:{flex:1,fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',color:'#64748b'}},'Type', h('select',{value:p.type, onChange:(e)=>this.editPhase(p.id,{type:e.target.value}), style:inp}, ...['main_agent','agent','script','external','workflow_call'].map(t=>h('option',{key:t,value:t},t)))),
+          h('label',{style:{flex:1,fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',color:'#64748b'}},'Group', h('select',{value:p.group, onChange:(e)=>this.editPhase(p.id,{group:e.target.value}), style:inp}, ...['scan','exploit'].map(t=>h('option',{key:t,value:t},t))))
+        ),
+        h('label',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',color:'#64748b'}},'Description', h('textarea',{value:p.desc, rows:3, onChange:(e)=>this.editPhase(p.id,{desc:e.target.value}), style:{...inp,resize:'vertical',lineHeight:1.5}})),
+        h('div',null, h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',color:'#64748b',marginBottom:7}},'Depends on'),
+          h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}, ...p.depends_on.map(d=>h('span',{key:d, style:{display:'inline-flex',alignItems:'center',gap:6,font:'11px/1 ui-monospace,monospace',color:'#94a3b8',background:'#0b1120',border:'1px solid #243049',borderRadius:6,padding:'4px 8px'}}, '↑ '+d, h('span',{onClick:()=>this.removeDep(p.id,d), style:{color:'#64748b',cursor:'pointer'}},'✕'))),
+            availDeps.length? h('select',{value:'', onChange:(e)=>this.addDep(p.id,e.target.value), style:{background:'#0b1120',border:'1px dashed #33415c',borderRadius:6,padding:'4px 8px',color:'#7dd3fc',fontSize:11}}, h('option',{value:''},'+ add dep'), ...availDeps.map(d=>h('option',{key:d,value:d},d))):null),
+          h('div',{style:{fontSize:10,color:'#475569',marginTop:6,lineHeight:1.4}},'Règle : conservée en action→action seulement dans le même bloc ; sinon action→bloc.')
+        )
+      ),
+      h('div',{style:{marginTop:'auto',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderTop:'1px solid #243049'}}, h('span',{onClick:()=>this.removeBlock(ref.id), style:{fontSize:11.5,color:'#f87171',cursor:'pointer'}},'Delete action'), h('button',{onClick:()=>this.setState({selectedAction:null}), style:{background:'rgba(56,189,248,0.15)',color:'#38bdf8',border:'1px solid #38bdf8',borderRadius:6,padding:'6px 16px',fontSize:12,fontWeight:600,cursor:'pointer'}},'Done'))
+    );
+  }
+
+  gatePanel(b){ const h=React.createElement; const loop=this.isLoop(b.type); const isFree = typeof b.cond==='string'; const label=b.type.replace('_',' ');
+    const head=h('div',{style:{display:'flex',alignItems:'center',gap:9,padding:'12px 14px',borderBottom:'1px solid #243049'}}, (loop?h('span',{style:{width:17,height:17,borderRadius:'50%',border:'2px solid #a78bfa',color:'#c4b5fd',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:10}},'↻'):h('span',{style:{width:14,height:14,background:'#a78bfa',transform:'rotate(45deg)',borderRadius:3}})), h('span',{style:{fontSize:13,fontWeight:700,color:'#e2e8f0',textTransform:'capitalize'}}, label+' block'), h('span',{onClick:()=>this.setState({selectedGate:null}), style:{marginLeft:'auto',color:'#64748b',cursor:'pointer',fontSize:15}},'✕'));
+    const sections=[];
+    sections.push(h('div',{key:'c'}, h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b',marginBottom:7}},'Construct'), this.segmented([{v:'if',label:'if'},{v:'while',label:'while'},{v:'until',label:'until'},{v:'for_each',label:'for each'}], b.type, (v)=>this.setConstruct(b.id,v))));
+    if(b.type==='for_each'){ sections.push(h('div',{key:'fe'}, h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b',marginBottom:7}},'Iterate'), h('div',{style:{display:'flex',gap:8}}, h('label',{style:{flex:2,fontSize:10,color:'#94a3b8'}},'list signal', h('select',{value:b.list||'', onChange:(e)=>this.setList(b.id,e.target.value), style:{width:'100%',marginTop:4,background:'#0b1120',border:'1px solid #243049',borderRadius:8,padding:'8px 10px',color:'#7dd3fc',font:'12px/1 ui-monospace,monospace'}}, h('option',{value:''},'pick a list…'), ...this.signals().filter(s=>s.type==='list').map(s=>h('option',{key:s.key,value:s.key}, s.key)))), h('label',{style:{flex:1,fontSize:10,color:'#94a3b8'}},'as', h('input',{value:b.as||'', onChange:(e)=>this.setAs(b.id,e.target.value), style:{width:'100%',marginTop:4,background:'#0b1120',border:'1px solid #243049',borderRadius:8,padding:'8px 10px',color:'#cbd5e1',font:'12px/1 ui-monospace,monospace'}}))))); }
+    if(b.type==='if'||b.type==='while'||b.type==='until'){
+      const builder = isFree
+        ? h('textarea',{value:b.cond, onChange:(e)=>this.setFree(b.id,e.target.value), placeholder:'natural-language predicate…', rows:3, style:{width:'100%',background:'#0b1120',border:'1px solid rgba(251,191,36,0.4)',borderRadius:10,padding:10,color:'#cbd5e1',fontSize:12,fontStyle:'italic',resize:'vertical'}})
+        : h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+            this.operandCtrl(b,'left'),
+            h('div',{style:{display:'flex',alignItems:'center',gap:8,padding:'2px 0'}}, h('span',{style:{font:'8.5px/1 ui-monospace,monospace',textTransform:'uppercase',letterSpacing:'.08em',color:'#64748b',fontWeight:700}},'op'), h('select',{value:b.cond.op, onChange:(e)=>this.setOp(b.id,e.target.value), style:{background:'#0b1120',border:'1px solid #243049',borderRadius:8,padding:'8px 11px',color:'#e2e8f0',font:'13px/1 ui-monospace,monospace',fontWeight:700}}, ...this.OPS.map(op=>h('option',{key:op,value:op},op))), h('span',{style:{font:'9px/1.3 ui-monospace,monospace',color:'#475569'}},'9 ops · standard')),
+            b.cond.op==='exists'? h('div',{style:{fontSize:11,color:'#64748b',padding:'6px 0'}},'“exists” — pas d’opérande droite') : this.operandCtrl(b,'right')
+          );
+      sections.push(h('div',{key:'cond'},
+        h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}, h('span',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b'}},'Condition'), h('span',{style:{font:'9.5px/1 ui-monospace,monospace',color:'#64748b'}}, isFree?'escape-hatch':'structured')),
+        builder,
+        h('div',{onClick:()=>this.toggleEscape(b.id), style:{marginTop:9,display:'flex',alignItems:'center',gap:8,padding:'8px 10px',border:'1px dashed #33415c',borderRadius:8,cursor:'pointer'}}, h('span',null,'⚡'), h('span',{style:{fontSize:11,color:'#94a3b8'}}, isFree?'Revenir au builder structuré':'Passer en escape-hatch (texte libre)'), h('span',{style:{marginLeft:'auto',font:'8.5px/1 ui-monospace,monospace',color:'#fcd34d',background:'rgba(251,191,36,0.12)',border:'1px solid rgba(251,191,36,0.3)',borderRadius:4,padding:'2px 6px'}},'standard-only'))
+      ));
+    }
+    if(loop){ const bad=!this.loopOK(b); sections.push(h('div',{key:'cap'}, h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b',marginBottom:7}},'Cap ', h('span',{style:{color:'#f87171'}},'*')), h('input',{type:'number', value:b.cap==null?'':b.cap, placeholder:'required — max iterations', onChange:(e)=>this.setCap(b.id,e.target.value), style:{width:'100%',background:'#0b1120',border:'1px solid '+(bad?'#f87171':'#243049'),borderRadius:8,padding:'8px 10px',color:'#fcd34d',font:'13px/1 ui-monospace,monospace',fontWeight:600}}), bad?h('div',{style:{fontSize:10.5,color:'#f87171',marginTop:5}},'⛔ Un cap (entier > 0) est obligatoire pour toute boucle.'):null)); }
+    const memb=(slot,color,title)=>{ const arr=b[slot]||[]; return h('div',{style:{border:'1px solid '+(color||'#243049'),borderRadius:9,padding:9,background:'#0b1120'}}, h('div',{style:{font:'9.5px/1 ui-monospace,monospace',fontWeight:700,letterSpacing:'.1em',textTransform:'uppercase',color: title==='then'?'#86efac':'#94a3b8',marginBottom:7}}, title), h('div',{style:{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}, ...arr.map(x=>h('span',{key:x.id, style:{display:'inline-flex',alignItems:'center',gap:6,padding:'4px 9px',borderRadius:8,background:'#0f172a',border:'1px solid #243049'}}, h('span',{style:{font:'11px/1 ui-monospace,monospace',fontWeight:700,color:'#e2e8f0'}}, x.type==='ref'?x.phase:('⟦'+x.type+'⟧')), h('span',{onClick:()=>this.removeBlock(x.id), style:{color:'#64748b',cursor:'pointer',fontSize:11}},'✕'))), h('span',{style:{fontSize:11,color:'#64748b'}},'drag from palette →'))); };
+    if(b.type==='if'){ sections.push(h('div',{key:'br'}, h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b',marginBottom:7}},'Branches'), h('div',{style:{display:'flex',flexDirection:'column',gap:8}}, memb('then','rgba(134,239,172,0.3)','then'), memb('else','#243049','else')))); }
+    else { sections.push(h('div',{key:'bd'}, h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b',marginBottom:7}},'Body'), memb('body','#243049','body'))); }
+    return h('div',{style:{display:'flex',flexDirection:'column',minHeight:0,flex:1}}, head,
+      h('div',{style:{padding:14,display:'flex',flexDirection:'column',gap:16,overflow:'auto',flex:1}}, ...sections),
+      h('div',{style:{marginTop:'auto',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderTop:'1px solid #243049'}}, h('span',{onClick:()=>this.removeBlock(b.id), style:{fontSize:11.5,color:'#f87171',cursor:'pointer'}},'Delete gate'), h('button',{onClick:()=>this.setState({selectedGate:null}), style:{background:'rgba(56,189,248,0.15)',color:'#38bdf8',border:'1px solid #38bdf8',borderRadius:6,padding:'6px 16px',fontSize:12,fontWeight:600,cursor:'pointer'}},'Done'))
+    );
+  }
+
+  panelEl(){ const s=this.state; if(!s.orchestration) return null;
+    if(s.selectedAction){ const f=this.findBlock(s.blocks,s.selectedAction); if(f&&f.block.type==='ref') return this.actionPanel(f.block); }
+    if(s.selectedGate){ const f=this.findBlock(s.blocks,s.selectedGate); if(f) return this.gatePanel(f.block); }
+    return null;
+  }
+
+  renderVals(){ const s=this.state; const iss=this.issueList(); const orch=s.orchestration;
+    let gates=0; this.walk(s.blocks,(b)=>{ if(b.type!=='ref') gates++; });
+    const toggle=(on,onC,offC)=> on?onC:offC;
+    const actionSel = orch && s.selectedAction && (()=>{ const f=this.findBlock(s.blocks,s.selectedAction); return f&&f.block.type==='ref'; })();
+    const gateSel = orch && s.selectedGate && !!this.findBlock(s.blocks,s.selectedGate);
+    return {
+      counts: Object.keys(s.phases).length+' actions · 2 groups · '+gates+' gates',
+      save:this.save, toggleGateMenu:this.toggleGateMenu, gateMenuOpen:s.gateMenuOpen, addIf:this.addIf, addLoop:this.addLoop,
+      toggleDeps:this.toggleDeps, toggleOrch:this.toggleOrch,
+      gateBtnBg: s.gateMenuOpen?'rgba(167,139,250,0.28)':'rgba(167,139,250,0.16)', gateBtnColor:'#c4b5fd', gateBtnBorder:'#a78bfa',
+      depsBtnBg: toggle(s.showDeps,'rgba(96,165,250,0.18)','#0f172a'), depsBtnColor: toggle(s.showDeps,'#93c5fd','#64748b'), depsBtnBorder: toggle(s.showDeps,'#60a5fa','#243049'),
+      orchBtnBg: toggle(orch,'rgba(167,139,250,0.16)','#0f172a'), orchBtnColor: toggle(orch,'#c4b5fd','#64748b'), orchBtnBorder: toggle(orch,'#a78bfa','#243049'),
+      hasIssues: iss.length>0, issueCount: iss.length, issuesToggle:this.issuesToggle, issuesOpen:s.issuesOpen, issuesEl:this.issuesEl(),
+      infoToggle:this.infoToggle, infoOpen:s.infoOpen, infoEl:this.infoEl(), infoColor: s.infoOpen?'#7dd3fc':'#64748b', infoBg: s.infoOpen?'rgba(56,189,248,0.12)':'#0f172a', infoBorder: s.infoOpen?'#38bdf8':'#243049',
+      showPalette: orch, paletteEl: this.paletteEl(),
+      showDepsBanner: s.showDeps,
+      bodyEl: orch? this.orchestratedBody() : this.classicBody(),
+      panelOpen: !!(actionSel || gateSel), panelEl: this.panelEl(), drawerWidth: s.drawerWidth+'px',
+      toastOn: s.toast!=null, toastTitle: (s.toast||0)+' problème'+((s.toast||0)>1?'s':'')+' d’orchestration',
+    };
+  }
+}
+</script>
+</body>
+</html>

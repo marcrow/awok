@@ -17,14 +17,15 @@ existing Grid, without regressing any current Grid feature.
 
 ## Companion documents (source of truth for UX — do not duplicate here)
 
-- `~/Downloads/ORCHESTRATION_INTEGRATION.md` — the integration & regression guide.
-  Its §1 (do-not-regress list), §2 (net-new features), §3 (proto bugs to fix on
-  integration), §4 (architecture reconciliation + DECISIONs), §5 (backend
-  contract), §6 (out of scope) are authoritative for **what** the UI does.
-- `~/Downloads/Awok Orchestration.dc.html` — a functional but low-fidelity
-  prototype (React.createElement, hard-coded `recon-flow`, faked levels). It
-  demonstrates the UX; it is **not** the implementation target and its grid must
-  **not** replace the real grid.
+- `docs/superpowers/specs/2026-07-13-orchestration-refs/ORCHESTRATION_INTEGRATION.md`
+  — the integration & regression guide (committed in-repo). Its §1 (do-not-regress
+  list), §2 (net-new features), §3 (proto bugs to fix on integration), §4
+  (architecture reconciliation + DECISIONs), §5 (backend contract), §6 (out of
+  scope) are authoritative for **what** the UI does.
+- `docs/superpowers/specs/2026-07-13-orchestration-refs/orchestration-prototype.dc.html`
+  — a functional but low-fidelity prototype (React/`x-dc`, hard-coded `recon-flow`,
+  faked levels). It demonstrates the UX; it is **not** the implementation target
+  and its grid must **not** replace the real grid.
 - `docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md` —
   the engine/data-model design (block tree, signals, capability frontier).
 
