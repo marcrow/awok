@@ -43,6 +43,11 @@ let dataflow = null;
 // fires when that count RISES (never on an unchanged/decreased count) —
 // prevents spamming a toast on every keystroke-triggered refresh.
 let _lastOrchWarn = 0;
+// Per-workflow baseline arming: reset to false on every loadWorkflow() so the
+// first refreshView() after a (re)load only ESTABLISHES the baseline count
+// (no toast, even if the freshly-loaded workflow already has warnings);
+// subsequent refreshes compare normally against that baseline.
+let _orchToastArmed = false;
 let _orchToastTimer = null;
 
 // --- notice overlay --------------------------------------------------------
@@ -83,6 +88,7 @@ async function loadWorkflow(name) {
   const switching = name !== state.name;   // real switch vs. same-workflow reload (e.g. after Save)
   const { j } = await api("GET", "/api/workflow/" + name);
   state = { ...state, name, model: j.model, view: null, selected: null };
+  _orchToastArmed = false;   // fresh per-workflow baseline; next refreshView() must not toast
   hydrateBlockIds(state.model);
   state.showOrch = !!(state.model.orchestration && state.model.orchestration.length);
   state.selectedGate = null;
@@ -104,8 +110,11 @@ async function refreshView() {
   if (state.tab === "dataflow") dataflow.render();
   setStatus(j.errors && j.errors.length ? "⚠ " + j.errors.length + " schema issue(s)" : "");
   const orchCount = orchestrationWarnList().length;
-  if (orchCount > _lastOrchWarn) showOrchToast(orchCount);
+  // Armed = a per-workflow baseline is established. Not armed (fresh load) →
+  // this refresh only sets the baseline, never fires. Armed → fire only on rise.
+  if (_orchToastArmed && orchCount > _lastOrchWarn) showOrchToast(orchCount);
   _lastOrchWarn = orchCount;
+  _orchToastArmed = true;
 }
 // Server list (state.view.orchestration_warnings, the authority) preferred;
 // falls back to the client mirror orchestrationIssues() for instant feedback
