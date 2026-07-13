@@ -125,7 +125,8 @@ function rowsFromView() {
 }
 function renderGrid() {
   if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors,
-      onDrop: () => {}, onSelectGate: () => {} }); renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
+      onDrop: () => {}, onSelectGate: () => {}, rerender: () => { renderGrid(); applyDrawerLayout(); } });
+    renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
   const byId = {}; (state.model.phases || []).forEach(p => byId[p.id] = p);
@@ -827,6 +828,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);
   $("#add-phase").addEventListener("click", addPhase);
+  $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
   $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
   $("#toggle-orch").addEventListener("click", () => {
     state.showOrch = !state.showOrch; state.selectedGate = null;

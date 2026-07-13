@@ -10,6 +10,63 @@ import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf } from "./ed
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
+// --- gate creation (＋ Gate toolbar button) ----------------------------------
+// Counter starts at 1000 so freshly-created ids ("b1001", "b1002", ...) never
+// collide with hydrateBlockIds' load-time stamping ("b1", "b2", ...).
+let _seq = 1000;
+const newId = () => "b" + (++_seq);
+
+export function addGate(ctx, kind) {
+  const m = ctx.state.model; m.orchestration = m.orchestration || [];
+  const b = kind === "loop"
+    ? { _id: newId(), while: { op: "==", left: "", right: "" }, cap: null, body: [] }
+    : { _id: newId(), if: { op: "==", left: "", right: "" }, then: [], else: [] };
+  m.orchestration.push(b); ctx.state.selectedGate = b._id; ctx.state.selected = null;
+  ctx.rerender();
+}
+
+let _gateMenuEl = null;
+function closeGateMenu() {
+  if (_gateMenuEl) { _gateMenuEl.remove(); _gateMenuEl = null; }
+  document.removeEventListener("mousedown", onGateMenuOutsideClick, true);
+  document.removeEventListener("keydown", onGateMenuKeydown, true);
+}
+function onGateMenuOutsideClick(e) {
+  if (_gateMenuEl && !_gateMenuEl.contains(e.target)) closeGateMenu();
+}
+function onGateMenuKeydown(e) {
+  if (e.key === "Escape") closeGateMenu();
+}
+
+export function openGateMenu(ctx, buttonEl) {
+  closeGateMenu();
+  const menu = document.createElement("div"); menu.className = "gate-menu";
+  const items = [
+    { label: "◆ Condition", kind: "if" },
+    { label: "↻ Loop", kind: "loop" },
+  ];
+  items.forEach(it => {
+    const item = document.createElement("button"); item.type = "button";
+    item.className = "gate-menu-item"; item.textContent = it.label;
+    item.addEventListener("click", e => {
+      e.stopPropagation();
+      closeGateMenu();
+      addGate(ctx, it.kind);
+    });
+    menu.appendChild(item);
+  });
+  document.body.appendChild(menu);
+  const rect = buttonEl.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 6) + "px";
+  menu.style.left = rect.left + "px";
+  _gateMenuEl = menu;
+  // deferred so the click that opened the menu doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener("mousedown", onGateMenuOutsideClick, true);
+    document.addEventListener("keydown", onGateMenuKeydown, true);
+  }, 0);
+}
+
 export function renderProgram(ctx) {
   CTX = ctx;
   const { state } = ctx;
