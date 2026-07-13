@@ -95,6 +95,7 @@
         "description": { "type": "string" },
         "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
         "effort": { "enum": ["low", "medium", "high", "xhigh", "max", "inherit"] },
+        "tools": { "type": "array", "items": { "type": "string" }, "description": "Per-invocation tool allow-list, materialized into the agent's deployed frontmatter at deploy (like effort — the Task tool has no tools arg). Absent/empty → the agent's source frontmatter tools apply. Across workflows, conflicting pins for one shared agent are dropped with a warning at deploy (source tools kept)." },
         "background": { "type": "boolean" },
         "depends_on_invocation": { "type": "string" },
         "skip_if": { "type": "string" },
@@ -168,6 +169,7 @@
         "description": { "type": "string" },
         "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
         "effort": { "enum": ["low", "medium", "high", "xhigh", "max", "inherit"] },
+        "tools": { "type": "array", "items": { "type": "string" }, "description": "Per-invocation tool allow-list, materialized into the agent's deployed frontmatter at deploy (like effort). Absent/empty → the agent's source frontmatter tools apply." },
         "triggered_by": {
           "type": "array",
           "items": { "type": "string" }

@@ -41,3 +41,17 @@ def test_invalid_phase_id_pattern_fails(bbw_module):
     }
     errors = bbw_module.validate_schema(wf)
     assert any("invalid-lowercase" in e or "pattern" in e for e in errors)
+
+
+def test_invocation_tools_validates(bbw_module):
+    """A per-invocation `tools` array (materialized into the agent frontmatter at deploy)
+    is accepted, on both a phase invocation and an on-demand agent."""
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "x", "description": "d"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [{"id": "P", "name": "P", "group": "g",
+                    "invocations": [{"agent": "a", "tools": ["Read", "Grep"]}]}],
+        "on_demand_agents": [{"agent": "b", "description": "d", "tools": ["Bash"]}],
+    }
+    assert bbw_module.validate_schema(wf) == []
