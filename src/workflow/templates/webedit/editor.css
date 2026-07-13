@@ -596,3 +596,34 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .gate-menu-item{background:transparent;border:none;color:var(--text);font:12px/1 var(--sans);text-align:left;
   padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px}
 .gate-menu-item:hover{background:var(--well);color:var(--accent)}
+
+/* ---- gate edit panel (Task 10) ---- */
+.op-box{border-radius:9px;padding:9px;border:1px solid var(--border);margin-bottom:8px}
+.op-box.signal{border-color:rgba(56,189,248,0.4);background:rgba(56,189,248,0.06)}
+.op-box.literal{border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.06)}
+.op-box.builtin{border-color:rgba(167,139,250,0.4);background:rgba(167,139,250,0.06)}
+.op-box-label{font:8.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+  font-weight:700;margin-bottom:6px}
+.op-box.signal .op-box-label{color:var(--accent)}
+.op-box.literal .op-box-label{color:var(--warn-2)}
+.op-box.builtin .op-box-label{color:var(--violet-2)}
+.op-kind-seg{display:flex;gap:3px;margin-bottom:7px}
+.op-kind-btn{flex:1;text-align:center;font-size:9.5px;padding:4px 2px;border-radius:5px;
+  background:transparent;color:var(--dim);border:1px solid var(--border)}
+.op-kind-btn.active{font-weight:700}
+.op-box.signal .op-kind-btn.active{background:rgba(56,189,248,0.16);color:var(--accent);border-color:rgba(56,189,248,0.4)}
+.op-box.literal .op-kind-btn.active{background:rgba(251,191,36,0.16);color:var(--warn-2);border-color:rgba(251,191,36,0.4)}
+.op-box.builtin .op-kind-btn.active{background:rgba(167,139,250,0.16);color:var(--violet-2);border-color:rgba(167,139,250,0.4)}
+.op-box select,.op-box input[type=text]{width:100%;background:var(--well);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;color:var(--text);font:12px/1 var(--mono)}
+.op-box.signal select{color:var(--accent)}
+.op-box.literal input{color:var(--warn-2);font-weight:600}
+.op-box.builtin select,.op-box.builtin input{color:var(--violet-2)}
+.op-builtin-row{display:flex;gap:6px}
+.op-builtin-row select{flex:0 0 auto;width:auto}
+.op-builtin-row input{flex:1 1 auto}
+.escape-toggle{margin-top:9px;display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border:1px dashed var(--border-2);border-radius:8px;cursor:pointer;font-size:11px;color:var(--muted)}
+.standard-only-tag{margin-left:auto;font:8.5px/1 var(--mono);color:var(--warn-2);
+  background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:2px 6px}
+.cap-invalid{border-color:var(--bad)!important}

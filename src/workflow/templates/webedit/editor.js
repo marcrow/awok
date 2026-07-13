@@ -6,7 +6,7 @@ import { safeDropDepends, blockedDependents, buildNotice,
          opportunisticMode, opportunisticGuidance, setOpportunistic,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
-         aggregateInvocationIo, iterBlocks, blockConstruct } from "./editlogic.js";
+         aggregateInvocationIo, iterBlocks, blockConstruct, findBlock } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
@@ -125,7 +125,7 @@ function rowsFromView() {
 }
 function renderGrid() {
   if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors,
-      onDrop: () => {}, onSelectGate: () => {}, rerender: () => { renderGrid(); applyDrawerLayout(); } });
+      onDrop: () => {}, onSelectGate: selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } });
     renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
@@ -360,7 +360,7 @@ function addGroup() {
 function applyDrawerLayout() {
   // The drawer only belongs to the Grid view — hide it (without losing the
   // selection) when the user switches to Dataflow/Settings/YAML.
-  const open = !!state.selected && state.tab === "grid";
+  const open = (!!state.selected || !!state.selectedGate) && state.tab === "grid";
   document.body.classList.toggle("drawer-open", open);
   $("#edit-panel").hidden = !open;
   $("#panel-grid").style.marginRight = open ? state.panelWidth + "px" : "";
@@ -409,6 +409,20 @@ function selectPhase(id) {
   renderGrid();
 }
 function closeDrawer() { state.selected = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
+
+// --- drawer (gate editor — Task 10) -----------------------------------------
+// Selecting an ON-path gate (orchestration block) opens the gate panel instead
+// of the phase drawer; selecting an action still goes through selectPhase
+// unchanged. Mutually exclusive with state.selected (only one drawer at a time).
+function selectGate(id) {
+  state.selectedGate = id; state.selected = null;
+  const f = findBlock(state.model.orchestration || [], id); if (!f) return;
+  const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
+  panel.style.width = state.panelWidth + "px"; ensureResizeGrip(panel);
+  panel.appendChild(orch.gatePanel({ state, refreshView, rerender: () => { renderGrid(); }, close: closeGate }, f.block));
+  applyDrawerLayout(); renderGrid();
+}
+function closeGate() { state.selectedGate = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
 
 function drawPriorityFields(body, p) {
   body.appendChild(fieldText("Name", p.name || "", v => { p.name = v; refreshView(); }));
@@ -771,7 +785,7 @@ function modelForSave() {
   // Strip editor-only transient keys (standalone file blocks, block _id) so they
   // never leak into the persisted YAML.
   const m = JSON.parse(JSON.stringify(state.model)); delete m.files;
-  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
+  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
   return m;
 }
 // Canonical string of what would be persisted — the unit of unsaved-changes

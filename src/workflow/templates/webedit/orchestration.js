@@ -6,7 +6,7 @@
 // (construct name is the key: {if:{cond},then,else} / {while:{cond},cap,body} /
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
-import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf } from "./editlogic.js";
+import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock } from "./editlogic.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
@@ -295,4 +295,340 @@ export function renderTray(ctx) {
   wrap.appendChild(label);
   unused.forEach(p => wrap.appendChild(phaseChip(p, colors)));
   return wrap;
+}
+
+// ============================================================================
+// Gate edit panel (Task 10) — construct, condition builder, cap, for_each.
+// Translated from the proto's gatePanel/operandCtrl/setConstruct/setOp/
+// setOperand/setCap/setList/setAs/toggleEscape (docs/superpowers/specs/
+// 2026-07-13-orchestration-refs/orchestration-prototype.dc.html, class
+// Component extends DCLogic) to vanilla DOM + the ENGINE block shape:
+// construct name IS the key ({if:{cond},then,else} / {while:{cond},cap,body} /
+// {for_each:"sig",as,cap,body}) — no {type,cond} tagging as in the proto.
+//
+// Condition shape on disk: {op, left, right} (schema: left/right are
+// UNTYPED — `{}` in orchestration.schema.json — not constrained to scalars).
+// A signal operand is the signal-key string ("recon.endpoints"); a literal is
+// its text; a builtin is a ONE-KEY OBJECT ({file_exists: "path"} /
+// {dir_exists: "path"}) — confirmed against bb-workflow's _operand_type()
+// (isinstance(operand, dict) -> "builtin") and the existing fixture
+// {"if": {"op": "exists", "left": {"file_exists": "x.txt"}}} in
+// test_workflow_orchestration.py, and already how condEl()/operandEl() above
+// render a builtin. The escape-hatch condition is a bare string in place of
+// the {op,left,right} object.
+// ============================================================================
+const OPS = ["==", "!=", "<", ">", "<=", ">=", "contains", "matches", "exists"];
+const BUILTINS = ["file_exists", "dir_exists"];
+function defaultCond() { return { op: "==", left: "", right: "" }; }
+
+// Reshape `block`'s keys IN PLACE to the target construct kind, preserving the
+// condition (if/while/until — structured or escape-hatch string) and the child
+// blocks (then+else <-> body) across the switch. `_id` is left untouched.
+export function setConstruct(block, kind) {
+  if (blockConstruct(block) === kind) return;
+  const cond = condOf(block);                                                  // existing if/while/until condition, or null
+  const kids = (block.then || block.body || []).concat(block.else || []);      // preserved children
+  const oldForEach = typeof block.for_each === "string" ? block.for_each : "";
+  const oldAs = block.as;
+  const oldCap = "cap" in block ? block.cap : null;
+
+  delete block.if; delete block.while; delete block.until; delete block.for_each;
+  delete block.then; delete block.else; delete block.body; delete block.as; delete block.cap;
+
+  if (kind === "if") {
+    block.if = cond != null ? cond : defaultCond();
+    block.then = kids;
+    block.else = [];
+  } else if (kind === "for_each") {
+    block.for_each = oldForEach;
+    block.as = oldAs || "item";
+    block.cap = oldCap;             // never auto-fill — an empty/invalid cap is a valid (warning-only) state
+    block.body = kids;
+  } else { // while / until
+    block[kind] = cond != null ? cond : defaultCond();
+    block.cap = oldCap;
+    block.body = kids;
+  }
+}
+
+export function setOp(block, op) {
+  const k = blockConstruct(block);
+  const cond = block[k];
+  if (!cond || typeof cond !== "object") block[k] = { op, left: "", right: "" };
+  else cond.op = op;
+}
+export function setOperand(block, side, value) {
+  const cond = block[blockConstruct(block)];
+  if (!cond || typeof cond !== "object") return;
+  cond[side] = value;
+}
+export function toggleEscape(block) {
+  const k = blockConstruct(block);
+  block[k] = (typeof block[k] === "string") ? defaultCond() : "";
+}
+export function setCap(block, raw) {
+  const n = parseInt(raw, 10);
+  block.cap = (raw === "" || Number.isNaN(n)) ? null : n;   // no auto-fill; empty/bad stays invalid on purpose
+}
+export function setList(block, v) { block.for_each = v; }
+export function setAs(block, v) { block.as = v; }
+
+// Splice `block` out of whatever array (top-level or a nested then/else/body)
+// currently holds it, via findBlock — which returns the real parent array
+// reference regardless of nesting depth.
+export function removeBlock(ctx, block) {
+  const roots = ctx.state.model.orchestration || [];
+  const f = findBlock(roots, block._id);
+  if (f) f.parent.splice(f.index, 1);
+  ctx.state.selectedGate = null;
+  ctx.refreshView();
+  ctx.close();
+}
+
+// Every gate-panel edit follows the same aftermath: mutate the block in
+// place (above), refresh the server-side warnings/overlay, rerender the grid
+// (so the gate chip updates live), and redraw the panel itself (structural
+// changes — construct switch, op flipping to/from "exists" — change what the
+// panel shows next).
+function applyGateEdit(ctx) {
+  ctx.refreshView();
+  ctx.rerender();
+  ctx.redraw();
+}
+
+// --- operand kind (transient, UI-only — NOT serialized; stripped in
+// editor.js's modelForSave alongside `_id`) -----------------------------------
+function operandKindKey(side) { return side === "left" ? "_leftKind" : "_rightKind"; }
+function deriveOperandKind(value, sigKeys) {
+  if (value && typeof value === "object") return "builtin";
+  if (typeof value === "string" && sigKeys.has(value)) return "signal";
+  return "literal";
+}
+// Derived once (on first render) from the operand's current value, then
+// cached on the block so flipping through kinds in the UI doesn't re-derive
+// from a value the user is actively editing away from.
+function operandKind(block, side, sigKeys) {
+  const key = operandKindKey(side);
+  if (!block[key]) {
+    const cond = block[blockConstruct(block)];
+    const value = (cond && typeof cond === "object") ? cond[side] : undefined;
+    block[key] = deriveOperandKind(value, sigKeys);
+  }
+  return block[key];
+}
+
+// INTERIM signal operand control — a flat <select> of every signal declared
+// anywhere in the workflow. Task 11 replaces this body with the proto's
+// grouped-by-phase signalPicker (+ "declare a new signal on a phase" inline
+// form) — this function is the seam it plugs into; nothing else in gatePanel
+// needs to change when it lands.
+function signalOperandControl(ctx, block, side, cond) {
+  const sel = document.createElement("select"); sel.className = "op-select";
+  const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "◈ pick a signal…"; sel.appendChild(o0);
+  signalsOf(ctx.state.model).forEach(s => {
+    const o = document.createElement("option"); o.value = s.key; o.textContent = s.key + " · " + s.type;
+    if (cond && cond[side] === s.key) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", () => { setOperand(block, side, sel.value); applyGateEdit(ctx); });
+  return sel;
+}
+
+function builtinOperandControl(ctx, block, side, cond) {
+  const wrap = document.createElement("div"); wrap.className = "op-builtin-row";
+  const cur = (cond && cond[side] && typeof cond[side] === "object") ? cond[side] : {};
+  const entry = Object.entries(cur)[0] || [BUILTINS[0], ""];
+  const sel = document.createElement("select");
+  BUILTINS.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; if (n === entry[0]) o.selected = true; sel.appendChild(o); });
+  const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "path"; inp.value = entry[1] || "";
+  const commit = () => { setOperand(block, side, { [sel.value]: inp.value }); applyGateEdit(ctx); };
+  sel.addEventListener("change", commit);
+  inp.addEventListener("change", commit);
+  wrap.appendChild(sel); wrap.appendChild(inp);
+  return wrap;
+}
+
+function literalOperandControl(ctx, block, side, cond) {
+  const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "literal value";
+  const v = cond ? cond[side] : undefined;
+  inp.value = (typeof v === "string") ? v : (v == null ? "" : String(v));
+  inp.addEventListener("change", () => { setOperand(block, side, inp.value); applyGateEdit(ctx); });
+  return inp;
+}
+
+// One operand (left/right) of a structured condition: a kind segmented
+// control (◈ signal / literal / builtin — the right side has no builtin
+// option, per the brief) + the operand's own control, tinted by kind via the
+// wrapping .op-box.<kind> (CSS in editor.css).
+function operandCtrl(ctx, block, side) {
+  const cond = block[blockConstruct(block)];
+  const sigKeys = new Set(signalsOf(ctx.state.model).map(s => s.key));
+  const kind = operandKind(block, side, sigKeys);
+  const box = document.createElement("div"); box.className = "op-box " + kind;
+
+  const label = document.createElement("div"); label.className = "op-box-label"; label.textContent = side + " operand";
+  box.appendChild(label);
+
+  const kinds = side === "left" ? ["signal", "literal", "builtin"] : ["signal", "literal"];
+  const seg = document.createElement("div"); seg.className = "op-kind-seg";
+  kinds.forEach(k => {
+    const btn = document.createElement("button"); btn.type = "button";
+    btn.className = "op-kind-btn" + (k === kind ? " active" : "");
+    btn.textContent = k === "signal" ? "◈ signal" : k;
+    btn.addEventListener("click", () => {
+      if (k === kind) return;
+      block[operandKindKey(side)] = k;
+      setOperand(block, side, k === "builtin" ? { [BUILTINS[0]]: "" } : "");
+      applyGateEdit(ctx);
+    });
+    seg.appendChild(btn);
+  });
+  box.appendChild(seg);
+
+  if (kind === "signal") box.appendChild(signalOperandControl(ctx, block, side, cond));
+  else if (kind === "builtin") box.appendChild(builtinOperandControl(ctx, block, side, cond));
+  else box.appendChild(literalOperandControl(ctx, block, side, cond));
+  return box;
+}
+
+// --- the panel itself --------------------------------------------------------
+// ctx = { state, refreshView, rerender, close } (see editor.js selectGate).
+// gatePanel adds a `redraw` seam onto ctx so every setter above can rebuild
+// the panel's own content after a structural edit, without editor.js needing
+// to know anything about the gate's internals.
+export function gatePanel(ctx, block) {
+  const panel = document.createElement("div");
+  panel.style.cssText = "display:flex;flex-direction:column;min-height:0;flex:1 1 auto;height:100%";
+
+  function draw() {
+    panel.replaceChildren();
+    const kind = blockConstruct(block);
+    const loop = isLoopBlock(block);
+
+    // header
+    const head = document.createElement("div"); head.className = "drawer-head";
+    const top = document.createElement("div"); top.className = "top";
+    const icon = document.createElement("span");
+    icon.className = loop ? "gate-icon-loop" : "gate-icon-if";
+    if (loop) icon.textContent = "↻";
+    top.appendChild(icon);
+    const title = document.createElement("span"); title.style.cssText = "font-weight:700;font-size:13.5px";
+    title.textContent = loop ? "Loop block" : "Condition block";
+    top.appendChild(title);
+    const closeBtn = document.createElement("button"); closeBtn.className = "drawer-close"; closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", ctx.close);
+    top.appendChild(closeBtn);
+    head.appendChild(top);
+    panel.appendChild(head);
+
+    // body
+    const body = document.createElement("div"); body.className = "drawer-body";
+
+    const sub = (text) => { const h = document.createElement("div"); h.className = "sub-head"; h.textContent = text; return h; };
+
+    body.appendChild(sub("Construct"));
+    const seg = document.createElement("div"); seg.className = "seg";
+    [["if", "if"], ["while", "while"], ["until", "until"], ["for_each", "for each"]].forEach(([k, lbl]) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = lbl;
+      if (k === kind) b.classList.add("active");
+      b.addEventListener("click", () => { if (k === kind) return; setConstruct(block, k); applyGateEdit(ctx); });
+      seg.appendChild(b);
+    });
+    body.appendChild(seg);
+
+    if (kind === "for_each") {
+      body.appendChild(sub("Iterate"));
+      const row = document.createElement("div"); row.className = "row-2";
+      const listCol = document.createElement("div");
+      const listLbl = document.createElement("label"); listLbl.textContent = "list signal"; listCol.appendChild(listLbl);
+      const listSel = document.createElement("select");
+      const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "pick a list…"; listSel.appendChild(o0);
+      signalsOf(ctx.state.model).filter(s => s.type === "list").forEach(s => {
+        const o = document.createElement("option"); o.value = s.key; o.textContent = s.key;
+        if (block.for_each === s.key) o.selected = true;
+        listSel.appendChild(o);
+      });
+      listSel.addEventListener("change", () => { setList(block, listSel.value); applyGateEdit(ctx); });
+      listCol.appendChild(listSel);
+      const asCol = document.createElement("div");
+      const asLbl = document.createElement("label"); asLbl.textContent = "as"; asCol.appendChild(asLbl);
+      const asInp = document.createElement("input"); asInp.type = "text"; asInp.value = block.as || "";
+      asInp.addEventListener("change", () => { setAs(block, asInp.value); applyGateEdit(ctx); });
+      asCol.appendChild(asInp);
+      row.appendChild(listCol); row.appendChild(asCol);
+      body.appendChild(row);
+    }
+
+    if (kind === "if" || kind === "while" || kind === "until") {
+      const cond = block[kind];
+      const isFree = typeof cond === "string";
+      body.appendChild(sub("Condition"));
+
+      if (isFree) {
+        const ta = document.createElement("textarea"); ta.rows = 3; ta.value = cond || "";
+        ta.placeholder = "natural-language predicate…"; ta.style.fontStyle = "italic";
+        ta.addEventListener("change", () => { block[kind] = ta.value; applyGateEdit(ctx); });
+        body.appendChild(ta);
+      } else {
+        body.appendChild(operandCtrl(ctx, block, "left"));
+        const opRow = document.createElement("div"); opRow.style.cssText = "display:flex;align-items:center;gap:8px;margin:2px 0 8px";
+        const opLbl = document.createElement("span");
+        opLbl.style.cssText = "font:9px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700";
+        opLbl.textContent = "op";
+        opRow.appendChild(opLbl);
+        const opSel = document.createElement("select"); opSel.style.width = "auto";
+        OPS.forEach(op => { const o = document.createElement("option"); o.value = op; o.textContent = op; if (op === cond.op) o.selected = true; opSel.appendChild(o); });
+        opSel.addEventListener("change", () => { setOp(block, opSel.value); applyGateEdit(ctx); });
+        opRow.appendChild(opSel);
+        body.appendChild(opRow);
+        if (cond.op !== "exists") body.appendChild(operandCtrl(ctx, block, "right"));
+      }
+
+      const esc = document.createElement("div"); esc.className = "escape-toggle";
+      const bolt = document.createElement("span"); bolt.textContent = "⚡"; esc.appendChild(bolt);
+      const escLbl = document.createElement("span");
+      escLbl.textContent = isFree ? "Back to the structured builder" : "Switch to escape-hatch (free text)";
+      esc.appendChild(escLbl);
+      const escTag = document.createElement("span"); escTag.className = "standard-only-tag"; escTag.textContent = "standard-only";
+      esc.appendChild(escTag);
+      esc.addEventListener("click", () => { toggleEscape(block); applyGateEdit(ctx); });
+      body.appendChild(esc);
+    }
+
+    if (loop) {
+      const capOk = Number.isInteger(block.cap) && block.cap > 0;
+      const capHead = document.createElement("div"); capHead.className = "sub-head";
+      capHead.appendChild(document.createTextNode("Cap "));
+      const star = document.createElement("span"); star.style.color = "var(--bad)"; star.textContent = "*";
+      capHead.appendChild(star);
+      body.appendChild(capHead);
+      const capInp = document.createElement("input"); capInp.type = "number";
+      capInp.placeholder = "required — max iterations";
+      capInp.value = block.cap == null ? "" : block.cap;
+      if (!capOk) capInp.classList.add("cap-invalid");
+      capInp.addEventListener("change", () => { setCap(block, capInp.value); applyGateEdit(ctx); });
+      body.appendChild(capInp);
+      if (!capOk) {
+        const warn = document.createElement("div"); warn.className = "help-note"; warn.style.color = "var(--bad)";
+        warn.textContent = "⛔ A cap (integer > 0) is mandatory for every loop.";
+        body.appendChild(warn);
+      }
+    }
+
+    panel.appendChild(body);
+
+    // footer
+    const foot = document.createElement("div"); foot.className = "drawer-foot";
+    const del = document.createElement("button"); del.className = "btn-del"; del.textContent = "Delete gate";
+    del.addEventListener("click", () => removeBlock(ctx, block));
+    foot.appendChild(del);
+    const done = document.createElement("button"); done.className = "btn-done"; done.textContent = "Done";
+    done.addEventListener("click", ctx.close);
+    foot.appendChild(done);
+    panel.appendChild(foot);
+  }
+
+  ctx.redraw = draw;   // seam every setter above calls after mutating `block`
+  draw();
+  return panel;
 }
