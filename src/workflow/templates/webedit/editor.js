@@ -34,6 +34,9 @@ let state = {
   tab: "grid", drawerTab: "wiring", panelWidth: 480, showLinks: false,
   dragId: null, legendOpen: true,
   showOrch: false, selectedGate: null,
+  // Reserved for the future JS ("dynamic") compile target — no functional
+  // effect yet; only "standard" is selectable (Task 15).
+  target: "standard",
 };
 
 let dataflow = null;
@@ -201,6 +204,90 @@ function openOrchIssuesPopover(anchorEl) {
   setTimeout(() => {
     document.addEventListener("mousedown", onOrchIssuesPopOutsideClick, true);
     document.addEventListener("keydown", onOrchIssuesPopKeydown, true);
+  }, 0);
+}
+
+// --- target selector popover (Task 15) --------------------------------------
+// state.target is reserved for the future JS ("dynamic") compile target and
+// has no functional effect yet — only "standard" is selectable; "dynamic" is
+// shown disabled with a "soon" note. Same outside-click/Escape dismiss idiom
+// as openGateMenu (orchestration.js) / openOrchIssuesPopover above.
+let _targetMenuEl = null;
+function closeTargetMenu() {
+  if (_targetMenuEl) { _targetMenuEl.remove(); _targetMenuEl = null; }
+  document.removeEventListener("mousedown", onTargetMenuOutsideClick, true);
+  document.removeEventListener("keydown", onTargetMenuKeydown, true);
+}
+function onTargetMenuOutsideClick(e) { if (_targetMenuEl && !_targetMenuEl.contains(e.target)) closeTargetMenu(); }
+function onTargetMenuKeydown(e) { if (e.key === "Escape") closeTargetMenu(); }
+function openTargetMenu(anchorEl) {
+  closeTargetMenu();
+  const menu = document.createElement("div"); menu.className = "gate-menu";
+  const std = document.createElement("button"); std.type = "button";
+  std.className = "gate-menu-item";
+  std.textContent = "standard" + (state.target === "standard" ? " ✓" : "");
+  std.addEventListener("click", e => {
+    e.stopPropagation();
+    state.target = "standard"; $("#target-val").textContent = "standard";
+    closeTargetMenu();
+  });
+  menu.appendChild(std);
+  const dyn = document.createElement("button"); dyn.type = "button";
+  dyn.className = "gate-menu-item"; dyn.disabled = true;
+  dyn.title = "Dynamic (JS) compile target — coming soon";
+  dyn.innerHTML = 'dynamic <span style="color:var(--muted);font-size:9.5px;margin-left:6px">soon</span>';
+  menu.appendChild(dyn);
+  document.body.appendChild(menu);
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 6) + "px";
+  menu.style.left = rect.left + "px";
+  _targetMenuEl = menu;
+  setTimeout(() => {
+    document.addEventListener("mousedown", onTargetMenuOutsideClick, true);
+    document.addEventListener("keydown", onTargetMenuKeydown, true);
+  }, 0);
+}
+
+// --- ⓘ not-implemented tracker popover (Task 15) ----------------------------
+// Static list, kept accurate to what actually shipped, so a maintainer's
+// manual pass knows the boundary without re-deriving it from the diff.
+const NOT_DONE = [
+  "Compile target: only “standard” (Claude-Code-only) is wired. “dynamic” " +
+    "(JS, for a browser-side interpreter) is selectable in the target menu but disabled " +
+    "— there is no per-capability greying yet for js-unsafe operators/builtins.",
+  "Gate drag-reorder / re-nesting: dragging an action card into a gate's slot " +
+    "(then / else / loop body) works, but reordering gates themselves, moving a gate " +
+    "across nesting levels, or dropping one on a top-level “root” zone is not implemented.",
+  "parallel construct: present in the schema (block.parallel) and never removed, but " +
+    "has no editor UI by design — awok is parallel-by-default via depends_on, so the " +
+    "block renders as an inert placeholder in the program view.",
+];
+let _infoPopEl = null;
+function closeInfoPopover() {
+  if (_infoPopEl) { _infoPopEl.remove(); _infoPopEl = null; }
+  document.removeEventListener("mousedown", onInfoPopOutsideClick, true);
+  document.removeEventListener("keydown", onInfoPopKeydown, true);
+}
+function onInfoPopOutsideClick(e) { if (_infoPopEl && !_infoPopEl.contains(e.target)) closeInfoPopover(); }
+function onInfoPopKeydown(e) { if (e.key === "Escape") closeInfoPopover(); }
+function openInfoPopover(anchorEl) {
+  closeInfoPopover();
+  const pop = document.createElement("div"); pop.className = "info-popover";
+  const head = document.createElement("div"); head.className = "info-popover-head";
+  head.textContent = "Not yet implemented";
+  pop.appendChild(head);
+  NOT_DONE.forEach(txt => {
+    const item = document.createElement("div"); item.className = "info-popover-item"; item.textContent = txt;
+    pop.appendChild(item);
+  });
+  document.body.appendChild(pop);
+  const rect = anchorEl.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + "px";
+  pop.style.right = (window.innerWidth - rect.right) + "px";
+  _infoPopEl = pop;
+  setTimeout(() => {
+    document.addEventListener("mousedown", onInfoPopOutsideClick, true);
+    document.addEventListener("keydown", onInfoPopKeydown, true);
   }, 0);
 }
 
@@ -956,6 +1043,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);
   $("#add-phase").addEventListener("click", addPhase);
+  $("#target-pill").addEventListener("click", (e) => openTargetMenu(e.currentTarget));
+  $("#info-btn").addEventListener("click", (e) => openInfoPopover(e.currentTarget));
   $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
   $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
   $("#toggle-orch").addEventListener("click", () => {

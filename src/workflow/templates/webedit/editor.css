@@ -617,6 +617,18 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .gate-menu-item{background:transparent;border:none;color:var(--text);font:12px/1 var(--sans);text-align:left;
   padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px}
 .gate-menu-item:hover{background:var(--well);color:var(--accent)}
+.gate-menu-item:disabled{opacity:.5;cursor:not-allowed}
+.gate-menu-item:disabled:hover{background:transparent;color:var(--text)}
+
+/* ⓘ not-implemented tracker popover (Task 15) — same fixed-dropdown idiom as
+   .orch-issues-popover/.sig-popover, neutral tint (informational, not a warning) */
+.info-popover{position:fixed;z-index:95;background:var(--panel);border:1px solid var(--border);
+  border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,0.5);padding:8px;display:flex;flex-direction:column;
+  gap:7px;min-width:260px;max-width:380px;max-height:70vh;overflow-y:auto}
+.info-popover-head{font:9.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+  font-weight:700;padding:2px 2px 4px}
+.info-popover-item{font:11.5px/1.5 var(--sans);color:var(--text);padding:6px 7px;border-radius:6px;
+  background:var(--well)}
 
 /* Signal picker button + popover (Task 11) */
 .sig-picker-btn{width:100%;text-align:left;background:var(--well);border:1px solid var(--border);
