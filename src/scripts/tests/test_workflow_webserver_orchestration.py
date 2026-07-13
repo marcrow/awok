@@ -88,3 +88,35 @@ def test_save_without_orch_removes_stale_sibling(bbw_module, tmp_path, restore_r
     res = bbw_module.save_workflow("w", model, wfs, agents)
     assert res["errors"] == []
     assert not (wfs / "w.orchestration.yaml").exists()   # stale sibling removed
+
+
+def test_roundtrip_load_edit_save(bbw_module, tmp_path, restore_roots):
+    import yaml
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    _write(wfs, "w.yaml", """
+        schema_version: 1
+        skill: {name: w, description: x}
+        groups: {g: {description: x}}
+        phases:
+          - {id: RECON, name: r, group: g, emits: [{name: endpoints, type: list, source: field, from: recon.json}]}
+          - {id: SCAN, name: s, group: g}
+          - {id: EXPLOIT, name: e, group: g}
+    """)
+    _write(wfs, "w.orchestration.yaml", """
+        - ref: RECON
+        - for_each: recon.endpoints
+          as: ep
+          cap: 100
+          body:
+            - ref: SCAN
+    """)
+    payload = bbw_module.read_workflow_payload(wfs / "w.yaml")
+    model = payload["model"]
+    assert model["orchestration"][1]["for_each"] == "recon.endpoints"
+    model["orchestration"][1]["cap"] = 50           # edit the cap
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] == [] and res["warnings"] == []
+    reload = bbw_module.read_workflow_payload(wfs / "w.yaml")["model"]
+    assert reload["orchestration"][1]["cap"] == 50
+    assert "orchestration" not in yaml.safe_load((wfs / "w.yaml").read_text())
