@@ -656,6 +656,25 @@ def _detect_cycle(phases: list):
     return None
 
 
+def collect_signals(workflow: dict) -> dict:
+    """Map declared signals to their metadata, keyed '<pid_lower>.<name>'.
+
+    Only explicit `emits` populate the map. A condition may also reference a
+    field of a json output ('<pid_lower>.<field>') that is not declared here;
+    such references are typed on the condition itself, not from this map."""
+    signals = {}
+    for phase in workflow.get("phases", []):
+        pid = phase["id"]
+        for emit in phase.get("emits", []) or []:
+            key = f"{pid.lower()}.{emit['name']}"
+            signals[key] = {
+                "type": emit.get("type"),
+                "source": emit.get("source"),
+                "phase": pid,
+            }
+    return signals
+
+
 def validate_coherence(workflow: dict, agents_dir: Path = None,
                        workflows_dir: Path = None) -> list:
     """Validate cross-references: agents exist, depends_on valid, conditions
