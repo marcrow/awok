@@ -61,3 +61,30 @@ def test_view_payload_no_orch_is_quiet(bbw_module):
     payload = bbw_module.build_view_payload(model)
     assert payload["orchestration_overlay"] == {} or payload["orchestration_overlay"].get("branches") in (None, [], {})
     assert payload["orchestration_warnings"] == []
+
+
+def test_save_splits_sibling_and_is_warning_only(bbw_module, tmp_path, restore_roots):
+    import yaml
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    model = _wf_with_orch([{"while": {"op": "==", "left": "recon.endpoints", "right": "x"},
+                            "body": [{"ref": "SCAN"}]}])  # capless loop -> warning
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] == []                     # NOT blocked despite capless loop
+    assert any("cap" in w for w in res["warnings"])
+    base = yaml.safe_load((wfs / "w.yaml").read_text())
+    assert "orchestration" not in base             # stripped from base file
+    sib = yaml.safe_load((wfs / "w.orchestration.yaml").read_text())
+    assert sib and sib[0]["while"]                 # written to sibling
+
+
+def test_save_without_orch_removes_stale_sibling(bbw_module, tmp_path, restore_roots):
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    (wfs / "w.orchestration.yaml").write_text("- ref: SCAN\n")   # stale
+    model = {"schema_version": 1, "skill": {"name": "w", "description": "x"},
+             "groups": {"g": {"description": "x"}},
+             "phases": [{"id": "SCAN", "name": "s", "group": "g"}]}
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] == []
+    assert not (wfs / "w.orchestration.yaml").exists()   # stale sibling removed

@@ -393,24 +393,39 @@ def is_valid_slug(name: str) -> bool:
 
 
 def save_workflow(name: str, model: dict, workflows_dir: Path = None,
-                  agents_dir: Path = None) -> list:
-    """Validate then write. Returns [] on success, list of errors otherwise."""
+                  agents_dir: Path = None) -> dict:
+    """Validate then write. Returns {"errors": [...], "warnings": [...]}.
+    Structural errors (schema/coherence) block the write. Semantic
+    orchestration issues are WARNINGS — the files are still written so the
+    author never loses in-progress work. The 'orchestration' key is split off
+    the base <name>.yaml into the <name>.orchestration.yaml sibling."""
     workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
     agents_dir = agents_dir or DEFAULT_AGENTS_DIR
     if not is_valid_slug(name):
-        return [f"invalid workflow name: {name!r}"]
+        return {"errors": [f"invalid workflow name: {name!r}"], "warnings": []}
     apply_parallel_with(model, compute_levels(model))
-    errors = validate_schema(model)
+    errors = validate_schema(model)                 # includes orchestration SCHEMA (structural)
     if errors:
-        return errors
+        return {"errors": errors, "warnings": []}
     errors = validate_coherence(model, agents_dir=agents_dir,
-                                workflows_dir=workflows_dir)
+                                workflows_dir=workflows_dir,
+                                include_orchestration=False)
     if errors:
-        return errors
+        return {"errors": errors, "warnings": []}
+    warnings = validate_orchestration(model)        # semantic -> warning-only
+
+    base = {k: v for k, v in model.items() if k != "orchestration"}
+    orch = model.get("orchestration")
     workflows_dir.mkdir(parents=True, exist_ok=True)
-    (workflows_dir / f"{name}.yaml").write_text(dump_workflow_yaml(model),
+    (workflows_dir / f"{name}.yaml").write_text(dump_workflow_yaml(base),
                                                 encoding="utf-8")
-    return []
+    sibling = orchestration_path_for(workflows_dir / f"{name}.yaml")
+    if orch:
+        sibling.write_text(yaml.dump(orch, sort_keys=False, allow_unicode=True,
+                                     default_flow_style=False), encoding="utf-8")
+    elif sibling.exists():
+        sibling.unlink()
+    return {"errors": errors, "warnings": warnings}   # errors == [] here
 
 
 # ============================================================================
@@ -793,9 +808,15 @@ def _looks_like_literal(s):
 
 
 def validate_coherence(workflow: dict, agents_dir: Path = None,
-                       workflows_dir: Path = None) -> list:
+                       workflows_dir: Path = None,
+                       include_orchestration: bool = True) -> list:
     """Validate cross-references: agents exist, depends_on valid, conditions
-    used exist, workflow_call targets resolve."""
+    used exist, workflow_call targets resolve.
+
+    include_orchestration=False skips folding in validate_orchestration's
+    semantic findings — used by the web-editor save path, where those issues
+    are surfaced as warnings instead of blocking errors (see save_workflow).
+    Every other caller (CLI validate/generate) keeps them as blocking errors."""
     agents_dir = agents_dir or DEFAULT_AGENTS_DIR
     workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
     errors = []
@@ -892,7 +913,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
             for io in (inv.get("inputs") or []) + (inv.get("outputs") or []):
                 _check_io(io, f"phase {pid}/{ag}")
 
-    errors.extend(validate_orchestration(workflow))
+    if include_orchestration:
+        errors.extend(validate_orchestration(workflow))
 
     return errors
 
@@ -3185,9 +3207,9 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                     model = clone_workflow(base, name)
                 else:
                     model = blank_workflow(name)
-                errs = save_workflow(name, model, workflows_dir, agents_dir)
-                return self._json(200 if not errs else 422,
-                                  {"errors": errs, "name": name})
+                res = save_workflow(name, model, workflows_dir, agents_dir)
+                return self._json(200 if not res["errors"] else 422,
+                                  {"errors": res["errors"], "warnings": res["warnings"], "name": name})
             if p == "/api/agent":
                 errs = create_agent(
                     data.get("name", ""), data.get("description", ""),
@@ -3204,9 +3226,10 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 if not is_valid_slug(name):
                     return self._json(400, {"errors": ["bad name"]})
                 data = self._body()
-                errs = save_workflow(name, data.get("model", {}),
-                                     workflows_dir, agents_dir)
-                return self._json(200 if not errs else 422, {"errors": errs})
+                res = save_workflow(name, data.get("model", {}),
+                                    workflows_dir, agents_dir)
+                return self._json(200 if not res["errors"] else 422,
+                                  {"errors": res["errors"], "warnings": res["warnings"]})
             if p.startswith("/api/invocation/"):
                 agent = p.rsplit("/", 1)[-1]
                 if not is_valid_slug(agent):
