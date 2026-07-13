@@ -419,7 +419,8 @@ function selectGate(id) {
   const f = findBlock(state.model.orchestration || [], id); if (!f) return;
   const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
   panel.style.width = state.panelWidth + "px"; ensureResizeGrip(panel);
-  panel.appendChild(orch.gatePanel({ state, refreshView, rerender: () => { renderGrid(); }, close: closeGate }, f.block));
+  panel.appendChild(orch.gatePanel({ state, refreshView, rerender: () => { renderGrid(); }, close: closeGate,
+    setStatus, reselectGate: () => selectGate(id) }, f.block));
   applyDrawerLayout(); renderGrid();
 }
 function closeGate() { state.selectedGate = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }

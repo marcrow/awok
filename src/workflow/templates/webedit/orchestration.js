@@ -7,6 +7,7 @@
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
 import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock } from "./editlogic.js";
+import { fieldText, fieldSelect } from "./formfields.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
@@ -423,21 +424,141 @@ function operandKind(block, side, sigKeys) {
   return block[key];
 }
 
-// INTERIM signal operand control — a flat <select> of every signal declared
-// anywhere in the workflow. Task 11 replaces this body with the proto's
-// grouped-by-phase signalPicker (+ "declare a new signal on a phase" inline
-// form) — this function is the seam it plugs into; nothing else in gatePanel
-// needs to change when it lands.
-function signalOperandControl(ctx, block, side, cond) {
-  const sel = document.createElement("select"); sel.className = "op-select";
-  const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "◈ pick a signal…"; sel.appendChild(o0);
-  signalsOf(ctx.state.model).forEach(s => {
-    const o = document.createElement("option"); o.value = s.key; o.textContent = s.key + " · " + s.type;
-    if (cond && cond[side] === s.key) o.selected = true;
-    sel.appendChild(o);
+// Allowed emit `type`/`source` values — mirrors the `emits` item schema in
+// workflow.schema.json (definitions.phase.properties.emits.items). Keep in
+// sync if the schema enum ever changes.
+const EMIT_TYPES = ["number", "string", "bool", "enum", "list"];
+const EMIT_SOURCES = ["field", "token"];
+
+// --- signal picker popover (grouped by emitting phase) + "declare a new
+// signal" inline form. One popover instance at a time, closed on outside
+// click / Escape — same idiom as openGateMenu above.
+let _sigPopEl = null;
+function closeSigPopover() {
+  if (_sigPopEl) { _sigPopEl.remove(); _sigPopEl = null; }
+  document.removeEventListener("mousedown", onSigPopOutsideClick, true);
+  document.removeEventListener("keydown", onSigPopKeydown, true);
+}
+function onSigPopOutsideClick(e) {
+  if (_sigPopEl && !_sigPopEl.contains(e.target)) closeSigPopover();
+}
+function onSigPopKeydown(e) {
+  if (e.key === "Escape") closeSigPopover();
+}
+
+// Signal list grouped by phase — the picker's default view.
+function renderSignalList(pop, ctx, block, side) {
+  pop.replaceChildren();
+  const cond = block[blockConstruct(block)];
+  const sigs = signalsOf(ctx.state.model);
+  const groups = {};
+  sigs.forEach(s => { (groups[s.phase] = groups[s.phase] || []).push(s); });
+  const phaseIds = Object.keys(groups);
+  if (!phaseIds.length) {
+    const empty = document.createElement("div"); empty.className = "sig-pop-empty";
+    empty.textContent = "No signals declared yet.";
+    pop.appendChild(empty);
+  }
+  phaseIds.forEach(phaseId => {
+    const head = document.createElement("div"); head.className = "sig-pop-group"; head.textContent = phaseId;
+    pop.appendChild(head);
+    groups[phaseId].forEach(s => {
+      const item = document.createElement("button"); item.type = "button"; item.className = "sig-pop-item";
+      if (cond && cond[side] === s.key) item.classList.add("active");
+      item.textContent = s.name + " · " + s.type;
+      item.addEventListener("click", e => {
+        e.stopPropagation();
+        setOperand(block, side, s.key);
+        closeSigPopover();
+        applyGateEdit(ctx);
+      });
+      pop.appendChild(item);
+    });
   });
-  sel.addEventListener("change", () => { setOperand(block, side, sel.value); applyGateEdit(ctx); });
-  return sel;
+  const sep = document.createElement("div"); sep.className = "sig-pop-sep"; pop.appendChild(sep);
+  const declareBtn = document.createElement("button"); declareBtn.type = "button";
+  declareBtn.className = "sig-pop-declare"; declareBtn.textContent = "＋ Declare a new signal";
+  declareBtn.addEventListener("click", e => { e.stopPropagation(); renderDeclareForm(pop, ctx, block, side); });
+  pop.appendChild(declareBtn);
+}
+
+// "Declare a new signal" inline form (phase / name / type / source / from).
+function renderDeclareForm(pop, ctx, block, side) {
+  pop.replaceChildren();
+  const phaseIds = ((ctx.state.model.phases) || []).map(p => p.id);
+  const form = { phaseId: phaseIds[0] || "", name: "", type: EMIT_TYPES[0], source: EMIT_SOURCES[0], from: "" };
+
+  const title = document.createElement("div"); title.className = "sig-pop-group"; title.textContent = "Declare a new signal";
+  pop.appendChild(title);
+
+  pop.appendChild(fieldSelect("phase", form.phaseId, phaseIds, v => { form.phaseId = v; }));
+  pop.appendChild(fieldText("name", form.name, v => { form.name = v.trim(); }));
+  pop.appendChild(fieldSelect("type", form.type, EMIT_TYPES, v => { form.type = v; }));
+  pop.appendChild(fieldSelect("source", form.source, EMIT_SOURCES, v => { form.source = v; fromRow.style.display = v === "field" ? "" : "none"; }));
+  const fromRow = fieldText("from", form.from, v => { form.from = v.trim(); });
+  fromRow.style.display = form.source === "field" ? "" : "none";
+  pop.appendChild(fromRow);
+
+  const actions = document.createElement("div"); actions.className = "sig-pop-actions";
+  const back = document.createElement("button"); back.type = "button"; back.className = "sig-pop-back";
+  back.textContent = "‹ back";
+  back.addEventListener("click", e => { e.stopPropagation(); renderSignalList(pop, ctx, block, side); });
+  actions.appendChild(back);
+  const submit = document.createElement("button"); submit.type = "button"; submit.className = "sig-pop-submit";
+  submit.textContent = "Declare";
+  submit.addEventListener("click", e => { e.stopPropagation(); submitDeclare(ctx, block, side, form); });
+  actions.appendChild(submit);
+  pop.appendChild(actions);
+}
+
+// Validates the name, pushes a schema-shaped emits entry onto the target
+// phase, wires the operand to the new signal's key, then refreshes the
+// server-side view and rebuilds the whole gate panel (ctx.reselectGate) so
+// the freshly-declared signal shows up selected in the picker.
+function submitDeclare(ctx, block, side, form) {
+  if (!/^[a-z][a-z0-9_]*$/.test(form.name)) { ctx.setStatus("signal name must match ^[a-z][a-z0-9_]*$"); return; }
+  const ph = (ctx.state.model.phases || []).find(p => p.id === form.phaseId);
+  if (!ph) { ctx.setStatus("pick a phase to declare the signal on"); return; }
+  ph.emits = ph.emits || [];
+  ph.emits.push({
+    name: form.name, type: form.type, source: form.source,
+    ...(form.source === "field" ? { from: form.from || "output.json" } : {}),
+  });
+  const key = form.phaseId.toLowerCase() + "." + form.name;
+  setOperand(block, side, key);       // wire it straight into the condition
+  closeSigPopover();
+  ctx.refreshView().then(ctx.reselectGate);
+}
+
+function openSignalPicker(ctx, block, side, buttonEl) {
+  closeSigPopover();
+  const pop = document.createElement("div"); pop.className = "sig-popover";
+  renderSignalList(pop, ctx, block, side);
+  document.body.appendChild(pop);
+  const rect = buttonEl.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + "px";
+  pop.style.left = rect.left + "px";
+  _sigPopEl = pop;
+  // deferred so the click that opened the popover doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener("mousedown", onSigPopOutsideClick, true);
+    document.addEventListener("keydown", onSigPopKeydown, true);
+  }, 0);
+}
+
+// Grouped-by-phase signal picker: a button showing the current operand (or
+// a placeholder) opens a popover listing signalsOf(model) grouped by their
+// emitting phase, plus a "＋ Declare a new signal" affordance. Replaces the
+// Task 10 INTERIM flat <select> — signature/seam unchanged (called at the
+// `kind === "signal"` branch of operandCtrl below).
+function signalOperandControl(ctx, block, side, cond) {
+  const wrap = document.createElement("div"); wrap.className = "sig-picker";
+  const btn = document.createElement("button"); btn.type = "button"; btn.className = "sig-picker-btn";
+  const cur = cond ? cond[side] : "";
+  btn.textContent = cur ? "◈ " + cur : "◈ pick a signal…";
+  btn.addEventListener("click", e => { e.stopPropagation(); openSignalPicker(ctx, block, side, btn); });
+  wrap.appendChild(btn);
+  return wrap;
 }
 
 function builtinOperandControl(ctx, block, side, cond) {
