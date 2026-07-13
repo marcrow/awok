@@ -77,3 +77,45 @@ def test_phase_emits_accepted(bbw_module):
                     "emits": [{"name": "verdict", "type": "enum", "source": "token"}]}],
     }
     assert bbw_module.validate_schema(wf) == []
+
+
+def test_orchestration_schema_accepts_standalone_until(bbw_module):
+    """A standalone `until` block (no sibling `while`) must validate — this is
+    the 6th supported construct (ref/if/while/until/for_each/parallel)."""
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "w", "description": "x"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [{"id": "T1", "name": "a", "group": "g",
+                    "emits": [{"name": "v", "type": "string", "source": "token"}]}],
+        "orchestration": [
+            {"until": {"op": "==", "left": "t1.v", "right": "x"}, "cap": 3, "body": [{"ref": "T1"}]},
+        ],
+    }
+    assert bbw_module.validate_schema(wf) == []
+
+
+def test_orchestration_schema_accepts_for_each(bbw_module):
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "w", "description": "x"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [{"id": "T1", "name": "a", "group": "g"}],
+        "orchestration": [
+            {"for_each": "t1.items", "as": "item", "cap": 5, "body": [{"ref": "T1"}]},
+        ],
+    }
+    assert bbw_module.validate_schema(wf) == []
+
+
+def test_orchestration_schema_accepts_parallel(bbw_module):
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "w", "description": "x"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [{"id": "T1", "name": "a", "group": "g"}],
+        "orchestration": [
+            {"parallel": [{"ref": "T1"}, {"ref": "T1"}]},
+        ],
+    }
+    assert bbw_module.validate_schema(wf) == []

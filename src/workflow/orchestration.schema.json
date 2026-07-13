@@ -24,6 +24,7 @@
         { "required": ["ref"] },
         { "required": ["if"] },
         { "required": ["while"] },
+        { "required": ["until"] },
         { "required": ["for_each"] },
         { "required": ["parallel"] }
       ],
