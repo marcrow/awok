@@ -1594,6 +1594,23 @@ def build_orchestration_overlay(workflow: dict) -> dict:
     return overlay
 
 
+def build_view_payload(model: dict) -> dict:
+    """Editor /api/view payload: levels/columns/edges/opportunistic (as today)
+    plus the orchestration overlay and SEMANTIC orchestration warnings.
+    Both orchestration keys are empty when the model has no 'orchestration'."""
+    levels = compute_levels(model)
+    return {
+        "levels": levels,
+        "columns": derive_columns(model, levels),
+        "parallel_with": derive_parallel_with(model, levels),
+        "edges": build_edges(model),
+        "errors": validate_schema(model),
+        "opportunistic": build_opportunistic_view(model),
+        "orchestration_overlay": build_orchestration_overlay(model),
+        "orchestration_warnings": validate_orchestration(model),
+    }
+
+
 def build_edge_labels(workflow: dict) -> dict:
     """For each (parent_id, child_id) depends_on pair, produce an edge label string.
 
@@ -3148,15 +3165,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
             p = urllib.parse.urlparse(self.path).path
             data = self._body()
             if p == "/api/view":
-                levels = compute_levels(data)
-                return self._json(200, {
-                    "levels": levels,
-                    "columns": derive_columns(data, levels),
-                    "parallel_with": derive_parallel_with(data, levels),
-                    "edges": build_edges(data),
-                    "errors": validate_schema(data),
-                    "opportunistic": build_opportunistic_view(data),
-                })
+                return self._json(200, build_view_payload(data))
             if p == "/api/preview":
                 try:
                     dataflow = render_dataflow_mermaid(data, templates_dir=templates_dir)
