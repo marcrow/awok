@@ -288,3 +288,51 @@ export function resolvedOppLabel(viewOpp, id) {
   if (e.mark == null && e.enabled) return "Inherited from global (no marker)";
   return "Off";
 }
+
+// ---- orchestration (block tree) pure helpers -----------------------------
+const _SLOTS = ["then", "else", "body"];
+export function blockConstruct(b) {
+  for (const k of ["ref", "if", "while", "until", "for_each", "parallel"]) if (k in b) return k;
+  return "ref";
+}
+export function isLoopBlock(b) { return "while" in b || "until" in b || "for_each" in b; }
+export function iterBlocks(blocks, fn) {
+  (blocks || []).forEach((b, i) => { fn(b, blocks, i); _SLOTS.forEach(s => { if (Array.isArray(b[s])) iterBlocks(b[s], fn); }); });
+}
+export function findBlock(blocks, id) {
+  let found = null; iterBlocks(blocks, (b, parent, i) => { if (b._id === id) found = { block: b, parent, index: i }; }); return found;
+}
+export function containerArray(blocks, containerId, slot) {
+  if (containerId === "root") return blocks;
+  const f = findBlock(blocks, containerId); if (!f) return null;
+  if (!Array.isArray(f.block[slot])) f.block[slot] = []; return f.block[slot];
+}
+export function signalsOf(model) {
+  const out = [];
+  for (const p of (model && model.phases) || [])
+    for (const e of p.emits || []) out.push({ key: p.id.toLowerCase() + "." + e.name, name: e.name, type: e.type, phase: p.id });
+  return out;
+}
+export function condOf(b) { const k = blockConstruct(b); return (k === "if" || k === "while" || k === "until") ? b[k] : null; }
+export function orchestrationIssues(model) {
+  const out = []; const sigKeys = new Set(signalsOf(model).map(s => s.key));
+  const sigType = k => (signalsOf(model).find(s => s.key === k) || {}).type;
+  // map each ref'd phase -> its top-level block id, to detect cross-block deps
+  const topOf = {}; (model.orchestration || []).forEach(tb => iterBlocks([tb], b => { if (blockConstruct(b) === "ref" && !(b.ref in topOf)) topOf[b.ref] = tb._id; }));
+  iterBlocks(model.orchestration || [], (b) => {
+    if (isLoopBlock(b) && !(Number.isInteger(b.cap) && b.cap > 0)) out.push({ id: b._id, kind: blockConstruct(b), msg: "cap required (integer > 0)" });
+    if ("for_each" in b && !b.for_each) out.push({ id: b._id, kind: "for_each", msg: "list signal required" });
+    if ("for_each" in b && b.for_each && sigType(b.for_each) !== "list") out.push({ id: b._id, kind: "for_each", msg: "signal is not a list" });
+    const c = condOf(b);
+    if (c && typeof c === "object") {
+      if (!c.left) out.push({ id: b._id, kind: blockConstruct(b), msg: "condition incomplete (left operand)" });
+      else if (c.op !== "exists" && (c.right === undefined || c.right === "")) out.push({ id: b._id, kind: blockConstruct(b), msg: "condition incomplete (right operand)" });
+      if (typeof c.left === "string" && c.left.includes(".") && !sigKeys.has(c.left)) out.push({ id: b._id, kind: blockConstruct(b), msg: "unknown signal " + c.left });
+    }
+  });
+  // cross-block action->action dependency
+  for (const p of (model && model.phases) || [])
+    for (const d of p.depends_on || [])
+      if (topOf[p.id] && topOf[d] && topOf[p.id] !== topOf[d]) out.push({ id: topOf[p.id], kind: "dep", msg: p.id + " depends on " + d + " across a gate boundary (expressed action→block)" });
+  return out;
+}
