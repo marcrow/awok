@@ -6,7 +6,7 @@ import { safeDropDepends, blockedDependents, buildNotice,
          opportunisticMode, opportunisticGuidance, setOpportunistic,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
-         aggregateInvocationIo, iterBlocks } from "./editlogic.js";
+         aggregateInvocationIo, iterBlocks, blockConstruct } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
@@ -222,13 +222,32 @@ function paintDepLinks() {
   const lvl = (state.view && state.view.levels) || {};
   const rects = {};
   root.querySelectorAll(".phase-card").forEach(el => rects[el.dataset.id] = el.getBoundingClientRect());
+  // Orchestration (ON) view: a dep crossing a top-level block boundary points at
+  // the enclosing gate element (data-block-top), not at the nested ref card —
+  // action->block. Same-block deps keep the classic action->action routing.
+  let topOf = null, topEl = null;
+  if (state.showOrch) {
+    topEl = {};
+    root.querySelectorAll("[data-block-top]").forEach(el => topEl[el.dataset.blockTop] = el);
+    topOf = {};
+    (state.model.orchestration || []).forEach(tb => iterBlocks([tb], b => {
+      if (blockConstruct(b) === "ref" && !(b.ref in topOf)) topOf[b.ref] = tb._id;
+    }));
+  }
   const links = [];
-  for (const p of state.model.phases || []) for (const dep of p.depends_on || [])
-    if (rects[dep] && rects[p.id]) links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8" });
+  for (const p of state.model.phases || []) for (const dep of p.depends_on || []) {
+    if (!(rects[dep] && rects[p.id])) continue;
+    let aRect = rects[dep], bRect = rects[p.id];
+    if (topOf && topOf[dep] !== topOf[p.id]) {
+      const gate = topEl[topOf[p.id]];
+      if (gate) bRect = gate.getBoundingClientRect();
+    }
+    links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8", aRect, bRect });
+  }
   const direct = [], far = [], same = [];
   for (const l of links) {
     const cls = classifyLinkSpan(lvl[l.from], lvl[l.to]);
-    (cls === "same" ? same : cls === "far" ? far : direct).push({ a: rects[l.from], b: rects[l.to], color: l.color });
+    (cls === "same" ? same : cls === "far" ? far : direct).push({ a: l.aRect, b: l.bRect, color: l.color });
   }
   const seg = (d, arrow, c) => '<path d="' + d + '" stroke="' + c + '" stroke-width="1.8" opacity="0.62"/>' +
     '<polygon points="' + arrow + '" fill="' + c + '" opacity="0.85"/>';

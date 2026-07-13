@@ -77,6 +77,7 @@ export function makeCard(phase, color, oppMark) {
   };
   for (const l of ioLabels("inputs")) addChip("in", "in · " + l);
   for (const l of ioLabels("outputs")) addChip("out", "out · " + l);
+  for (const e of phase.emits || []) addChip("emits", "emits ◈ " + e.name + " · " + e.type);
   if (chips.children.length) el.appendChild(chips);
 
   return el;
