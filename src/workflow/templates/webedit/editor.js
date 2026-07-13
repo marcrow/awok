@@ -124,7 +124,8 @@ function rowsFromView() {
   return rows;
 }
 function renderGrid() {
-  if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors }); renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
+  if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors,
+      onDrop: () => {}, onSelectGate: () => {} }); renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
   const byId = {}; (state.model.phases || []).forEach(p => byId[p.id] = p);
