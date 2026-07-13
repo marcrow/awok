@@ -81,3 +81,38 @@ def test_escape_hatch_ok_in_standard(bbw_module):
     wf = _wf([{"if": "le rapport mentionne un CVE", "then": [{"ref": "T1"}]}])
     errs = bbw_module.validate_orchestration(wf, target="standard")
     assert errs == []
+
+
+def test_until_missing_cap_message_names_the_loop(bbw_module):
+    wf = _wf([{"until": {"op": "==", "left": "t1.v", "right": "x"}, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    cap_errs = [e for e in errs if "cap" in e.lower()]
+    assert cap_errs, "expected a missing-cap error"
+    assert not any("None" in e for e in cap_errs)
+
+
+def test_for_each_missing_cap(bbw_module):
+    wf = _wf([{"for_each": "t1.items", "body": [{"ref": "T1"}]}],
+             emits=[{"name": "items", "type": "list", "source": "field"}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("cap" in e.lower() for e in errs)
+
+
+def test_for_each_unknown_signal(bbw_module):
+    wf = _wf([{"for_each": "ghost.items", "cap": 5, "body": [{"ref": "T1"}]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("ghost.items" in e for e in errs)
+
+
+def test_for_each_non_list_signal(bbw_module):
+    wf = _wf([{"for_each": "t1.items", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "items", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("list" in e.lower() for e in errs)
+
+
+def test_for_each_valid(bbw_module):
+    wf = _wf([{"for_each": "t1.items", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "items", "type": "list", "source": "field"}])
+    assert bbw_module.validate_orchestration(wf) == []

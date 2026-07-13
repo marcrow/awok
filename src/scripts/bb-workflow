@@ -716,7 +716,7 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
             errors.append(f"orchestration: block ref '{b['ref']}' is not an existing phase")
         # loops need a cap
         if ("while" in b or "until" in b or "for_each" in b) and "cap" not in b:
-            errors.append(f"orchestration: loop block {b.get('while') or b.get('for_each')} missing mandatory 'cap'")
+            errors.append(f"orchestration: loop block {b.get('while') or b.get('until') or b.get('for_each')} missing mandatory 'cap'")
         # for_each collection must be a declared list signal
         if "for_each" in b:
             coll = b["for_each"]
