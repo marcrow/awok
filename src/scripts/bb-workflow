@@ -130,6 +130,28 @@ def resolve_workflow(name_or_path: str) -> tuple:
     )
 
 
+def orchestration_path_for(workflow_path: Path) -> Path:
+    """Sibling orchestration file: <name>.yaml -> <name>.orchestration.yaml."""
+    return workflow_path.with_suffix("").with_suffix(".orchestration.yaml")
+
+
+def load_workflow(path: Path) -> dict:
+    """Load a workflow model, merging its sibling orchestration file if present.
+
+    Single entry point so every command sees the same merged model. The base
+    <name>.yaml is the content source of truth; <name>.orchestration.yaml (a list
+    of blocks) is grafted under model['orchestration']. Absent => no key => pure
+    DAG (backward compatible)."""
+    path = Path(path)
+    with open(path) as f:
+        model = yaml.safe_load(f) or {}
+    orch = orchestration_path_for(path)
+    if orch.exists():
+        with open(orch) as f:
+            model["orchestration"] = yaml.safe_load(f) or []
+    return model
+
+
 def workflow_output_paths(skill_name: str) -> dict:
     """Per-workflow output paths derived from the skill name."""
     carto_dir = CONTENT_ROOT / "docs" / "architecture-cartography"
@@ -1113,8 +1135,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
     # Jinja templates are engine-owned; invocation snippets are content-owned.
     invocations_dir = invocations_dir or (templates_dir / "invocations")
 
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
 
     # Validate first; fail loudly
     schema_errors = validate_schema(workflow)
@@ -1624,8 +1645,7 @@ def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> st
 
 def generate_mermaid_cartography(workflow_path: Path, output_path: Path,
                                   templates_dir: Path = None) -> None:
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     apply_parallel_with(workflow, compute_levels(workflow))
     output = render_cartography_mermaid(workflow, templates_dir=templates_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1714,8 +1734,7 @@ def render_dataflow_mermaid(workflow: dict, mode: str = "internal",
 def generate_mermaid_dataflow(workflow_path: Path, output_path: Path,
                               templates_dir: Path = None,
                               mode: str = "internal") -> None:
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     output = render_dataflow_mermaid(workflow, mode=mode, templates_dir=templates_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -1786,8 +1805,7 @@ def generate_mermaid_on_demand(workflow_path: Path, output_path: Path,
     """Render the on-demand agents tab as a mermaid flowchart (one node per
     agent, grouped by trigger family). Returns nothing — writes to disk."""
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(templates_dir)),
@@ -1807,8 +1825,7 @@ def generate_cartography_texte(workflow_path: Path, output_path: Path,
                                 templates_dir: Path = None) -> None:
     """Generate a text/markdown cartography from workflow.yaml using DAG execution levels."""
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     apply_parallel_with(workflow, compute_levels(workflow))
     dag = build_dag(workflow)
 
@@ -2048,8 +2065,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     Returns (errors_count, warnings_count). Prints findings prefixed with the
     workflow name.
     """
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     schema_errors = validate_schema(workflow)
     coherence_errors = validate_coherence(workflow)
     warnings = check_dataflow_warnings(workflow)
@@ -2113,8 +2129,7 @@ def cmd_check(args):
             return 1
     any_drift = False
     for name, workflow_path in targets:
-        with open(workflow_path) as f:
-            wf = yaml.safe_load(f)
+        wf = load_workflow(workflow_path)
         skill_name = (wf.get("skill") or {}).get("name", name)
         skill_path = Path(args.skill) if (args.skill and len(targets) == 1) else (
             workflow_output_paths(skill_name)["skill"]
@@ -2206,8 +2221,7 @@ def _generate_one(name: str, workflow_path: Path,
                   output_skill_override: Path = None,
                   all_workflows: list = None) -> None:
     """Generate all artifacts for a single workflow."""
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     skill_name = (workflow.get("skill") or {}).get("name", name)
     for w in check_skill_name_matches_filename(workflow, workflow_path):
         print(f"⚠ [{skill_name}] {w}", file=sys.stderr)
@@ -2306,8 +2320,7 @@ def generate_workflows_index(workflows: list, output_path: Path) -> None:
     with its skill metadata + counts + link to its individual cartography."""
     cards_html = []
     for name, workflow_path in workflows:
-        with open(workflow_path) as f:
-            wf = yaml.safe_load(f)
+        wf = load_workflow(workflow_path)
         sk = wf.get("skill") or {}
         skill_name = sk.get("name", name)
         title = sk.get("title") or f"/{skill_name} — {skill_name}"
