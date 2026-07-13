@@ -21,8 +21,14 @@ export function addGate(ctx, kind) {
   const b = kind === "loop"
     ? { _id: newId(), while: { op: "==", left: "", right: "" }, cap: null, body: [] }
     : { _id: newId(), if: { op: "==", left: "", right: "" }, then: [], else: [] };
-  m.orchestration.push(b); ctx.state.selectedGate = b._id; ctx.state.selected = null;
-  ctx.rerender();
+  m.orchestration.push(b);
+  if (ctx.selectGate) {
+    ctx.selectGate(b._id);
+  } else {
+    // fallback for callers that don't wire selectGate through ctx
+    ctx.state.selectedGate = b._id; ctx.state.selected = null;
+    ctx.rerender();
+  }
 }
 
 let _gateMenuEl = null;
@@ -400,7 +406,7 @@ function applyGateEdit(ctx) {
 // editor.js's modelForSave alongside `_id`) -----------------------------------
 function operandKindKey(side) { return side === "left" ? "_leftKind" : "_rightKind"; }
 function deriveOperandKind(value, sigKeys) {
-  if (value && typeof value === "object") return "builtin";
+  if (value && typeof value === "object" && !Array.isArray(value)) return "builtin";
   if (typeof value === "string" && sigKeys.has(value)) return "signal";
   return "literal";
 }

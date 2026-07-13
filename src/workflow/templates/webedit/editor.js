@@ -369,7 +369,7 @@ function applyDrawerLayout() {
 function curPhase() { return (state.model.phases || []).find(x => x.id === state.selected); }
 
 function selectPhase(id) {
-  state.selected = id;
+  state.selected = id; state.selectedGate = null;
   const p = curPhase(); if (!p) return;
   const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
   panel.style.width = state.panelWidth + "px";
@@ -408,7 +408,7 @@ function selectPhase(id) {
   applyDrawerLayout();
   renderGrid();
 }
-function closeDrawer() { state.selected = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
+function closeDrawer() { state.selected = null; state.selectedGate = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
 
 // --- drawer (gate editor — Task 10) -----------------------------------------
 // Selecting an ON-path gate (orchestration block) opens the gate panel instead
@@ -842,7 +842,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);
   $("#add-phase").addEventListener("click", addPhase);
-  $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
+  $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
   $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
   $("#toggle-orch").addEventListener("click", () => {
     state.showOrch = !state.showOrch; state.selectedGate = null;
