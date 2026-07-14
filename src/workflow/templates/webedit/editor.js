@@ -298,7 +298,8 @@ function rowsFromView() {
 }
 function renderGrid() {
   if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors,
-      onDrop: orch.orchDrop, onSelectGate: selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } });
+      onDrop: orch.orchDrop, onGridDrop: (level, ev) => onDrop(ev, level),
+      onSelectGate: selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } });
     renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
@@ -360,8 +361,31 @@ function makeRow(ids, i, byId, colors, oppPhases) {
   row.appendChild(cards);
   return row;
 }
+// Orchestration grid drop: a REF dragged out of a gate onto a level UNGATES it
+// (removed from the tree → bare action) and takes that level's depends_on; a
+// GATE dragged onto a level moves to top-level. Only fires in orchestration view.
+async function orchDropToLevel(refId, level) {
+  const bs = state.model.orchestration || [];
+  const f = findBlock(bs, refId); if (!f) return;
+  const block = f.parent[f.index];
+  f.parent.splice(f.index, 1);
+  state.dragId = null; document.body.classList.remove("dragging");
+  if (blockConstruct(block) === "ref") {
+    const p = (state.model.phases || []).find(x => x.id === block.ref);
+    if (p) {
+      const rows = rowsFromView();
+      const dep = safeDropDepends(state.model.phases, rows, level, p.id);
+      if (dep.length) p.depends_on = dep; else delete p.depends_on;
+    }
+  } else {
+    bs.push(block);   // move the gate (with its subtree) back to top level
+  }
+  await refreshView();
+}
 async function onDrop(ev, level) {
   ev.preventDefault();
+  const refId = ev.dataTransfer.getData("text/refid");
+  if (refId) { await orchDropToLevel(refId, level); return; }
   const id = ev.dataTransfer.getData("text/plain") || state.dragId;
   state.dragId = null; document.body.classList.remove("dragging");
   const p = (state.model.phases || []).find(x => x.id === id); if (!p) return;

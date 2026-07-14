@@ -123,6 +123,7 @@ export function renderProgram(ctx) {
   const dag = document.createElement("div"); dag.className = "orch-dag";
   rows.forEach((row, i) => {
     if (!row.cards.length && !row.gates.length) return;
+    if (i > 0) dag.appendChild(gridDropZone(ctx, i, false));
     const el = document.createElement("div"); el.className = "orch-row"; el.dataset.level = i;
     const rail = document.createElement("div"); rail.className = "orch-rail";
     const node = document.createElement("div"); node.className = "node"; node.textContent = String(i + 1);
@@ -133,7 +134,22 @@ export function renderProgram(ctx) {
     el.appendChild(cards);
     dag.appendChild(el);
   });
+  dag.appendChild(gridDropZone(ctx, rows.length, true));
   grid.appendChild(dag);
+}
+
+// A drop target between/after levels. Dropping an action here moves its
+// depends_on to that level; dropping a ref/gate here pulls it OUT of its gate
+// (ungate / move gate to top level). Handled by editor.js via ctx.onGridDrop.
+function gridDropZone(ctx, level, isNew) {
+  const z = document.createElement("div"); z.className = "drop-zone orch-drop-zone";
+  const lbl = document.createElement("span"); lbl.className = "zone-label";
+  lbl.textContent = isNew ? "＋ drop here for a new level (or to pull an action out of a gate)" : "＋ drop here";
+  z.appendChild(lbl);
+  z.addEventListener("dragover", e => { e.preventDefault(); z.classList.add("hover"); });
+  z.addEventListener("dragleave", () => z.classList.remove("hover"));
+  z.addEventListener("drop", e => { e.preventDefault(); z.classList.remove("hover"); ctx.onGridDrop(level, e); });
+  return z;
 }
 
 // An ungated action card on the grid. Draggable two ways at once: text/phase to
@@ -299,10 +315,17 @@ export function orchDrop(ctx, containerId, slot, ev) {
   const phase = ev.dataTransfer.getData("text/phase");
   const bs = ctx.state.model.orchestration;
   const target = containerArray(bs, containerId, slot); if (!target) return;
-  if (refId) {                                   // MOVE existing ref
+  if (refId) {                                   // MOVE an existing ref or gate
     const f = findBlock(bs, refId); if (!f) return;
-    const [moved] = f.parent.splice(f.index, 1); target.push(moved);
-  } else if (phase) {                            // REFERENCE from palette/tray
+    const moved = f.parent[f.index];
+    // Guard: never nest a gate into its own subtree (would detach/loop it).
+    if (blockConstruct(moved) !== "ref") {
+      let intoSelf = moved._id === containerId;
+      iterBlocks([moved], x => { if (x._id === containerId) intoSelf = true; });
+      if (intoSelf) return;
+    }
+    f.parent.splice(f.index, 1); target.push(moved);
+  } else if (phase) {                            // REFERENCE an action into a gate
     target.push({ _id: newId(), ref: phase });
   }
   ctx.refreshView().then(() => ctx.rerender());
