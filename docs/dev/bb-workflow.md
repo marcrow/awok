@@ -366,12 +366,12 @@ signal (`emits`) plutôt que de compter sur l'heuristique ; sinon, le prédicat
 opérandes.
 
 **Rendu** :
-- SKILL.md → section "## Orchestration program" (`render_orchestration`),
-  un programme d'instructions imbriqué qui pilote le DAG en dessous, plus la
-  liste des signaux et comment les lire. Cette section rend aussi un
-  "**Execution protocol**" événementiel : au lieu d'un ordre séquentiel
-  narratif, chaque phase/bloc est décrit comme "dès que ses deps finissent,
-  lance-le" — cohérent avec la concurrence par défaut du DAG (pas de
+- SKILL.md → section "## Execution protocol" (`render_orchestration`) : un
+  protocole événementiel (ready-set) — au lieu d'un ordre séquentiel narratif,
+  chaque phase/bloc est décrit comme "dès que ses deps finissent, lance-le" —
+  suivi de "### Control flow", le programme d'instructions imbriqué des
+  branches/boucles qui pilote le DAG en dessous, plus la liste des signaux et
+  comment les lire. Cohérent avec la concurrence par défaut du DAG (pas de
   `parallel` qui la réintroduirait comme cas spécial).
 - Cartography → `build_orchestration_overlay` ajoute les losanges de branche
   et les sous-graphes de boucle par-dessus le DAG.

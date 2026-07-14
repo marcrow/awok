@@ -402,9 +402,10 @@ truth** for the js-safe vs standard-only frontier (which operators/builtins/
 operand-kinds are allowed per compile target — `standard` is Claude-Code-only,
 `js` must also run in a browser-side interpreter). `validate_orchestration`
 reads it; nothing else hardcodes that matrix. `render_orchestration` turns the
-block tree into the SKILL.md's "Orchestration program" section (nested
-instructions); `build_orchestration_overlay` feeds the cartography's branch
-diamonds and loop subgraphs.
+block tree into the SKILL.md's "## Execution protocol" section — the
+event-driven ready-set protocol followed by the nested "### Control flow"
+branch/loop program; `build_orchestration_overlay` feeds the cartography's
+branch diamonds and loop subgraphs.
 
 See `docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md`
 for the full design, and the fixture pair
