@@ -986,7 +986,7 @@ function modelForSave() {
   // on-disk/schema convention is "absent = unset-and-OK, null = invalid") —
   // on top of the client-side fix that never writes `cap: null` in the first
   // place (addGate/setConstruct/setCap in orchestration.js).
-  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; if (b.cap == null) delete b.cap; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
+  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; if (b.cap == null) delete b.cap; ["then","else","body","parallel"].forEach(s=>strip(b[s])); }); })(m.orchestration);
   return m;
 }
 // Canonical string of what would be persisted — the unit of unsaved-changes

@@ -172,15 +172,15 @@ function gateEl(b, depth) {
   const sigKeys = new Set(signalsOf(state.model).map(s => s.key));
 
   const gate = document.createElement("div");
-  gate.className = "gate" + (loop ? " loop" : "");
+  gate.className = "gate" + (loop ? " loop" : "") + (kind === "parallel" ? " parallel" : "");
   gate.dataset.blockId = b._id;
   if (state.selectedGate === b._id) gate.classList.add("selected");
   gate.addEventListener("click", e => { e.stopPropagation(); CTX.onSelectGate(b._id); });
 
   const head = document.createElement("div"); head.className = "gate-head";
   const icon = document.createElement("span");
-  icon.className = loop ? "gate-icon-loop" : "gate-icon-if";
-  if (loop) icon.textContent = "↻";
+  if (kind === "parallel") { icon.className = "gate-icon-parallel"; icon.textContent = "⇉"; }
+  else { icon.className = loop ? "gate-icon-loop" : "gate-icon-if"; if (loop) icon.textContent = "↻"; }
   head.appendChild(icon);
 
   const kw = document.createElement("span"); kw.className = "gate-kw";
@@ -188,7 +188,11 @@ function gateEl(b, depth) {
   head.appendChild(kw);
 
   if (kind === "for_each") head.appendChild(forEachHeaderEl(b, sigKeys));
-  else head.appendChild(condEl(condOf(b), sigKeys));
+  else if (kind === "parallel") {
+    const hint = document.createElement("span"); hint.className = "cond-op";
+    hint.textContent = "run all branches together";
+    head.appendChild(hint);
+  } else head.appendChild(condEl(condOf(b), sigKeys));
 
   // Task 13: inline "condition incomplete" marker — additive, keyed off this
   // block's own _id (never the top-level dep-crossing issues), never touches
@@ -221,11 +225,11 @@ function gateEl(b, depth) {
     body.appendChild(laneEl(b, "then", depth));
     body.appendChild(laneEl(b, "else", depth));
   } else if (kind === "parallel") {
-    // parallel is deferred from the UX (not rendered/edited) — show a minimal,
-    // non-crashing placeholder rather than pretending it has a then/body slot.
-    const note = document.createElement("div"); note.className = "help-note";
-    note.textContent = "parallel block (" + (b.parallel || []).length + " branch(es)) — not editable in this view yet.";
-    body.appendChild(note);
+    // parallel holds its branches directly under the `parallel` key; render
+    // them as a list (refs + nested gates) with a drop target, same as a body.
+    body.classList.add("parallel-body");
+    listEl(b.parallel, depth + 1).forEach(el => body.appendChild(el));
+    body.appendChild(dropSlot(b._id, "parallel"));
   } else {
     listEl(b.body, depth + 1).forEach(el => body.appendChild(el));
     body.appendChild(dropSlot(b._id, "body"));
@@ -709,15 +713,17 @@ export function gatePanel(ctx, block) {
     const kind = blockConstruct(block);
     const loop = isLoopBlock(block);
 
+    const isParallel = kind === "parallel";
+
     // header
     const head = document.createElement("div"); head.className = "drawer-head";
     const top = document.createElement("div"); top.className = "top";
     const icon = document.createElement("span");
-    icon.className = loop ? "gate-icon-loop" : "gate-icon-if";
-    if (loop) icon.textContent = "↻";
+    if (isParallel) { icon.className = "gate-icon-parallel"; icon.textContent = "⇉"; }
+    else { icon.className = loop ? "gate-icon-loop" : "gate-icon-if"; if (loop) icon.textContent = "↻"; }
     top.appendChild(icon);
     const title = document.createElement("span"); title.style.cssText = "font-weight:700;font-size:13.5px";
-    title.textContent = loop ? "Loop block" : "Condition block";
+    title.textContent = isParallel ? "Parallel block" : (loop ? "Loop block" : "Condition block");
     top.appendChild(title);
     const closeBtn = document.createElement("button"); closeBtn.className = "drawer-close"; closeBtn.textContent = "×";
     closeBtn.addEventListener("click", ctx.close);
@@ -729,6 +735,28 @@ export function gatePanel(ctx, block) {
     const body = document.createElement("div"); body.className = "drawer-body";
 
     const sub = (text) => { const h = document.createElement("div"); h.className = "sub-head"; h.textContent = text; return h; };
+
+    // A parallel block has no construct/condition to edit here — its branches
+    // run together (awok is parallel-by-default via deps). Edit its branches by
+    // dragging actions in, or editing the nested gates directly; the panel only
+    // offers Delete/Done. (Switching a parallel to if/while/… is intentionally
+    // not offered — it isn't a conditional/loop construct.)
+    if (isParallel) {
+      const note = document.createElement("p"); note.className = "orch-empty-body";
+      note.style.margin = "4px 0 0"; note.textContent =
+        "Runs all its branches together. Add branches by dragging actions into it "
+        + "in the program view, or click a nested gate to edit it.";
+      body.appendChild(note);
+      panel.appendChild(body);
+      const foot = document.createElement("div"); foot.className = "drawer-foot";
+      const del = document.createElement("button"); del.className = "btn-del"; del.textContent = "Delete block";
+      del.addEventListener("click", () => removeBlock(ctx, block));
+      const done = document.createElement("button"); done.className = "btn-done"; done.textContent = "Done";
+      done.addEventListener("click", ctx.close);
+      foot.appendChild(del); foot.appendChild(done);
+      panel.appendChild(foot);
+      return;
+    }
 
     body.appendChild(sub("Construct"));
     const seg = document.createElement("div"); seg.className = "seg";
