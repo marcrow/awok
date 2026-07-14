@@ -298,16 +298,47 @@ def resolve_io_paths(model: dict) -> dict:
     return resolved
 
 
+def _block_members(workflow: dict) -> dict:
+    """Map each logic-block id to the phase ids it (transitively) contains, so a
+    depends_on that names a block is understood as a dependency on the block's
+    actions (a phase gated after a block then sits below it, not at the root)."""
+    orch = workflow.get("orchestration")
+    if not orch:
+        return {}
+
+    def refs_in(blocks):
+        out = set()
+        for b in blocks or []:
+            if "ref" in b:
+                out.add(b["ref"])
+            for k in ("then", "else", "body"):
+                out |= refs_in(b.get(k))
+        return out
+
+    return {b["id"]: refs_in([b]) for b in _iter_blocks(orch) if b.get("id") and "ref" not in b}
+
+
 def compute_levels(workflow: dict) -> dict:
-    """Map phase id -> grid row (longest dependency path from a root)."""
+    """Map phase id -> grid row (longest dependency path from a root). A depends_on
+    that names a logic block is resolved to the block's member phases."""
     phases = workflow.get("phases", [])
     deps = {p["id"]: [d for d in (p.get("depends_on") or []) if d] for p in phases}
+    block_members = _block_members(workflow)
     memo = {}
+
+    def resolve(dlist):
+        out = []
+        for d in dlist:
+            if d in deps:
+                out.append(d)
+            elif d in block_members:
+                out.extend(m for m in block_members[d] if m in deps)
+        return out
 
     def level(pid, seen):
         if pid in memo:
             return memo[pid]
-        ds = [d for d in deps.get(pid, []) if d in deps and d not in seen]
+        ds = [d for d in resolve(deps.get(pid, [])) if d not in seen]
         lvl = 0 if not ds else 1 + max(level(d, seen | {pid}) for d in ds)
         memo[pid] = lvl
         return lvl

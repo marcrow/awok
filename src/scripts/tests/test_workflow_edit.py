@@ -81,6 +81,24 @@ def test_levels_longest_path_wins(bbw_module):
     assert levels == {"A": 0, "B": 1, "C": 2}
 
 
+def test_levels_resolve_block_dependency(bbw_module):
+    """A phase depending on a logic-block id sits below the block's actions, not
+    at the root (the block dep is resolved to the phases the block contains)."""
+    wf = {
+        "phases": [
+            {"id": "A", "name": "a", "group": "g"},
+            {"id": "B", "name": "b", "group": "g", "depends_on": ["A"]},
+            {"id": "Z", "name": "z", "group": "g", "depends_on": ["G"]},
+        ],
+        "orchestration": [
+            {"id": "G", "if": {"op": "exists", "left": "a.x"}, "then": [{"ref": "B"}]},
+        ],
+    }
+    levels = bbw_module.compute_levels(wf)
+    assert levels["A"] == 0 and levels["B"] == 1
+    assert levels["Z"] == 2   # below block G, which holds B at level 1
+
+
 def test_levels_parallel_share_level(bbw_module):
     wf = {"phases": [
         {"id": "A", "name": "a", "group": "g"},
