@@ -35,6 +35,25 @@ _{{ meta_parts|join(' · ') }}_{% endif %}`"]:::{{ phase.group }}
     class {{ phase.id }} opp_locked
 {%- endif %}
 {%- endfor %}
+{%- if orchestration_overlay.loops or orchestration_overlay.branches %}
+{% for lp in orchestration_overlay.loops -%}
+subgraph loop_{{ loop.index }}["🔁 {{ lp.label }} (cap {{ lp.cap }})"]
+{% for bid in lp.body_ids -%}
+    {{ bid }}
+{% endfor -%}
+end
+{% endfor -%}
+{% for br in orchestration_overlay.branches -%}
+{%- set br_id = "br_" ~ loop.index -%}
+    {{ br_id }}{"{{ br.cond }}"}
+{% for tid in br.then_ids -%}
+    {{ br_id }} -->|true| {{ tid }}
+{% endfor -%}
+{% for eid in br.else_ids -%}
+    {{ br_id }} -->|false| {{ eid }}
+{% endfor -%}
+{% endfor -%}
+{%- endif %}
 {% for gname in groups -%}
     classDef {{ gname }} fill:{{ group_colors[gname] }},stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
 {% endfor -%}

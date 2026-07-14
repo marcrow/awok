@@ -1,5 +1,7 @@
 """Tests for snippet loading and template rendering."""
 from pathlib import Path
+import subprocess
+import sys
 import yaml
 import pytest
 
@@ -578,3 +580,75 @@ phases:
     assert "Effort `high`" not in content                       # effort NOT advertised
     assert "is set in the agent's frontmatter" not in content
     assert "Effort is set on the agent, not at launch" not in content  # header note gated off
+
+
+def test_existing_skills_unchanged_after_regen(tmp_path):
+    """Golden regression: the 4 committed legacy workflows have no
+    `<name>.orchestration.yaml` sibling, so they must regenerate byte-identical
+    SKILL.md — the global backward-compat guarantee of the whole orchestration
+    feature (no orchestration file => pure DAG => today's output, unchanged;
+    legacy `skip_if`/`conditions` keep generating exactly as before).
+
+    `generate`'s only output-path override is `--output-skill` (single
+    workflow only; see `cmd_generate`) — it does NOT redirect the cartography
+    outputs (`docs/architecture-cartography/*`, `src/skills/*` for other
+    workflows), which are resolved from CONTENT_ROOT. To keep this test free
+    of side effects on the real repo, the content-owned inputs (src/workflows,
+    src/agents, src/workflow/templates/invocations, src/workflow/manual) are
+    copied into a throwaway `--workdir`, so cartography/index writes land in
+    tmp_path instead of the real docs/ and src/skills/ trees. Only the
+    resulting SKILL.md (via --output-skill) is compared against what's
+    committed.
+    """
+    import shutil
+
+    workdir = tmp_path / "workdir"
+    for rel in ("src/workflows", "src/agents",
+                "src/workflow/templates/invocations", "src/workflow/manual"):
+        dst = workdir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(REPO_ROOT / rel, dst)
+
+    for name in ["onboard", "create-workflow", "workflow-doctor", "edit-workflow"]:
+        committed = (REPO_ROOT / "src" / "skills" / name / "SKILL.md").read_text()
+        out = tmp_path / f"{name}.md"
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "src" / "scripts" / "bb-workflow"),
+             "--workdir", str(workdir),
+             "generate", "--workflow", name, "--output-skill", str(out)],
+            cwd=REPO_ROOT, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            f"generate failed for {name}:\n{result.stdout}\n{result.stderr}"
+        )
+        assert out.read_text() == committed, (
+            f"{name} SKILL.md drifted after regen (backward-compat broken)"
+        )
+
+
+def test_render_orchestration_for_each_and_if(bbw_module):
+    wf = {
+        "phases": [
+            {"id": "SCAN", "name": "s", "group": "g",
+             "emits": [{"name": "status", "type": "enum", "source": "token"}]},
+            {"id": "RECON", "name": "r", "group": "g",
+             "emits": [{"name": "endpoints", "type": "list", "source": "field", "from": "recon.json"}]},
+            {"id": "EXPLOIT", "name": "e", "group": "g"},
+        ],
+        "orchestration": [
+            {"ref": "RECON"},
+            {"for_each": "recon.endpoints", "as": "ep", "cap": 200, "body": [
+                {"ref": "SCAN"},
+                {"if": {"op": "==", "left": "scan.status", "right": "vuln"},
+                 "then": [{"ref": "EXPLOIT"}]},
+            ]},
+        ],
+    }
+    md = bbw_module.render_orchestration(wf)
+    assert "## Execution protocol" in md
+    assert "For each" in md and "recon.endpoints" in md and "ep" in md
+    assert "EXPLOIT" in md and "scan.status" in md
+
+
+def test_render_orchestration_empty_without_key(bbw_module):
+    assert bbw_module.render_orchestration({"phases": []}) == ""

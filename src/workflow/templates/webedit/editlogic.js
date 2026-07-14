@@ -34,6 +34,20 @@ export function safeDropDepends(phases, rows, level, draggedId) {
   return computeDropDepends(rows, level, draggedId).filter(id => !desc.has(id));
 }
 
+// Map each phase referenced (transitively) inside a TOP-LEVEL logic block to that
+// block's id. Used to keep a default dependency legal: an action outside a block
+// may depend on the block as a whole, never on an action inside it (the scope-
+// visibility rule). So a default link that would point at a gated action is
+// redirected to its enclosing top-level block.
+export function topLevelBlockOfPhase(model) {
+  const map = {};
+  for (const b of (model && model.orchestration) || []) {
+    if (blockConstruct(b) === "ref" || !b.id) continue;
+    iterBlocks([b], x => { if (blockConstruct(x) === "ref" && !(x.ref in map)) map[x.ref] = b.id; });
+  }
+  return map;
+}
+
 // Previous-row phases that were dropped because they depend on the dragged
 // phase (the links that "block" the move). Empty when the drop is unconstrained.
 export function blockedDependents(phases, rows, level, draggedId) {
@@ -287,4 +301,122 @@ export function resolvedOppLabel(viewOpp, id) {
   if (e.note_kind === "locked") return "⛔ Locked";
   if (e.mark == null && e.enabled) return "Inherited from global (no marker)";
   return "Off";
+}
+
+// ---- orchestration (block tree) pure helpers -----------------------------
+// Child-block slots walked by iterBlocks/findBlock/containerArray.
+const _SLOTS = ["then", "else", "body"];
+export function blockConstruct(b) {
+  for (const k of ["ref", "if", "while", "until", "for_each"]) if (k in b) return k;
+  return "ref";
+}
+export function isLoopBlock(b) { return "while" in b || "until" in b || "for_each" in b; }
+export function iterBlocks(blocks, fn) {
+  (blocks || []).forEach((b, i) => { fn(b, blocks, i); _SLOTS.forEach(s => { if (Array.isArray(b[s])) iterBlocks(b[s], fn); }); });
+}
+export function findBlock(blocks, id) {
+  let found = null; iterBlocks(blocks, (b, parent, i) => { if (b._id === id) found = { block: b, parent, index: i }; }); return found;
+}
+export function containerArray(blocks, containerId, slot) {
+  if (containerId === "root") return blocks;
+  const f = findBlock(blocks, containerId); if (!f) return null;
+  if (!Array.isArray(f.block[slot])) f.block[slot] = []; return f.block[slot];
+}
+// Where a block lives: its containing array, its index, and the enclosing gate's
+// _id + slot (null when top-level). Unlike findBlock this yields the PARENT so a
+// caller can walk UP the nesting.
+export function locateBlock(orchestration, blockUid) {
+  function walk(arr, parentUid, parentSlot) {
+    const a = arr || [];
+    for (let i = 0; i < a.length; i++) {
+      if (a[i]._id === blockUid) return { lane: a, index: i, parentUid, parentSlot };
+      for (const slot of _SLOTS) {
+        const hit = Array.isArray(a[i][slot]) ? walk(a[i][slot], a[i]._id, slot) : null;
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  return walk(orchestration, null, null);
+}
+// Ordered items → dependency ids: a ref → its phase id, a nested gate → its block id.
+function _itemsToDeps(items) {
+  const out = [];
+  for (const b of items || []) {
+    if (blockConstruct(b) === "ref") out.push(b.ref);
+    else if (b.id) out.push(b.id);
+  }
+  return out;
+}
+// The predecessors of a block: the items before it in its parent lane; if it is
+// first there, recurse to the enclosing block's predecessors. [] at top level.
+function blockPredecessors(orch, blockUid) {
+  const loc = locateBlock(orch, blockUid);
+  if (!loc) return [];
+  const deps = _itemsToDeps(loc.lane.slice(0, loc.index));
+  if (deps.length) return deps;
+  if (loc.parentUid) return blockPredecessors(orch, loc.parentUid);
+  return [];
+}
+// Default dependencies for an action just added to a gate lane: the items that
+// precede it in that lane; or, if it is first, the block's own predecessors
+// (walking up). Encodes "runs after what comes before it in this branch".
+export function laneEntryDeps(model, containerUid, slot, addedUid) {
+  const orch = (model && model.orchestration) || [];
+  const f = findBlock(orch, containerUid);
+  const lane = (f && Array.isArray(f.block[slot])) ? f.block[slot] : [];
+  const idx = lane.findIndex(b => b._id === addedUid);
+  const before = idx >= 0 ? lane.slice(0, idx) : [];
+  const deps = _itemsToDeps(before);
+  return deps.length ? deps : blockPredecessors(orch, containerUid);
+}
+// Ancestor chain of `targetId` as [{construct, slot}, ...] — one entry per
+// enclosing gate on the path from the root down to (but not including) the
+// target block, each naming the gate's construct and which slot the path
+// continues through (then/else/body). [] if the target is top-level (no
+// enclosing gate) or not found — findBlock/iterBlocks don't track ancestors,
+// so this is a dedicated recursive walk (Task 14 breadcrumb).
+export function ancestorChain(blocks, targetId) {
+  function walk(arr, path) {
+    for (const b of arr || []) {
+      if (b._id === targetId) return path;
+      for (const slot of _SLOTS) {
+        if (Array.isArray(b[slot])) {
+          const found = walk(b[slot], path.concat([{ construct: blockConstruct(b), slot }]));
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+  return walk(blocks, []) || [];
+}
+export function signalsOf(model) {
+  const out = [];
+  for (const p of (model && model.phases) || [])
+    for (const e of p.emits || []) out.push({ key: p.id.toLowerCase() + "." + e.name, name: e.name, type: e.type, phase: p.id });
+  return out;
+}
+export function condOf(b) { const k = blockConstruct(b); return (k === "if" || k === "while" || k === "until") ? b[k] : null; }
+export function orchestrationIssues(model) {
+  const out = []; const sigKeys = new Set(signalsOf(model).map(s => s.key));
+  const sigType = k => (signalsOf(model).find(s => s.key === k) || {}).type;
+  // map each ref'd phase -> its top-level block id, to detect cross-block deps
+  const topOf = {}; (model.orchestration || []).forEach(tb => iterBlocks([tb], b => { if (blockConstruct(b) === "ref" && !(b.ref in topOf)) topOf[b.ref] = tb._id; }));
+  iterBlocks(model.orchestration || [], (b) => {
+    if (isLoopBlock(b) && !(Number.isInteger(b.cap) && b.cap > 0)) out.push({ id: b._id, kind: blockConstruct(b), msg: "cap required (integer > 0)" });
+    if ("for_each" in b && !b.for_each) out.push({ id: b._id, kind: "for_each", msg: "list signal required" });
+    if ("for_each" in b && b.for_each && sigType(b.for_each) !== "list") out.push({ id: b._id, kind: "for_each", msg: "signal is not a list" });
+    const c = condOf(b);
+    if (c && typeof c === "object") {
+      if (!c.left) out.push({ id: b._id, kind: blockConstruct(b), msg: "condition incomplete (left operand)" });
+      else if (c.op !== "exists" && (c.right === undefined || c.right === "")) out.push({ id: b._id, kind: blockConstruct(b), msg: "condition incomplete (right operand)" });
+      if (typeof c.left === "string" && c.left.includes(".") && !sigKeys.has(c.left)) out.push({ id: b._id, kind: blockConstruct(b), msg: "unknown signal " + c.left });
+    }
+  });
+  // cross-block action->action dependency
+  for (const p of (model && model.phases) || [])
+    for (const d of p.depends_on || [])
+      if (topOf[p.id] && topOf[d] && topOf[p.id] !== topOf[d]) out.push({ id: topOf[p.id], kind: "dep", msg: p.id + " depends on " + d + " across a gate boundary (expressed action→block)" });
+  return out;
 }

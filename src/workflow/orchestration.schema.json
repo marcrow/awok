@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "awok orchestration block tree",
+  "type": "array",
+  "items": { "$ref": "#/definitions/block" },
+  "definitions": {
+    "condition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["op", "left"],
+          "properties": {
+            "op": { "enum": ["==", "!=", "<", ">", "<=", ">=", "contains", "matches", "exists"] },
+            "left": {},
+            "right": {}
+          }
+        },
+        { "type": "string", "description": "escape-hatch predicate (standard-only)" }
+      ]
+    },
+    "block": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["ref"] },
+        { "required": ["if"] },
+        { "required": ["while"] },
+        { "required": ["until"] },
+        { "required": ["for_each"] }
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "ref": { "type": "string" },
+        "if": { "$ref": "#/definitions/condition" },
+        "then": { "type": "array", "items": { "$ref": "#/definitions/block" } },
+        "else": { "type": "array", "items": { "$ref": "#/definitions/block" } },
+        "while": { "$ref": "#/definitions/condition" },
+        "until": { "$ref": "#/definitions/condition" },
+        "for_each": { "type": "string", "description": "a list-typed signal reference" },
+        "as": { "type": "string" },
+        "cap": { "type": "integer", "minimum": 1 },
+        "body": { "type": "array", "items": { "$ref": "#/definitions/block" } },
+        "output": {
+          "type": "object",
+          "required": ["role", "kind"],
+          "properties": {
+            "role": { "type": "string" },
+            "kind": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

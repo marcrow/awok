@@ -1,0 +1,22 @@
+# Source de vérité unique de la frontière js-safe / standard-only.
+# Étendre le vocabulaire de conditions = éditer CE fichier (lu par awok validate
+# ET, plus tard, par le skill create-workflow). Aucune matrice codée en dur ailleurs.
+operators:
+  "==":      { js_safe: true,  standard: true }
+  "!=":      { js_safe: true,  standard: true }
+  "<":       { js_safe: true,  standard: true,  types: [number] }
+  ">":       { js_safe: true,  standard: true,  types: [number] }
+  "<=":      { js_safe: true,  standard: true,  types: [number] }
+  ">=":      { js_safe: true,  standard: true,  types: [number] }
+  contains:  { js_safe: true,  standard: true,  types: [string, list] }
+  matches:   { js_safe: true,  standard: true,  types: [string] }
+  exists:    { js_safe: true,  standard: true }
+builtins:
+  file_exists: { js_safe: false, standard: true }   # pas de filesystem en JS
+  dir_exists:  { js_safe: false, standard: true }
+operands:
+  # Concurrency is expressed by the ABSENCE of depends_on between two actions,
+  # never by a construct here — there is no `parallel` operand/block to gate.
+  signal:       { js_safe: true,  standard: true }
+  literal:      { js_safe: true,  standard: true }
+  escape_hatch: { js_safe: false, standard: true }  # prédicat string libre

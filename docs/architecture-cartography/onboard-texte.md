@@ -53,7 +53,7 @@ Level 3: O5-GETTING-STARTED
 ### O4-ARCHITECTURE — Architecture synthesis
 
 - Group: `synthesize`
-- Type: `agent`- Depends on: O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS- Invocations:
+- Type: `agent`- Depends on: O1-STRUCTURE, O3-FLOW, OG-GITSTATS- Invocations:
   - `architecture-writer` (opus)
 - ⛔ Opportunism locked
 
@@ -62,3 +62,6 @@ Level 3: O5-GETTING-STARTED
 - Group: `synthesize`
 - Type: `agent`- Depends on: O4-ARCHITECTURE- Invocations:
   - `onboarding-writer` (sonnet)
+## Orchestration
+
+- ❓ If `o0-inventory.has_manifest` == `true` → then: O2-DEPS

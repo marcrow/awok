@@ -51,6 +51,12 @@
         <span class="tb-title">Grid</span>
         <span id="grid-count" class="tb-count"></span>
         <div class="tb-right">
+          <span class="target-pill" id="target-pill" title="Compile target — dynamic (JS) coming soon">
+            <span id="target-val">standard</span><span style="color:var(--muted);font-size:9px">▾</span>
+          </span>
+          <button id="toggle-orch" class="btn-ghost" title="Show the orchestration program (logic gates)">◆ Orchestration</button>
+          <button id="add-gate" class="btn-ghost" hidden title="Add a gate (condition / loop)">＋ Gate</button>
+          <button id="info-btn" class="btn-ghost" title="What's not implemented yet">ⓘ</button>
           <button id="toggle-links" class="btn-ghost" title="Show dependency links">⤳ Dependencies</button>
           <button id="add-phase" class="btn-ghost">+ Action</button>
         </div>
@@ -118,6 +124,8 @@
 
   <!-- Drawer (action editor) -->
   <aside id="edit-panel" hidden></aside>
+
+  <div id="orch-toast" hidden><span style="font-size:15px">⚠</span><div><div class="t"></div><div class="s">Click to see details</div></div></div>
 
 <script type="module" src="/editor/editor.js"></script>
 </body>

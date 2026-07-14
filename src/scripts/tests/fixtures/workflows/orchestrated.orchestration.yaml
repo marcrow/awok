@@ -1,0 +1,8 @@
+- ref: RECON
+- for_each: recon.endpoints
+  as: ep
+  cap: 100
+  body:
+    - ref: SCAN
+    - if: {op: "==", left: scan.status, right: vuln}
+      then: [{ref: EXPLOIT}]

@@ -6,11 +6,13 @@ import { safeDropDepends, blockedDependents, buildNotice,
          opportunisticMode, opportunisticGuidance, setOpportunistic,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
-         aggregateInvocationIo } from "./editlogic.js";
+         aggregateInvocationIo, iterBlocks, blockConstruct, findBlock,
+         orchestrationIssues, ancestorChain, topLevelBlockOfPhase } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
 import { createDataflow } from "./dataflow.js";
+import * as orch from "./orchestration.js";
 
 const $ = s => document.querySelector(s);
 const api = (m, p, b) => fetch(p, { method: m, headers: { "Content-Type": "application/json" },
@@ -31,9 +33,25 @@ let state = {
   name: null, model: null, view: null, selected: null, workflows: [], agents: [],
   tab: "grid", drawerTab: "wiring", panelWidth: 480, showLinks: false,
   dragId: null, legendOpen: true,
+  showOrch: false, selectedGate: null,
+  // Reserved for the future JS ("dynamic") compile target — no functional
+  // effect yet; only "standard" is selectable (Task 15).
+  target: "standard",
 };
 
 let dataflow = null;
+
+// Task 13: warning-only live validation. _lastOrchWarn tracks the previous
+// orchestration-warning count across refreshView calls so the toast only
+// fires when that count RISES (never on an unchanged/decreased count) —
+// prevents spamming a toast on every keystroke-triggered refresh.
+let _lastOrchWarn = 0;
+// Per-workflow baseline arming: reset to false on every loadWorkflow() so the
+// first refreshView() after a (re)load only ESTABLISHES the baseline count
+// (no toast, even if the freshly-loaded workflow already has warnings);
+// subsequent refreshes compare normally against that baseline.
+let _orchToastArmed = false;
+let _orchToastTimer = null;
 
 // --- notice overlay --------------------------------------------------------
 function showNotice(title, lines) {
@@ -63,10 +81,28 @@ function renderWorkflowSelect() {
   const sel = $("#wf-select"); sel.replaceChildren();
   state.workflows.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
 }
+let _blkSeq = 0;
+function hydrateBlockIds(model) {
+  _blkSeq = 0;
+  if (!model || !model.orchestration) return;
+  iterBlocks(model.orchestration, b => { if (!b._id) b._id = "b" + (++_blkSeq); });
+  // Every gate also gets a persisted, unique `id` (COND_1 / LOOP_1, …). It is the
+  // ONLY way to tell two identical conditions apart and the address a phase's
+  // depends_on uses to depend on the whole block, so it must always exist.
+  iterBlocks(model.orchestration, b => {
+    if (blockConstruct(b) !== "ref") orch.ensureBlockId(model, b);
+  });
+}
 async function loadWorkflow(name) {
   const switching = name !== state.name;   // real switch vs. same-workflow reload (e.g. after Save)
   const { j } = await api("GET", "/api/workflow/" + name);
   state = { ...state, name, model: j.model, view: null, selected: null };
+  _orchToastArmed = false;   // fresh per-workflow baseline; next refreshView() must not toast
+  hydrateBlockIds(state.model);
+  state.showOrch = !!(state.model.orchestration && state.model.orchestration.length);
+  state.selectedGate = null;
+  $("#toggle-orch").classList.toggle("on", state.showOrch);
+  $("#add-gate").hidden = !state.showOrch;
   state.savedSnapshot = snapshot();              // baseline for unsaved-changes detection
   if (switching && dataflow) dataflow.reset();   // drop the previous workflow's dataflow filters
   $("#edit-panel").hidden = true;
@@ -82,6 +118,27 @@ async function refreshView() {
   renderIssues();
   if (state.tab === "dataflow") dataflow.render();
   setStatus(j.errors && j.errors.length ? "⚠ " + j.errors.length + " schema issue(s)" : "");
+  const orchCount = orchestrationWarnList().length;
+  // Armed = a per-workflow baseline is established. Not armed (fresh load) →
+  // this refresh only sets the baseline, never fires. Armed → fire only on rise.
+  if (_orchToastArmed && orchCount > _lastOrchWarn) showOrchToast(orchCount);
+  _lastOrchWarn = orchCount;
+  _orchToastArmed = true;
+}
+// Server list (state.view.orchestration_warnings, the authority) preferred;
+// falls back to the client mirror orchestrationIssues() for instant feedback
+// between server round-trips (e.g. right after a local edit, before the next
+// /api/view response lands).
+function orchestrationWarnList() {
+  const ov = (state.view && state.view.orchestration_warnings) || [];
+  return ov.length ? ov : orchestrationIssues(state.model).map(i => i.msg);
+}
+function showOrchToast(n) {
+  const toast = $("#orch-toast"); if (!toast) return;
+  toast.querySelector(".t").textContent = n + " orchestration warning" + (n === 1 ? "" : "s");
+  toast.hidden = false;
+  clearTimeout(_orchToastTimer);
+  _orchToastTimer = setTimeout(() => { toast.hidden = true; }, 4500);
 }
 
 function renderHeader() {
@@ -94,12 +151,151 @@ function renderHeader() {
 }
 function renderIssues() {
   const v = validateModel(state.model);
+  const extraWarn = orchestrationWarnList();
+  // Server-computed dataflow warnings (orphan I/O, and — new — a consumer that
+  // runs before its producer). The client mirror doesn't recompute these.
+  const dfWarn = (state.view && state.view.dataflow_warnings) || [];
+  const allWarn = extraWarn.concat(dfWarn);
+  const warnCount = v.warnings.length + allWarn.length;
   const badge = $("#issues-badge");
-  if (!v.errors.length && !v.warnings.length) { badge.hidden = true; return; }
+  if (!v.errors.length && !warnCount) { badge.hidden = true; return; }
   badge.hidden = false; badge.replaceChildren();
-  badge.title = v.errors.concat(v.warnings).join("\n");
+  badge.title = v.errors.concat(v.warnings, allWarn).join("\n");
   if (v.errors.length) { const s = document.createElement("span"); s.className = "err"; s.textContent = "⛔ " + v.errors.length; badge.appendChild(s); }
-  if (v.warnings.length) { const s = document.createElement("span"); s.className = "warn"; s.textContent = "⚠ " + v.warnings.length; badge.appendChild(s); }
+  if (warnCount) { const s = document.createElement("span"); s.className = "warn"; s.textContent = "⚠ " + warnCount; badge.appendChild(s); }
+}
+
+// --- orchestration issues popover (Task 13) ---------------------------------
+// Sourced from the client mirror (not the server string list) because each
+// item needs the offending block's `_id` to jump to it — same
+// outside-click/Escape dismiss idiom as orchestration.js's openGateMenu.
+let _orchIssuesPopEl = null;
+function closeOrchIssuesPopover() {
+  if (_orchIssuesPopEl) { _orchIssuesPopEl.remove(); _orchIssuesPopEl = null; }
+  document.removeEventListener("mousedown", onOrchIssuesPopOutsideClick, true);
+  document.removeEventListener("keydown", onOrchIssuesPopKeydown, true);
+}
+function onOrchIssuesPopOutsideClick(e) {
+  if (_orchIssuesPopEl && !_orchIssuesPopEl.contains(e.target)) closeOrchIssuesPopover();
+}
+function onOrchIssuesPopKeydown(e) { if (e.key === "Escape") closeOrchIssuesPopover(); }
+function openOrchIssuesPopover(anchorEl) {
+  closeOrchIssuesPopover();
+  const issues = orchestrationIssues(state.model);
+  if (!issues.length) return;
+  const pop = document.createElement("div"); pop.className = "orch-issues-popover";
+  const head = document.createElement("div"); head.className = "orch-issues-head";
+  head.textContent = issues.length + " orchestration warning" + (issues.length === 1 ? "" : "s");
+  pop.appendChild(head);
+  issues.forEach(issue => {
+    const item = document.createElement("button"); item.type = "button"; item.className = "orch-issue-item";
+    item.textContent = issue.msg;
+    item.addEventListener("click", () => {
+      closeOrchIssuesPopover();
+      if (!state.showOrch) {
+        state.showOrch = true; $("#toggle-orch").classList.add("on"); $("#add-gate").hidden = false;
+      }
+      switchTab("grid");
+      selectGate(issue.id);
+      requestAnimationFrame(() => {
+        const el = document.querySelector('[data-block-id="' + issue.id + '"]');
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
+    pop.appendChild(item);
+  });
+  document.body.appendChild(pop);
+  const ref = anchorEl || $("#issues-badge");
+  const rect = ref.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + "px";
+  pop.style.right = (window.innerWidth - rect.right) + "px";
+  _orchIssuesPopEl = pop;
+  // deferred so the click that opened the popover doesn't immediately close it
+  setTimeout(() => {
+    document.addEventListener("mousedown", onOrchIssuesPopOutsideClick, true);
+    document.addEventListener("keydown", onOrchIssuesPopKeydown, true);
+  }, 0);
+}
+
+// --- target selector popover (Task 15) --------------------------------------
+// state.target is reserved for the future JS ("dynamic") compile target and
+// has no functional effect yet — only "standard" is selectable; "dynamic" is
+// shown disabled with a "soon" note. Same outside-click/Escape dismiss idiom
+// as openGateMenu (orchestration.js) / openOrchIssuesPopover above.
+let _targetMenuEl = null;
+function closeTargetMenu() {
+  if (_targetMenuEl) { _targetMenuEl.remove(); _targetMenuEl = null; }
+  document.removeEventListener("mousedown", onTargetMenuOutsideClick, true);
+  document.removeEventListener("keydown", onTargetMenuKeydown, true);
+}
+function onTargetMenuOutsideClick(e) { if (_targetMenuEl && !_targetMenuEl.contains(e.target)) closeTargetMenu(); }
+function onTargetMenuKeydown(e) { if (e.key === "Escape") closeTargetMenu(); }
+function openTargetMenu(anchorEl) {
+  closeTargetMenu();
+  const menu = document.createElement("div"); menu.className = "gate-menu";
+  const std = document.createElement("button"); std.type = "button";
+  std.className = "gate-menu-item";
+  std.textContent = "standard" + (state.target === "standard" ? " ✓" : "");
+  std.addEventListener("click", e => {
+    e.stopPropagation();
+    state.target = "standard"; $("#target-val").textContent = "standard";
+    closeTargetMenu();
+  });
+  menu.appendChild(std);
+  const dyn = document.createElement("button"); dyn.type = "button";
+  dyn.className = "gate-menu-item"; dyn.disabled = true;
+  dyn.title = "Dynamic (JS) compile target — coming soon";
+  dyn.innerHTML = 'dynamic <span style="color:var(--muted);font-size:9.5px;margin-left:6px">soon</span>';
+  menu.appendChild(dyn);
+  document.body.appendChild(menu);
+  const rect = anchorEl.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 6) + "px";
+  menu.style.left = rect.left + "px";
+  _targetMenuEl = menu;
+  setTimeout(() => {
+    document.addEventListener("mousedown", onTargetMenuOutsideClick, true);
+    document.addEventListener("keydown", onTargetMenuKeydown, true);
+  }, 0);
+}
+
+// --- ⓘ not-implemented tracker popover (Task 15) ----------------------------
+// Static list, kept accurate to what actually shipped, so a maintainer's
+// manual pass knows the boundary without re-deriving it from the diff.
+const NOT_DONE = [
+  "Compile target: only “standard” (Claude-Code-only) is wired. “dynamic” " +
+    "(JS, for a browser-side interpreter) is selectable in the target menu but disabled " +
+    "— there is no per-capability greying yet for js-unsafe operators/builtins.",
+  "Gate drag-reorder / re-nesting: dragging an action card into a gate's slot " +
+    "(then / else / loop body) works, but reordering gates themselves, moving a gate " +
+    "across nesting levels, or dropping one on a top-level “root” zone is not implemented.",
+];
+let _infoPopEl = null;
+function closeInfoPopover() {
+  if (_infoPopEl) { _infoPopEl.remove(); _infoPopEl = null; }
+  document.removeEventListener("mousedown", onInfoPopOutsideClick, true);
+  document.removeEventListener("keydown", onInfoPopKeydown, true);
+}
+function onInfoPopOutsideClick(e) { if (_infoPopEl && !_infoPopEl.contains(e.target)) closeInfoPopover(); }
+function onInfoPopKeydown(e) { if (e.key === "Escape") closeInfoPopover(); }
+function openInfoPopover(anchorEl) {
+  closeInfoPopover();
+  const pop = document.createElement("div"); pop.className = "info-popover";
+  const head = document.createElement("div"); head.className = "info-popover-head";
+  head.textContent = "Not yet implemented";
+  pop.appendChild(head);
+  NOT_DONE.forEach(txt => {
+    const item = document.createElement("div"); item.className = "info-popover-item"; item.textContent = txt;
+    pop.appendChild(item);
+  });
+  document.body.appendChild(pop);
+  const rect = anchorEl.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + "px";
+  pop.style.right = (window.innerWidth - rect.right) + "px";
+  _infoPopEl = pop;
+  setTimeout(() => {
+    document.addEventListener("mousedown", onInfoPopOutsideClick, true);
+    document.addEventListener("keydown", onInfoPopKeydown, true);
+  }, 0);
 }
 
 // --- grid ------------------------------------------------------------------
@@ -111,6 +307,10 @@ function rowsFromView() {
   return rows;
 }
 function renderGrid() {
+  if (state.showOrch) { orch.renderProgram({ state, refreshView, selectPhase, resolveGroupColors,
+      onDrop: orch.orchDrop, onGridDrop: (level, ev) => onDrop(ev, level),
+      onSelectGate: selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } });
+    renderLegend(resolveGroupColors(state.model)); schedulePaint(); return; }
   const grid = $("#grid"); grid.replaceChildren();
   const rows = rowsFromView();
   const byId = {}; (state.model.phases || []).forEach(p => byId[p.id] = p);
@@ -171,14 +371,50 @@ function makeRow(ids, i, byId, colors, oppPhases) {
   row.appendChild(cards);
   return row;
 }
+// Default depends_on for a phase dropped at a level: the previous-row targets,
+// but any GATED action is redirected to its enclosing top-level block (an outside
+// action may depend on a block, never on an action inside it — else it trips the
+// visibility rule and raises an alert). Deduped, self excluded.
+function levelDropDeps(rows, level, phaseId) {
+  const blockOf = topLevelBlockOfPhase(state.model);
+  const out = [];
+  for (const d of safeDropDepends(state.model.phases, rows, level, phaseId)) {
+    const t = blockOf[d] || d;
+    if (t !== phaseId && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+// Orchestration grid drop: a REF dragged out of a gate onto a level UNGATES it
+// (removed from the tree → bare action) and takes that level's depends_on; a
+// GATE dragged onto a level moves to top-level. Only fires in orchestration view.
+async function orchDropToLevel(refId, level) {
+  const bs = state.model.orchestration || [];
+  const f = findBlock(bs, refId); if (!f) return;
+  const block = f.parent[f.index];
+  f.parent.splice(f.index, 1);
+  state.dragId = null; document.body.classList.remove("dragging");
+  if (blockConstruct(block) === "ref") {
+    const p = (state.model.phases || []).find(x => x.id === block.ref);
+    if (p) {
+      const rows = rowsFromView();
+      const dep = levelDropDeps(rows, level, p.id);
+      if (dep.length) p.depends_on = dep; else delete p.depends_on;
+    }
+  } else {
+    bs.push(block);   // move the gate (with its subtree) back to top level
+  }
+  await refreshView();
+}
 async function onDrop(ev, level) {
   ev.preventDefault();
+  const refId = ev.dataTransfer.getData("text/refid");
+  if (refId) { await orchDropToLevel(refId, level); return; }
   const id = ev.dataTransfer.getData("text/plain") || state.dragId;
   state.dragId = null; document.body.classList.remove("dragging");
   const p = (state.model.phases || []).find(x => x.id === id); if (!p) return;
   const rows = rowsFromView();
   const blocked = blockedDependents(state.model.phases, rows, level, id);
-  p.depends_on = safeDropDepends(state.model.phases, rows, level, id);
+  p.depends_on = levelDropDeps(rows, level, id);
   if (!p.depends_on.length) delete p.depends_on;
   await refreshView();
   if (blocked.length) {
@@ -207,13 +443,26 @@ function paintDepLinks() {
   const lvl = (state.view && state.view.levels) || {};
   const rects = {};
   root.querySelectorAll(".phase-card").forEach(el => rects[el.dataset.id] = el.getBoundingClientRect());
+  // A dependency may name a logic BLOCK (depend on the whole gate) rather than an
+  // action — depends_on then holds the block's persisted id. Anchor those arrows
+  // to the gate frame, which carries that id as data-block-key.
+  const blockRects = {}, blockLvl = {};
+  root.querySelectorAll("[data-block-key]").forEach(el => {
+    blockRects[el.dataset.blockKey] = el.getBoundingClientRect();
+    const row = el.closest(".orch-row");
+    if (row) blockLvl[el.dataset.blockKey] = Number(row.dataset.level);
+  });
+  const levelOf = (id) => (lvl[id] !== undefined ? lvl[id] : blockLvl[id]);
   const links = [];
-  for (const p of state.model.phases || []) for (const dep of p.depends_on || [])
-    if (rects[dep] && rects[p.id]) links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8" });
+  for (const p of state.model.phases || []) for (const dep of p.depends_on || []) {
+    const aRect = rects[dep] || blockRects[dep];
+    if (!(aRect && rects[p.id])) continue;
+    links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8", aRect, bRect: rects[p.id] });
+  }
   const direct = [], far = [], same = [];
   for (const l of links) {
-    const cls = classifyLinkSpan(lvl[l.from], lvl[l.to]);
-    (cls === "same" ? same : cls === "far" ? far : direct).push({ a: rects[l.from], b: rects[l.to], color: l.color });
+    const cls = classifyLinkSpan(levelOf(l.from), lvl[l.to]);
+    (cls === "same" ? same : cls === "far" ? far : direct).push({ a: l.aRect, b: l.bRect, color: l.color });
   }
   const seg = (d, arrow, c) => '<path d="' + d + '" stroke="' + c + '" stroke-width="1.8" opacity="0.62"/>' +
     '<polygon points="' + arrow + '" fill="' + c + '" opacity="0.85"/>';
@@ -325,7 +574,7 @@ function addGroup() {
 function applyDrawerLayout() {
   // The drawer only belongs to the Grid view — hide it (without losing the
   // selection) when the user switches to Dataflow/Settings/YAML.
-  const open = !!state.selected && state.tab === "grid";
+  const open = (!!state.selected || !!state.selectedGate) && state.tab === "grid";
   document.body.classList.toggle("drawer-open", open);
   $("#edit-panel").hidden = !open;
   $("#panel-grid").style.marginRight = open ? state.panelWidth + "px" : "";
@@ -333,13 +582,33 @@ function applyDrawerLayout() {
 }
 function curPhase() { return (state.model.phases || []).find(x => x.id === state.selected); }
 
-function selectPhase(id) {
-  state.selected = id;
+function selectPhase(id, blockId) {
+  state.selected = id; state.selectedGate = null;
   const p = curPhase(); if (!p) return;
   const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
   panel.style.width = state.panelWidth + "px";
   ensureResizeGrip(panel);
   const colors = resolveGroupColors(state.model);
+
+  // breadcrumb (Task 14): only when the click came from a specific ref block
+  // inside the orchestration view AND that block is nested under a gate
+  // (top-level refs show no crumb). blockId is optional — every classic
+  // caller (grid card, "Done"/refresh re-selects, etc.) omits it, so this
+  // stays a no-op there.
+  if (state.showOrch && blockId) {
+    const chain = ancestorChain(state.model.orchestration || [], blockId);
+    if (chain.length) {
+      const crumb = document.createElement("div"); crumb.className = "drawer-crumb";
+      crumb.appendChild(document.createTextNode("in "));
+      chain.forEach((a, i) => {
+        if (i > 0) crumb.appendChild(document.createTextNode(" › "));
+        const kw = document.createElement("span"); kw.className = "crumb-kw"; kw.textContent = a.construct;
+        crumb.appendChild(kw);
+        crumb.appendChild(document.createTextNode(" › " + a.slot));
+      });
+      panel.appendChild(crumb);
+    }
+  }
 
   // header
   const head = document.createElement("div"); head.className = "drawer-head";
@@ -373,7 +642,22 @@ function selectPhase(id) {
   applyDrawerLayout();
   renderGrid();
 }
-function closeDrawer() { state.selected = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
+function closeDrawer() { state.selected = null; state.selectedGate = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
+
+// --- drawer (gate editor — Task 10) -----------------------------------------
+// Selecting an ON-path gate (orchestration block) opens the gate panel instead
+// of the phase drawer; selecting an action still goes through selectPhase
+// unchanged. Mutually exclusive with state.selected (only one drawer at a time).
+function selectGate(id) {
+  state.selectedGate = id; state.selected = null;
+  const f = findBlock(state.model.orchestration || [], id); if (!f) return;
+  const panel = $("#edit-panel"); panel.hidden = false; panel.replaceChildren();
+  panel.style.width = state.panelWidth + "px"; ensureResizeGrip(panel);
+  panel.appendChild(orch.gatePanel({ state, refreshView, rerender: () => { renderGrid(); }, close: closeGate,
+    setStatus, reselectGate: () => selectGate(id) }, f.block));
+  applyDrawerLayout(); renderGrid();
+}
+function closeGate() { state.selectedGate = null; $("#edit-panel").hidden = true; applyDrawerLayout(); renderGrid(); }
 
 function drawPriorityFields(body, p) {
   body.appendChild(fieldText("Name", p.name || "", v => { p.name = v; refreshView(); }));
@@ -452,14 +736,46 @@ function tabWiring(body, p) {
     chip.appendChild(x); chips.appendChild(chip);
   });
   body.appendChild(chips);
-  // add dep — exclude self, current deps, and descendants (anti-cycle)
+  // add dep — actions (exclude self, current deps, descendants for anti-cycle)
+  // AND top-level condition/loop blocks by id. A top-level block's scope is the
+  // root, which is visible (an ancestor-or-equal) from every action, so it is
+  // always a legal depends_on target — no scope filtering needed here.
   const desc = descendantSet(p.id);
   const avail = (state.model.phases || []).filter(x => x.id !== p.id && !deps.includes(x.id) && !desc.has(x.id)).map(x => x.id);
-  if (avail.length) {
+  // Top-level blocks are addressable by their _id here; a persisted `id` is
+  // assigned on demand when picked. Skip ones already depended on (by their id).
+  const availBlocks = (state.model.orchestration || [])
+    .filter(b => blockConstruct(b) !== "ref" && !(b.id && deps.includes(b.id)));
+  if (avail.length || availBlocks.length) {
     const sel = document.createElement("select"); sel.style.marginTop = "9px";
     const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "+ add dependency…"; sel.appendChild(o0);
-    avail.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; sel.appendChild(o); });
-    sel.addEventListener("change", () => { if (!sel.value) return; p.depends_on = p.depends_on || []; p.depends_on.push(sel.value); refreshView().then(() => selectPhase(p.id)); });
+    if (avail.length) {
+      const g = document.createElement("optgroup"); g.label = "Actions";
+      avail.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; g.appendChild(o); });
+      sel.appendChild(g);
+    }
+    if (availBlocks.length) {
+      const g = document.createElement("optgroup"); g.label = "Condition / loop blocks";
+      availBlocks.forEach(b => {
+        const o = document.createElement("option"); o.value = "block:" + b._id;
+        o.textContent = "◇ " + (b.id || (blockConstruct(b).replace("_", " ") + " block"));
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+    sel.addEventListener("change", () => {
+      if (!sel.value) return;
+      let target = sel.value;
+      if (target.startsWith("block:")) {
+        const _id = target.slice(6);
+        const blk = (state.model.orchestration || []).find(b => b._id === _id);
+        if (!blk) return;
+        target = orch.ensureBlockId(state.model, blk);
+      }
+      p.depends_on = p.depends_on || [];
+      if (!p.depends_on.includes(target)) p.depends_on.push(target);
+      refreshView().then(() => selectPhase(p.id));
+    });
     body.appendChild(sel);
   }
   // inputs / outputs (the io editor labels itself; coloured via .io-in/.io-out wrappers)
@@ -733,9 +1049,15 @@ function settingsCtx() {
 
 // --- save / new / clone ----------------------------------------------------
 function modelForSave() {
-  // Strip editor-only transient keys (standalone file blocks) so they never
-  // leak into the persisted YAML.
-  const m = JSON.parse(JSON.stringify(state.model)); delete m.files; return m;
+  // Strip editor-only transient keys (standalone file blocks, block _id) so they
+  // never leak into the persisted YAML.
+  const m = JSON.parse(JSON.stringify(state.model)); delete m.files;
+  // Belt-and-suspenders: coerce any residual `cap: null` to absent (the
+  // on-disk/schema convention is "absent = unset-and-OK, null = invalid") —
+  // on top of the client-side fix that never writes `cap: null` in the first
+  // place (addGate/setConstruct/setCap in orchestration.js).
+  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; if (b.cap == null) delete b.cap; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
+  return m;
 }
 // Canonical string of what would be persisted — the unit of unsaved-changes
 // detection (compares against the snapshot taken at load/save time, so it
@@ -750,7 +1072,11 @@ function confirmDiscard() {
 }
 async function save() {
   const { status, j } = await api("PUT", "/api/workflow/" + state.name, { model: modelForSave() });
-  setStatus(status === 200 ? "✓ saved · " + new Date().toLocaleTimeString() : "✗ " + ((j.errors || []).join("; ") || "error"));
+  // Warnings never block save (already non-blocking server-side) — just
+  // surfaced in the status line alongside the badge that already covers them.
+  const warn = (j.warnings || []).length ? " · ⚠ " + j.warnings.length + " orchestration warning(s)" : "";
+  setStatus(status === 200 ? "✓ saved · " + new Date().toLocaleTimeString() + warn
+                           : "✗ " + ((j.errors || []).join("; ") || "error"));
   if (status === 200) loadWorkflow(state.name);
 }
 async function newWf() {
@@ -791,7 +1117,28 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);
   $("#add-phase").addEventListener("click", addPhase);
+  $("#target-pill").addEventListener("click", (e) => openTargetMenu(e.currentTarget));
+  $("#info-btn").addEventListener("click", (e) => openInfoPopover(e.currentTarget));
+  $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, selectGate, refreshView, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
   $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
-  $("#issues-badge").addEventListener("click", () => { switchTab("dataflow"); dataflow.openIssues(); });
+  $("#toggle-orch").addEventListener("click", () => {
+    state.showOrch = !state.showOrch; state.selectedGate = null;
+    $("#toggle-orch").classList.toggle("on", state.showOrch);
+    $("#add-gate").hidden = !state.showOrch;
+    if (!state.showOrch && state.selected == null) $("#edit-panel").hidden = true;
+    renderGrid(); applyDrawerLayout();
+  });
+  $("#issues-badge").addEventListener("click", (e) => {
+    // Orchestration issues take over the badge's click ONLY when the orch
+    // view is on and there's something to show — the classic dataflow-issues
+    // path (unrelated to orchestration) stays untouched otherwise.
+    if (state.showOrch && orchestrationIssues(state.model).length) { openOrchIssuesPopover(e.currentTarget); return; }
+    switchTab("dataflow"); dataflow.openIssues();
+  });
+  $("#orch-toast").addEventListener("click", (e) => {
+    const t = e.currentTarget;
+    openOrchIssuesPopover(t);      // anchor to the toast's rect before hiding it
+    clearTimeout(_orchToastTimer); t.hidden = true;
+  });
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 });

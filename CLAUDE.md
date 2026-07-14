@@ -359,6 +359,69 @@ recomputed from the edges, and describes graph shape, not timing).
 | `docs/architecture-cartography/<workflow>-texte.md` | **GENERATED** (one per workflow) | ASCII version of the cartography |
 | `docs/architecture-cartography/index.html` | **GENERATED** | Index of all workflows (clickable cards) |
 
+### Orchestration (portes logiques)
+
+A workflow's DAG (`depends_on`) says *what can run once its deps are done*; it
+cannot express a loop or a branch. **Orchestration is a separate, optional
+sibling file**: `src/workflows/<name>.orchestration.yaml`, a plain list of
+control-flow blocks. `load_workflow` grafts it under `model["orchestration"]`
+if present. **Absent ⇒ no key ⇒ pure DAG, identical output** — nothing about
+existing workflows changes until you add the file.
+
+**Five constructs** (block-tree, nestable): `ref` (run one phase), `if/then/else`,
+`while`, `until`, `for_each` (+ `as`, iterates a list signal). Every `while`/`until`/`for_each`
+**requires a mandatory `cap`** (max iterations) — `validate_orchestration` rejects an uncapped
+loop.
+
+There is no explicit `parallel` construct: concurrency comes from `depends_on` — two
+actions with no dependency between them (same scope or not) run together by default,
+exactly like in the plain DAG. A dependency may only target the **same scope, an
+ancestor scope, or a sibling block** — it can never reach *into* a block from outside;
+depend on the whole block instead, via its `id`. A loop (`while`/`until`/`for_each`) may
+declare an `output:` role that downstream phases read — a directory for `for_each`'s
+per-iteration fan-out, or an appended jsonl for `while`/`until`'s accumulator pattern.
+
+See `docs/superpowers/specs/2026-07-14-orchestration-depends-on-unification-design.md`
+for the full depends_on-unification design (removal of `parallel`, the visibility rule,
+block `id`, loop `output`).
+
+**Signals**: a phase opts in to emitting one with `emits: [{name, type, source,
+from?}]` — `source: field` (a field of a json output, `from: <path>`) or
+`source: token` (a compact end-of-output line, e.g. `SIGNALS: status=vuln`).
+Nothing is emitted unless declared. The signal's key is
+**`<phase_id_lowercase>.<name>`** (e.g. `RECON` emitting `endpoints` → the
+condition operand `recon.endpoints`).
+
+**Golden rule**: a condition reads **only a named signal field or a compact
+token — never a whole artifact reload**. This keeps loop/branch evaluation
+cheap and keeps the orchestrator from re-parsing a large report just to check
+one status.
+
+`src/workflow/orchestration-capabilities.yaml` is the **single source of
+truth** for the js-safe vs standard-only frontier (which operators/builtins/
+operand-kinds are allowed per compile target — `standard` is Claude-Code-only,
+`js` must also run in a browser-side interpreter). `validate_orchestration`
+reads it; nothing else hardcodes that matrix. `render_orchestration` turns the
+block tree into the SKILL.md's "## Execution protocol" section — the
+event-driven ready-set protocol followed by the nested "### Control flow"
+branch/loop program; `build_orchestration_overlay` feeds the cartography's
+branch diamonds and loop subgraphs.
+
+**Authoring in the web editor (`awok edit`)**: the orchestration view renders the
+whole DAG with gates as frames (then/else/body lanes). Drag an action into a lane
+to gate it (its `depends_on` is renewed to the block context) or onto the grid to
+ungate it; drag/nest gates; an action depends on a whole block by picking the
+block (by its persisted `COND_n`/`LOOP_n` id) in the Wiring "Depends on" list. A
+gate is placed at the level of its condition's **signal producer** (when the
+condition can be evaluated), not its branch contents. The frame position is
+display-only — real ordering is always `depends_on`; the "⤳ Dependencies" arrows
+carry it, including an arrow into a gate frame from a deeper blocking dependency.
+
+See `docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md`
+for the full design, and the fixture pair
+`src/scripts/tests/fixtures/workflows/orchestrated.(yaml|orchestration.yaml)`
+for a minimal worked example.
+
 ### `model: inherit` convention
 
 All agents have `model: inherit` in their frontmatter — NEVER a fixed value.

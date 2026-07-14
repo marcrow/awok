@@ -5,6 +5,7 @@
   --border:#243049; --border-2:#33415c; --accent:#38bdf8; --accent-soft:rgba(56,189,248,0.15);
   --text:#e2e8f0; --text-2:#f1f5f9; --muted:#94a3b8; --faint:#475569; --dim:#64748b;
   --good:#4ade80; --good-2:#86efac; --warn:#fbbf24; --warn-2:#fcd34d; --bad:#f87171;
+  --violet:#a78bfa; --violet-2:#c4b5fd; --violet-soft:rgba(167,139,250,0.14);
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
@@ -95,8 +96,8 @@ main{flex:1 1 auto;position:relative;min-height:0;display:flex}
 
 /* ---- grid ---- */
 #grid-scroll{flex:1 1 auto;overflow:auto;min-height:0}
-#grid-inner{position:relative;max-width:min(1400px,100%);margin:0;padding:32px 28px 120px;transition:max-width .18s ease}
-body.drawer-open #grid-inner{max-width:min(960px,100%)}
+#grid-inner{position:relative;max-width:min(2000px,100%);margin:0 auto;padding:32px 28px 120px;transition:max-width .18s ease}
+body.drawer-open #grid-inner{max-width:min(1600px,100%)}
 #dep-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:visible}
 #grid{position:relative;z-index:1}
 
@@ -153,6 +154,7 @@ body.dragging .drop-zone{height:16px;border-color:rgba(56,189,248,0.4);backgroun
 .chip.dep{color:var(--dim);background:#15213a;border:1px solid var(--border)}
 .chip.in{color:#7dd3fc;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2)}
 .chip.out{color:var(--good-2);background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2)}
+.chip.emits{color:var(--accent);background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.22)}
 
 /* dependency edges (overlay) */
 #dep-svg path{fill:none;stroke-linecap:round}
@@ -197,6 +199,13 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
   display:flex;flex-direction:column}
 #edit-panel[hidden]{display:none}
 .resize-grip{position:absolute;left:-4px;top:0;width:9px;height:100%;cursor:ew-resize;z-index:60}
+/* Task 14: nesting breadcrumb — shown only when an action is selected from
+   inside a gate (orchestration view). Prepended before .drawer-head, so it
+   reads as "in <construct> › <slot> [› <construct> › <slot> ...]". */
+.drawer-crumb{flex:0 0 auto;padding:9px 18px 0;font:10.5px/1.3 var(--mono);
+  color:var(--muted);letter-spacing:.02em}
+.drawer-crumb::before{content:"↳ "}
+.drawer-crumb .crumb-kw{color:var(--violet-2);font-weight:700}
 .drawer-head{flex:0 0 auto;padding:16px 18px 14px;border-bottom:1px solid var(--border)}
 .drawer-head .top{display:flex;align-items:center;gap:10px}
 .drawer-head .badge{font-size:10px;padding:3px 8px}
@@ -532,3 +541,171 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .nsp-row button{background:none;border:none;color:var(--dim);font-size:15px;padding:0 2px}
 .nsp-add{margin-top:2px;width:100%;background:#1e293b;border:1px dashed var(--border);color:var(--muted);
   border-radius:6px;padding:7px;font-size:11.5px}
+
+/* orchestration toolbar */
+#toggle-orch.on{background:var(--violet-soft);color:var(--violet-2);border-color:var(--violet)}
+.target-pill{display:inline-flex;align-items:center;gap:6px;background:var(--well);border:1px solid var(--border);
+  border-radius:7px;padding:5px 9px;font:11px/1 var(--mono);color:var(--accent)}
+.target-pill[data-disabled=dynamic]{opacity:.6}
+/* spontaneous warning toast (top-right) */
+#orch-toast{position:fixed;top:14px;right:16px;z-index:80;display:flex;align-items:center;gap:9px;
+  background:#2a2008;border:1px solid var(--warn);border-radius:10px;padding:10px 13px;
+  box-shadow:0 16px 40px rgba(0,0,0,0.5);cursor:pointer;animation:toastIn .18s ease}
+#orch-toast[hidden]{display:none}
+#orch-toast .t{font-size:12.5px;font-weight:700;color:var(--warn-2)}
+#orch-toast .s{font-size:10.5px;color:var(--muted);margin-top:1px}
+@keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+
+/* orchestration issues popover (badge/toast click — Task 13); same fixed-
+   dropdown pattern as .gate-menu/.sig-popover, tinted amber (warning-only) */
+.orch-issues-popover{position:fixed;z-index:95;background:var(--panel);border:1px solid var(--warn);
+  border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,0.5);padding:6px;display:flex;flex-direction:column;
+  gap:2px;min-width:220px;max-width:360px;max-height:320px;overflow-y:auto}
+.orch-issues-head{font:9.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--warn-2);
+  font-weight:700;padding:6px 8px 8px}
+.orch-issue-item{background:transparent;border:none;color:var(--text);font:12px/1.5 var(--sans);
+  text-align:left;padding:8px 9px;border-radius:6px;cursor:pointer;width:100%}
+.orch-issue-item:hover{background:var(--well);color:var(--warn-2)}
+
+/* orchestration program view */
+.orch-rows{position:relative;display:flex;flex-direction:column;gap:6px}
+.orch-row{display:flex;gap:14px;align-items:stretch}
+.gate{border:1.5px solid rgba(167,139,250,0.55);border-left:3px solid var(--violet);border-radius:13px;
+  background:rgba(167,139,250,0.055);cursor:pointer}
+.gate.loop{border-style:dashed}
+.gate.selected{box-shadow:0 0 0 2px var(--accent),0 0 22px rgba(56,189,248,0.22)}
+.gate-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 13px;border-bottom:1px solid rgba(167,139,250,0.22)}
+.gate.loop .gate-head{border-bottom-style:dashed}
+.gate-kw{font:11px/1 var(--mono);font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--violet-2)}
+/* the block's persisted id — disambiguates two identical conditions */
+.gate-id{font:10px/1 var(--mono);font-weight:700;color:var(--violet-2);background:var(--violet-soft);
+  border:1px solid rgba(167,139,250,0.4);border-radius:5px;padding:3px 7px;letter-spacing:.04em}
+.gate-icon-if{width:16px;height:16px;background:var(--violet);transform:rotate(45deg);border-radius:3px}
+.gate-icon-loop{width:19px;height:19px;border-radius:50%;border:2px solid var(--violet);color:var(--violet-2);
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px}
+.gate-body{padding:12px 13px;display:flex;flex-direction:column;gap:9px}
+.gate-body.branches{flex-direction:row;gap:10px}
+.lane{flex:1;min-width:0;background:var(--bg-2,#0b1120);border:1px solid var(--border);border-radius:10px;padding:9px;
+  display:flex;flex-direction:column;gap:8px}
+.lane.then{border-color:rgba(134,239,172,0.3)}
+.lane-label{font:9.5px/1 var(--mono);font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.lane.then .lane-label{color:var(--good-2)}
+.cond-pill{display:inline-flex;align-items:center;gap:7px;font:11px/1 var(--mono);background:var(--well);
+  border:1px solid var(--border);border-radius:7px;padding:5px 9px}
+.cond-sig{color:var(--accent)} .cond-lit{color:var(--warn-2)} .cond-builtin{color:var(--violet-2)} .cond-op{color:var(--muted)}
+.cap-chip{font:10px/1 var(--mono);font-weight:700;color:var(--warn-2);background:rgba(251,191,36,0.12);
+  border:1px solid rgba(251,191,36,0.35);border-radius:5px;padding:3px 7px}
+.cap-chip.bad{color:var(--bad);background:rgba(248,113,113,0.12);border:1px dashed rgba(248,113,113,0.5)}
+/* inline condition-incompleteness marker (Task 13) — additive, distinct from .cap-chip */
+.gate-warn{font:10px/1 var(--mono);font-weight:700;color:var(--warn-2);background:rgba(251,191,36,0.12);
+  border:1px dashed rgba(251,191,36,0.45);border-radius:5px;padding:3px 7px}
+.gate-edit{margin-left:auto;color:var(--muted);font-size:11px;cursor:pointer;font-weight:600}
+.gate.selected .gate-edit{color:var(--accent)}
+.drop-slot{border:1.5px dashed var(--border-2);border-radius:10px;padding:9px;display:flex;align-items:center;
+  justify-content:center;gap:8px;color:var(--muted);font-size:11px}
+.drop-slot.hover{border-color:var(--accent);color:#7dd3fc;background:rgba(56,189,248,0.08)}
+.orch-rail{flex:0 0 54px;display:flex;flex-direction:column;align-items:center}
+.orch-rail .node{width:28px;height:28px;border-radius:50%;background:var(--bg-2,#0b1120);border:2px solid var(--accent);
+  display:flex;align-items:center;justify-content:center;font:13px/1 var(--mono);font-weight:700}
+.orch-tray,.orch-palette{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:8px 0}
+/* depends_on-unification view: the whole DAG; ungated actions are cards at their
+   level; a gate is a FRAME with then/else/body lanes (reuses .gate/.gate-head/
+   .gate-body/.lane). A row's cards center against a tall gate frame. */
+.orch-dag{position:relative;display:flex;flex-direction:column;gap:18px}
+.orch-cards{display:flex;flex-wrap:wrap;gap:12px;flex:1 1 auto;min-width:0;align-items:center}
+/* A gate carries two lanes (then/else) side by side, so it needs the width of
+   ~two cards. Give it its OWN full-width line inside its level band: the plain
+   cards flow above it, the gate sits below them, and its lanes get real room.
+   Several gates on one level simply stack. */
+.orch-cards>.gate{align-self:stretch;flex:1 1 100%;min-width:0}
+/* the card's flex-basis is a WIDTH in the row; inside a column lane/gate-body it
+   would become a spurious height — reset it so a framed card hugs its content */
+.orch-cards .gate .phase-card{flex:1 1 auto}
+/* empty-state when a workflow has no orchestration program yet */
+.orch-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  gap:14px;min-height:340px;padding:48px 24px;max-width:560px;margin:40px auto;color:var(--muted)}
+.orch-empty-icon{font-size:40px;color:var(--violet);opacity:.55;line-height:1}
+.orch-empty-title{font-size:16px;font-weight:700;color:var(--text,#e2e8f0)}
+.orch-empty-body{font-size:13px;line-height:1.6;color:var(--muted);margin:0}
+.orch-empty-cta{margin-top:4px;padding:9px 16px;border-radius:9px;border:1px solid var(--violet);
+  background:var(--violet-soft);color:var(--violet-2);font-size:13px;font-weight:700;cursor:pointer}
+.orch-empty-cta:hover{background:rgba(167,139,250,0.22)}
+.tray-head{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.phase-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:8px;background:var(--well);
+  border:1px solid var(--border);border-left:3px solid var(--accent);cursor:grab;font:11.5px/1 var(--mono);font-weight:700}
+.emits-chip{font:9px/1.3 var(--mono);color:var(--accent);background:rgba(56,189,248,0.08);
+  border:1px solid rgba(56,189,248,0.22);border-radius:4px;padding:2px 6px}
+
+/* ＋ Gate popover menu (Condition / Loop) */
+.gate-menu{position:fixed;z-index:95;background:var(--panel);border:1px solid var(--border);border-radius:9px;
+  box-shadow:0 16px 40px rgba(0,0,0,0.5);padding:5px;display:flex;flex-direction:column;gap:2px;min-width:150px}
+.gate-menu-item{background:transparent;border:none;color:var(--text);font:12px/1 var(--sans);text-align:left;
+  padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.gate-menu-item:hover{background:var(--well);color:var(--accent)}
+.gate-menu-item:disabled{opacity:.5;cursor:not-allowed}
+.gate-menu-item:disabled:hover{background:transparent;color:var(--text)}
+
+/* ⓘ not-implemented tracker popover (Task 15) — same fixed-dropdown idiom as
+   .orch-issues-popover/.sig-popover, neutral tint (informational, not a warning) */
+.info-popover{position:fixed;z-index:95;background:var(--panel);border:1px solid var(--border);
+  border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,0.5);padding:8px;display:flex;flex-direction:column;
+  gap:7px;min-width:260px;max-width:380px;max-height:70vh;overflow-y:auto}
+.info-popover-head{font:9.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+  font-weight:700;padding:2px 2px 4px}
+.info-popover-item{font:11.5px/1.5 var(--sans);color:var(--text);padding:6px 7px;border-radius:6px;
+  background:var(--well)}
+
+/* Signal picker button + popover (Task 11) */
+.sig-picker-btn{width:100%;text-align:left;background:var(--well);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;color:var(--accent);font:12px/1 var(--mono);cursor:pointer}
+.sig-popover{position:fixed;z-index:95;background:var(--panel);border:1px solid var(--border);border-radius:9px;
+  box-shadow:0 16px 40px rgba(0,0,0,0.5);padding:8px;display:flex;flex-direction:column;gap:2px;
+  min-width:220px;max-width:320px;max-height:70vh;overflow-y:auto}
+.sig-pop-group{font:9.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--dim);
+  font-weight:700;margin:8px 0 3px;padding:0 2px}
+.sig-pop-group:first-child{margin-top:2px}
+.sig-pop-item{background:transparent;border:none;color:var(--text);font:12px/1 var(--mono);text-align:left;
+  padding:7px 9px;border-radius:6px;cursor:pointer}
+.sig-pop-item:hover{background:var(--well);color:var(--accent)}
+.sig-pop-item.active{background:rgba(56,189,248,0.14);color:var(--accent);font-weight:700}
+.sig-pop-empty{font-size:11.5px;color:var(--muted);padding:6px 2px}
+.sig-pop-sep{height:1px;background:var(--border);margin:6px 2px}
+.sig-pop-declare{background:transparent;border:1px dashed var(--border-2);color:var(--accent);
+  font:11.5px/1 var(--sans);font-weight:600;text-align:center;padding:8px 9px;border-radius:6px;cursor:pointer;margin-top:2px}
+.sig-pop-declare:hover{background:rgba(56,189,248,0.08)}
+.sig-pop-actions{display:flex;justify-content:space-between;gap:8px;margin-top:6px}
+.sig-pop-back{background:transparent;border:none;color:var(--muted);font:11.5px/1 var(--sans);cursor:pointer;padding:6px 4px}
+.sig-pop-back:hover{color:var(--text)}
+.sig-pop-submit{background:var(--accent);border:none;color:#04121e;font:11.5px/1 var(--sans);font-weight:700;
+  padding:7px 14px;border-radius:6px;cursor:pointer}
+
+/* ---- gate edit panel (Task 10) ---- */
+.op-box{border-radius:9px;padding:9px;border:1px solid var(--border);margin-bottom:8px}
+.op-box.signal{border-color:rgba(56,189,248,0.4);background:rgba(56,189,248,0.06)}
+.op-box.literal{border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.06)}
+.op-box.builtin{border-color:rgba(167,139,250,0.4);background:rgba(167,139,250,0.06)}
+.op-box-label{font:8.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+  font-weight:700;margin-bottom:6px}
+.op-box.signal .op-box-label{color:var(--accent)}
+.op-box.literal .op-box-label{color:var(--warn-2)}
+.op-box.builtin .op-box-label{color:var(--violet-2)}
+.op-kind-seg{display:flex;gap:3px;margin-bottom:7px}
+.op-kind-btn{flex:1;text-align:center;font-size:9.5px;padding:4px 2px;border-radius:5px;
+  background:transparent;color:var(--dim);border:1px solid var(--border)}
+.op-kind-btn.active{font-weight:700}
+.op-box.signal .op-kind-btn.active{background:rgba(56,189,248,0.16);color:var(--accent);border-color:rgba(56,189,248,0.4)}
+.op-box.literal .op-kind-btn.active{background:rgba(251,191,36,0.16);color:var(--warn-2);border-color:rgba(251,191,36,0.4)}
+.op-box.builtin .op-kind-btn.active{background:rgba(167,139,250,0.16);color:var(--violet-2);border-color:rgba(167,139,250,0.4)}
+.op-box select,.op-box input[type=text]{width:100%;background:var(--well);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;color:var(--text);font:12px/1 var(--mono)}
+.op-box.signal select{color:var(--accent)}
+.op-box.literal input{color:var(--warn-2);font-weight:600}
+.op-box.builtin select,.op-box.builtin input{color:var(--violet-2)}
+.op-builtin-row{display:flex;gap:6px}
+.op-builtin-row select{flex:0 0 auto;width:auto}
+.op-builtin-row input{flex:1 1 auto}
+.escape-toggle{margin-top:9px;display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border:1px dashed var(--border-2);border-radius:8px;cursor:pointer;font-size:11px;color:var(--muted)}
+.standard-only-tag{margin-left:auto;font:8.5px/1 var(--mono);color:var(--warn-2);
+  background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:2px 6px}
+.cap-invalid{border-color:var(--bad)!important}

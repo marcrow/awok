@@ -81,6 +81,24 @@ def test_levels_longest_path_wins(bbw_module):
     assert levels == {"A": 0, "B": 1, "C": 2}
 
 
+def test_levels_resolve_block_dependency(bbw_module):
+    """A phase depending on a logic-block id sits below the block's actions, not
+    at the root (the block dep is resolved to the phases the block contains)."""
+    wf = {
+        "phases": [
+            {"id": "A", "name": "a", "group": "g"},
+            {"id": "B", "name": "b", "group": "g", "depends_on": ["A"]},
+            {"id": "Z", "name": "z", "group": "g", "depends_on": ["G"]},
+        ],
+        "orchestration": [
+            {"id": "G", "if": {"op": "exists", "left": "a.x"}, "then": [{"ref": "B"}]},
+        ],
+    }
+    levels = bbw_module.compute_levels(wf)
+    assert levels["A"] == 0 and levels["B"] == 1
+    assert levels["Z"] == 2   # below block G, which holds B at level 1
+
+
 def test_levels_parallel_share_level(bbw_module):
     wf = {"phases": [
         {"id": "A", "name": "a", "group": "g"},
@@ -118,9 +136,9 @@ def test_slug_guard_rejects_traversal(bbw_module):
 
 def test_save_rejects_invalid_schema(bbw_module, tmp_path):
     bad = {"schema_version": 1}  # missing required skill/groups/phases
-    errors = bbw_module.save_workflow("bad", bad, workflows_dir=tmp_path,
-                                      agents_dir=tmp_path)
-    assert errors  # non-empty -> not written
+    res = bbw_module.save_workflow("bad", bad, workflows_dir=tmp_path,
+                                   agents_dir=tmp_path)
+    assert res["errors"]  # non-empty -> not written
     assert not (tmp_path / "bad.yaml").exists()
 
 
@@ -128,9 +146,9 @@ def test_save_writes_valid_workflow(bbw_module, tmp_path):
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
     model = bbw_module.blank_workflow("ok-flow")
-    errors = bbw_module.save_workflow("ok-flow", model, workflows_dir=tmp_path,
-                                      agents_dir=agents_dir)
-    assert errors == []
+    res = bbw_module.save_workflow("ok-flow", model, workflows_dir=tmp_path,
+                                   agents_dir=agents_dir)
+    assert res["errors"] == []
     written = (tmp_path / "ok-flow.yaml")
     assert written.exists()
     assert yaml.safe_load(written.read_text())["skill"]["name"] == "ok-flow"
@@ -442,8 +460,8 @@ def test_save_writes_parallel_with(bbw_module, tmp_path):
                  {"id": "B", "name": "b", "group": "g", "type": "main_agent", "depends_on": ["A"]},
                  {"id": "C", "name": "c", "group": "g", "type": "main_agent", "depends_on": ["A"]},
              ]}
-    errs = bbw_module.save_workflow("pw-flow", model, workflows_dir=tmp_path, agents_dir=agents_dir)
-    assert errs == []
+    res = bbw_module.save_workflow("pw-flow", model, workflows_dir=tmp_path, agents_dir=agents_dir)
+    assert res["errors"] == []
     saved = yaml.safe_load((tmp_path / "pw-flow.yaml").read_text())
     byid = {p["id"]: p for p in saved["phases"]}
     assert byid["B"].get("parallel_with") == ["C"]
@@ -467,8 +485,8 @@ def test_save_roundtrips_full_fields(bbw_module, tmp_path):
                                    "outputs": [{"path": "out/", "kind": "dir", "terminal": True}]}],
                   "inputs": [{"path": "src.json", "kind": "json", "external": True}]},
              ]}
-    errs = bbw_module.save_workflow("full-flow", model, workflows_dir=tmp_path, agents_dir=agents_dir)
-    assert errs == [], errs
+    res = bbw_module.save_workflow("full-flow", model, workflows_dir=tmp_path, agents_dir=agents_dir)
+    assert res["errors"] == [], res["errors"]
     saved = yaml.safe_load((tmp_path / "full-flow.yaml").read_text())
     p1 = [p for p in saved["phases"] if p["id"] == "P1"][0]
     assert p1["invocations"][0]["skip_if"] == "ready"

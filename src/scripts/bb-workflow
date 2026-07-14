@@ -99,6 +99,8 @@ def discover_workflows(workflows_dir: Path = None) -> list:
     found = {}
     if workflows_dir.is_dir():
         for p in sorted(workflows_dir.glob("*.yaml")):
+            if p.name.endswith(".orchestration.yaml"):
+                continue  # sibling of <name>.yaml, not a workflow of its own
             found[p.stem] = p
     if "main" not in found and LEGACY_WORKFLOW_PATH.exists():
         found["main"] = LEGACY_WORKFLOW_PATH
@@ -128,6 +130,34 @@ def resolve_workflow(name_or_path: str) -> tuple:
         f"Workflow not found: {name_or_path!r} (tried as path and as "
         f"{by_name})"
     )
+
+
+def orchestration_path_for(workflow_path: Path) -> Path:
+    """Sibling orchestration file: <name>.yaml -> <name>.orchestration.yaml."""
+    return workflow_path.with_suffix("").with_suffix(".orchestration.yaml")
+
+
+def load_workflow(path: Path) -> dict:
+    """Load a workflow model, merging its sibling orchestration file if present.
+
+    Single entry point so every command sees the same merged model. The base
+    <name>.yaml is the content source of truth; <name>.orchestration.yaml (a list
+    of blocks) is grafted under model['orchestration']. Absent => no key => pure
+    DAG (backward compatible)."""
+    path = Path(path)
+    with open(path) as f:
+        model = yaml.safe_load(f) or {}
+    orch = orchestration_path_for(path)
+    if orch.exists():
+        with open(orch) as f:
+            model["orchestration"] = yaml.safe_load(f) or []
+    return model
+
+
+def read_workflow_payload(path: Path) -> dict:
+    """Editor GET payload: merged model (+ orchestration sibling) and levels."""
+    model = load_workflow(path)
+    return {"model": model, "levels": compute_levels(model)}
 
 
 def workflow_output_paths(skill_name: str) -> dict:
@@ -268,16 +298,47 @@ def resolve_io_paths(model: dict) -> dict:
     return resolved
 
 
+def _block_members(workflow: dict) -> dict:
+    """Map each logic-block id to the phase ids it (transitively) contains, so a
+    depends_on that names a block is understood as a dependency on the block's
+    actions (a phase gated after a block then sits below it, not at the root)."""
+    orch = workflow.get("orchestration")
+    if not orch:
+        return {}
+
+    def refs_in(blocks):
+        out = set()
+        for b in blocks or []:
+            if "ref" in b:
+                out.add(b["ref"])
+            for k in ("then", "else", "body"):
+                out |= refs_in(b.get(k))
+        return out
+
+    return {b["id"]: refs_in([b]) for b in _iter_blocks(orch) if b.get("id") and "ref" not in b}
+
+
 def compute_levels(workflow: dict) -> dict:
-    """Map phase id -> grid row (longest dependency path from a root)."""
+    """Map phase id -> grid row (longest dependency path from a root). A depends_on
+    that names a logic block is resolved to the block's member phases."""
     phases = workflow.get("phases", [])
     deps = {p["id"]: [d for d in (p.get("depends_on") or []) if d] for p in phases}
+    block_members = _block_members(workflow)
     memo = {}
+
+    def resolve(dlist):
+        out = []
+        for d in dlist:
+            if d in deps:
+                out.append(d)
+            elif d in block_members:
+                out.extend(m for m in block_members[d] if m in deps)
+        return out
 
     def level(pid, seen):
         if pid in memo:
             return memo[pid]
-        ds = [d for d in deps.get(pid, []) if d in deps and d not in seen]
+        ds = [d for d in resolve(deps.get(pid, [])) if d not in seen]
         lvl = 0 if not ds else 1 + max(level(d, seen | {pid}) for d in ds)
         memo[pid] = lvl
         return lvl
@@ -364,25 +425,68 @@ def is_valid_slug(name: str) -> bool:
     return bool(isinstance(name, str) and _SLUG_RE.match(name))
 
 
+_ORCH_TRANSIENT_KEYS = ("_id", "_leftKind", "_rightKind")
+
+
+def _sanitize_orchestration_block(block: dict) -> None:
+    """In-place, one block: drop client-only transient keys (defense-in-depth —
+    the web-editor client already strips these, but this is the shared save
+    choke point and the schema has no additionalProperties:false, so junk would
+    otherwise silently persist) and coerce cap=None -> absent (the on-disk/
+    schema convention is "absent = unset-and-OK, null = invalid"; a literal
+    `cap: null` fails validate_schema's blocking structural check)."""
+    for key in _ORCH_TRANSIENT_KEYS:
+        block.pop(key, None)
+    if block.get("cap") is None and "cap" in block:
+        del block["cap"]
+    for key in ("then", "else", "body"):
+        for child in block.get(key) or []:
+            _sanitize_orchestration_block(child)
+
+
+def _sanitize_orchestration(blocks) -> None:
+    """In-place: sanitize every top-level block and its then/else/body
+    descendants. No-op on an empty/absent orchestration list."""
+    for block in blocks or []:
+        _sanitize_orchestration_block(block)
+
+
 def save_workflow(name: str, model: dict, workflows_dir: Path = None,
-                  agents_dir: Path = None) -> list:
-    """Validate then write. Returns [] on success, list of errors otherwise."""
+                  agents_dir: Path = None) -> dict:
+    """Validate then write. Returns {"errors": [...], "warnings": [...]}.
+    Structural errors (schema/coherence) block the write. Semantic
+    orchestration issues are WARNINGS — the files are still written so the
+    author never loses in-progress work. The 'orchestration' key is split off
+    the base <name>.yaml into the <name>.orchestration.yaml sibling."""
     workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
     agents_dir = agents_dir or DEFAULT_AGENTS_DIR
     if not is_valid_slug(name):
-        return [f"invalid workflow name: {name!r}"]
+        return {"errors": [f"invalid workflow name: {name!r}"], "warnings": []}
     apply_parallel_with(model, compute_levels(model))
-    errors = validate_schema(model)
+    if "orchestration" in model:
+        _sanitize_orchestration(model["orchestration"])   # cap=None -> absent, drop UI-only keys
+    errors = validate_schema(model)                 # includes orchestration SCHEMA (structural)
     if errors:
-        return errors
+        return {"errors": errors, "warnings": []}
     errors = validate_coherence(model, agents_dir=agents_dir,
-                                workflows_dir=workflows_dir)
+                                workflows_dir=workflows_dir,
+                                include_orchestration=False)
     if errors:
-        return errors
+        return {"errors": errors, "warnings": []}
+    warnings = validate_orchestration(model)        # semantic -> warning-only
+
+    base = {k: v for k, v in model.items() if k != "orchestration"}
+    orch = model.get("orchestration")
     workflows_dir.mkdir(parents=True, exist_ok=True)
-    (workflows_dir / f"{name}.yaml").write_text(dump_workflow_yaml(model),
+    (workflows_dir / f"{name}.yaml").write_text(dump_workflow_yaml(base),
                                                 encoding="utf-8")
-    return []
+    sibling = orchestration_path_for(workflows_dir / f"{name}.yaml")
+    if orch:
+        sibling.write_text(yaml.dump(orch, sort_keys=False, allow_unicode=True,
+                                     default_flow_style=False), encoding="utf-8")
+    elif sibling.exists():
+        sibling.unlink()
+    return {"errors": errors, "warnings": warnings}   # errors == [] here
 
 
 # ============================================================================
@@ -396,6 +500,26 @@ def load_schema(schema_path: Path = None) -> dict:
         return json.load(f)
 
 
+DEFAULT_CAPABILITIES_PATH = ENGINE_ROOT / "src" / "workflow" / "orchestration-capabilities.yaml"
+
+
+def load_capabilities(path: Path = None) -> dict:
+    """Load the js-safe/standard-only capability catalogue (single source of truth)."""
+    path = path or DEFAULT_CAPABILITIES_PATH
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+DEFAULT_ORCH_SCHEMA_PATH = ENGINE_ROOT / "src" / "workflow" / "orchestration.schema.json"
+
+
+def load_orchestration_schema(path: Path = None) -> dict:
+    """Load orchestration.schema.json (the block-tree schema)."""
+    path = path or DEFAULT_ORCH_SCHEMA_PATH
+    with open(path) as f:
+        return json.load(f)
+
+
 def validate_schema(workflow: dict, schema: dict = None) -> list:
     """Validate workflow dict against JSON Schema. Returns list of error messages (empty if valid)."""
     schema = schema or load_schema()
@@ -404,6 +528,13 @@ def validate_schema(workflow: dict, schema: dict = None) -> list:
     for err in validator.iter_errors(workflow):
         path = ".".join(str(p) for p in err.absolute_path) or "<root>"
         errors.append(f"{path}: {err.message}")
+
+    if "orchestration" in workflow:
+        try:
+            jsonschema.validate(workflow["orchestration"], load_orchestration_schema())
+        except jsonschema.ValidationError as e:
+            errors.append(f"orchestration schema: {e.message}")
+
     return errors
 
 
@@ -607,10 +738,279 @@ def _detect_cycle(phases: list):
     return None
 
 
+def collect_signals(workflow: dict) -> dict:
+    """Map declared signals to their metadata, keyed '<pid_lower>.<name>'.
+
+    Only explicit `emits` populate the map. A condition may also reference a
+    field of a json output ('<pid_lower>.<field>') that is not declared here;
+    such references are typed on the condition itself, not from this map."""
+    signals = {}
+    for phase in workflow.get("phases", []):
+        pid = phase["id"]
+        for emit in phase.get("emits", []) or []:
+            key = f"{pid.lower()}.{emit['name']}"
+            signals[key] = {
+                "type": emit.get("type"),
+                "source": emit.get("source"),
+                "phase": pid,
+            }
+    return signals
+
+
+_NUMERIC_OPS = {"<", ">", "<=", ">="}
+_SIGNAL_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+def _iter_blocks(blocks):
+    """Yield every block in the tree, depth-first."""
+    for b in blocks or []:
+        yield b
+        for key in ("then", "else", "body"):
+            yield from _iter_blocks(b.get(key))
+
+
+def _operand_type(operand, signals):
+    """Best-effort type of a condition operand. None = unknown/untyped."""
+    if isinstance(operand, bool):
+        return "bool"
+    if isinstance(operand, (int, float)):
+        return "number"
+    if isinstance(operand, str):
+        # a signal reference '<pid>.<field>' if declared, else a literal string
+        return signals.get(operand, {}).get("type") if operand in signals else "string"
+    if isinstance(operand, dict):
+        return "builtin"
+    return None
+
+
+def _validate_block_ids(orchestration, phase_ids):
+    """Block ids must be unique and disjoint from phase ids."""
+    errors = []
+    seen = set()
+    for b in _iter_blocks(orchestration):
+        bid = b.get("id")
+        if not bid:
+            continue
+        if bid in phase_ids:
+            errors.append(f"orchestration: block id '{bid}' collides with a phase id")
+        if bid in seen:
+            errors.append(f"orchestration: duplicate block id '{bid}'")
+        seen.add(bid)
+    return errors
+
+
+def _scope_index(orchestration):
+    """Map each referenced phase and each block id to its lexical scope.
+
+    A scope is a tuple path of (block-token, branch-key) pairs from the root.
+    ref_scope[phase_id] = scope the phase is referenced in.
+    block_scope[block_id] = scope the block itself lives in (NOT its inner scope).
+    """
+    ref_scope = {}
+    block_scope = {}
+
+    def walk(blocks, scope):
+        for i, b in enumerate(blocks or []):
+            if "ref" in b:
+                ref_scope.setdefault(b["ref"], scope)
+            bid = b.get("id")
+            if bid:
+                block_scope[bid] = scope
+            token = bid or f"@{i}"
+            for key in ("then", "else", "body"):
+                if b.get(key):
+                    walk(b[key], scope + ((token, key),))
+
+    walk(orchestration, ())
+    return ref_scope, block_scope
+
+
+def _validate_dependencies(workflow):
+    """Enforce the scope-visibility rule (DL-2): scope(dep) must be a prefix of
+    scope(source). A phase not referenced in orchestration has root scope ()."""
+    orch = workflow.get("orchestration")
+    if not orch:
+        return []
+    ref_scope, block_scope = _scope_index(orch)
+    phase_ids = {p["id"] for p in workflow.get("phases", [])}
+    errors = []
+
+    def scope_of(name):
+        if name in ref_scope:
+            return ref_scope[name]
+        if name in block_scope:
+            return block_scope[name]
+        if name in phase_ids:
+            return ()          # pure-DAG phase: top-level scope
+        return None            # unknown target: reported by other validators
+
+    for p in workflow.get("phases", []):
+        sx = scope_of(p["id"])
+        if sx is None:
+            sx = ()
+        for dep in p.get("depends_on", []) or []:
+            sd = scope_of(dep)
+            if sd is None:
+                continue
+            if sx[:len(sd)] != sd:
+                errors.append(
+                    f"orchestration: '{p['id']}' depends on '{dep}' which is not "
+                    f"visible from its scope — a dependency may only target the same "
+                    f"scope, an ancestor scope, or a sibling block, never reach into "
+                    f"another block (depend on the whole block instead)")
+
+    # Cycle check over an augmented graph: phases + block ids. A block id
+    # depends on every phase referenced inside it (a block is "done" only once
+    # its inner actions are). Reuse _detect_cycle — note it takes a *list* of
+    # {"id", "depends_on"} dicts (not a {node: set(deps)} graph), so the
+    # augmented graph is built in that shape rather than the dict shape the
+    # brief sketch assumed.
+    def _inner_refs(blocks):
+        out = set()
+        for b in blocks or []:
+            if "ref" in b:
+                out.add(b["ref"])
+            for key in ("then", "else", "body"):
+                out |= _inner_refs(b.get(key))
+        return out
+
+    nodes = {}
+    for p in workflow.get("phases", []):
+        nodes[p["id"]] = set(p.get("depends_on", []) or [])
+    for b in _iter_blocks(orch):
+        bid = b.get("id")
+        if bid:
+            nodes.setdefault(bid, set()).update(
+                _inner_refs(b.get("then")) | _inner_refs(b.get("else")) | _inner_refs(b.get("body")))
+    # ensure every referenced node exists as a key
+    for deps in list(nodes.values()):
+        for d in deps:
+            nodes.setdefault(d, set())
+
+    augmented_phases = [{"id": nid, "depends_on": list(deps)} for nid, deps in nodes.items()]
+    cycle = _detect_cycle(augmented_phases)
+    if cycle:
+        errors.append(f"orchestration: dependency cycle through a block — {cycle}")
+
+    return errors
+
+
+def validate_orchestration(workflow, capabilities=None, target="standard"):
+    """Validate the orchestration block tree: refs, caps, signal coherence,
+    operator/type compatibility, js-safe frontier."""
+    if "orchestration" not in workflow:
+        return []
+    caps = capabilities or load_capabilities()
+    signals = collect_signals(workflow)
+    known_pids = {p["id"] for p in workflow.get("phases", [])}
+    errors = []
+    errors.extend(_validate_block_ids(workflow["orchestration"], known_pids))
+    errors.extend(_validate_dependencies(workflow))
+
+    _ref_seen = set()
+    for b in _iter_blocks(workflow["orchestration"]):
+        if "ref" in b:
+            if b["ref"] in _ref_seen:
+                errors.append(f"orchestration: phase '{b['ref']}' is referenced more than once")
+            _ref_seen.add(b["ref"])
+
+    for b in _iter_blocks(workflow["orchestration"]):
+        # ref -> existing phase
+        if "ref" in b and b["ref"] not in known_pids:
+            errors.append(f"orchestration: block ref '{b['ref']}' is not an existing phase")
+        # loops need a cap
+        if ("while" in b or "until" in b or "for_each" in b) and "cap" not in b:
+            errors.append(f"orchestration: loop block {b.get('while') or b.get('until') or b.get('for_each')} missing mandatory 'cap'")
+        # for_each collection must be a declared list signal
+        if "for_each" in b:
+            coll = b["for_each"]
+            sig = signals.get(coll)
+            if sig is None:
+                errors.append(f"orchestration: for_each references unknown signal '{coll}'")
+            elif sig["type"] not in (None, "list"):
+                errors.append(f"orchestration: for_each '{coll}' is type '{sig['type']}', expected list")
+
+        # loop output role: its namespace must be declared
+        if "output" in b:
+            if not ("while" in b or "until" in b or "for_each" in b):
+                errors.append("orchestration: 'output' is only valid on a loop block")
+            role = (b["output"] or {}).get("role", "")
+            ns = role.split(":", 1)[0] if ":" in role else None
+            declared = set(workflow.get("namespaces", {}) or {})
+            if ns is None or ns not in declared:
+                errors.append(
+                    f"orchestration: loop output role '{role}' uses a namespace "
+                    f"not declared in 'namespaces'")
+
+        # conditions
+        cond = b.get("if") or b.get("while") or b.get("until")
+        if cond is not None:
+            errors.extend(_validate_condition(cond, signals, caps, target))
+
+    return errors
+
+
+def _validate_condition(cond, signals, caps, target):
+    errors = []
+    # escape-hatch (string predicate)
+    if isinstance(cond, str):
+        if target == "js":
+            errors.append("orchestration: escape-hatch predicate is standard-only (not js-safe)")
+        return errors
+    if not isinstance(cond, dict):
+        return errors
+
+    op = cond.get("op")
+    op_meta = caps["operators"].get(op)
+    if op_meta is None:
+        errors.append(f"orchestration: unknown operator '{op}'")
+        return errors
+    if target == "js" and not op_meta.get("js_safe", False):
+        errors.append(f"orchestration: operator '{op}' is standard-only in a js target")
+
+    left, right = cond.get("left"), cond.get("right")
+
+    # builtin operand (file_exists/dir_exists) js-safety
+    for operand in (left, right):
+        if isinstance(operand, dict):
+            for bname in operand:
+                bmeta = caps["builtins"].get(bname)
+                if bmeta is None:
+                    errors.append(f"orchestration: unknown builtin '{bname}'")
+                elif target == "js" and not bmeta.get("js_safe", False):
+                    errors.append(f"orchestration: builtin '{bname}' is standard-only in a js target")
+
+    # signal existence: a dotted string operand that looks like a ref must resolve
+    for operand in (left, right):
+        if isinstance(operand, str) and "." in operand and _SIGNAL_PREFIX_RE.match(operand.split(".")[0]):
+            # heuristic: treat 'a.b' as a signal ref
+            if operand not in signals and not _looks_like_literal(operand):
+                errors.append(f"orchestration: condition references unknown signal '{operand}'")
+
+    # operator/type compatibility
+    if op in _NUMERIC_OPS:
+        for operand in (left, right):
+            t = _operand_type(operand, signals)
+            if t is not None and t not in ("number", "builtin"):
+                errors.append(f"orchestration: operator '{op}' needs number operands, got '{operand}' (type {t})")
+    return errors
+
+
+def _looks_like_literal(s):
+    """A dotted string that is a literal value, not a signal ref (e.g. a version)."""
+    return s.replace(".", "").isdigit()
+
+
 def validate_coherence(workflow: dict, agents_dir: Path = None,
-                       workflows_dir: Path = None) -> list:
+                       workflows_dir: Path = None,
+                       include_orchestration: bool = True) -> list:
     """Validate cross-references: agents exist, depends_on valid, conditions
-    used exist, workflow_call targets resolve."""
+    used exist, workflow_call targets resolve.
+
+    include_orchestration=False skips folding in validate_orchestration's
+    semantic findings — used by the web-editor save path, where those issues
+    are surfaced as warnings instead of blocking errors (see save_workflow).
+    Every other caller (CLI validate/generate) keeps them as blocking errors."""
     agents_dir = agents_dir or DEFAULT_AGENTS_DIR
     workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
     errors = []
@@ -619,7 +1019,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
     known_groups = set(workflow.get("groups", {}).keys())
     known_conditions = set(workflow.get("conditions", {}).keys())
     known_workflows = (
-        {p.stem for p in workflows_dir.glob("*.yaml")}
+        {p.stem for p in workflows_dir.glob("*.yaml")
+         if not p.name.endswith(".orchestration.yaml")}
         if workflows_dir.is_dir() else set()
     )
 
@@ -706,6 +1107,9 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
             ag = inv.get("agent", "?")
             for io in (inv.get("inputs") or []) + (inv.get("outputs") or []):
                 _check_io(io, f"phase {pid}/{ag}")
+
+    if include_orchestration:
+        errors.extend(validate_orchestration(workflow))
 
     return errors
 
@@ -875,6 +1279,49 @@ def check_dataflow_warnings(workflow: dict) -> list:
             continue
         if path.startswith("work/") and not path.endswith(("findings.md", "report.md")):
             warnings.append(f"phase '{pid}' invocation '{agent}': output '{path}' has no consumer")
+
+    # 3. Dataflow inversion: a consumer that runs BEFORE its producer. Ordering is
+    # depends_on (the source of truth). If a phase C reads a work/ artifact whose
+    # producer P transitively depends on C, then P runs after C — C reads an
+    # artifact that does not exist yet. Merely-unordered producer/consumer is NOT
+    # flagged: with gating or parallelism that can be legitimate.
+    producers = {}
+    for pid, p in dag.phases.items():
+        outs = [o["path"] for o in p.get("outputs", [])]
+        for inv in p.get("invocations", []):
+            outs += [o["path"] for o in inv.get("outputs", [])]
+        for op in outs:
+            producers.setdefault(op, pid)
+
+    def _ancestors(pid):
+        """Transitive depends_on ancestors of pid (BFS, cycle-safe)."""
+        seen, stack = set(), [pid]
+        while stack:
+            for par in dag.parents.get(stack.pop(), ()):
+                if par in dag.phases and par not in seen:
+                    seen.add(par); stack.append(par)
+        return seen
+
+    for cid, c in dag.phases.items():
+        cins = [i["path"] for i in c.get("inputs", [])]
+        for inv in c.get("invocations", []):
+            cins += [i["path"] for i in inv.get("inputs", [])]
+        anc = None
+        for path in cins:
+            if not path.startswith("work/"):
+                continue
+            prod = next((pid for op, pid in producers.items()
+                         if _paths_match(path, op)), None)
+            if not prod or prod == cid:
+                continue
+            if anc is None:
+                anc = _ancestors(cid)
+            # producer runs after consumer iff the consumer is an ancestor of it
+            if cid in _ancestors(prod) and prod not in anc:
+                warnings.append(
+                    f"phase '{cid}': input '{path}' is produced by '{prod}', which "
+                    f"runs AFTER it (dataflow inversion: the producer depends on the "
+                    f"consumer)")
 
     return warnings
 
@@ -1103,8 +1550,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
     # Jinja templates are engine-owned; invocation snippets are content-owned.
     invocations_dir = invocations_dir or (templates_dir / "invocations")
 
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
 
     # Validate first; fail loudly
     schema_errors = validate_schema(workflow)
@@ -1247,6 +1693,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         any_invocation_model=any_invocation_model,
         any_invocation_effort=any_invocation_effort,
         any_parallelism=any_parallelism,
+        orchestration_md=render_orchestration(workflow),
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1316,6 +1763,155 @@ def _shorten_artifact(path: str) -> str:
     if len(parts) <= 2:
         return p
     return ".../" + "/".join(parts[-2:])
+
+
+def _fmt_operand(v):
+    """Render a condition operand for humans: bool literals as YAML/JS-style
+    lowercase (`true`/`false`), not Python's capitalized repr."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return v
+
+
+def _render_condition(cond):
+    if isinstance(cond, str):
+        return f"_{cond}_"  # escape-hatch: natural-language predicate
+    op, left, right = cond.get("op"), cond.get("left"), cond.get("right")
+    if isinstance(left, dict):
+        left = " ".join(f"{k}({v})" for k, v in left.items())
+    else:
+        left = _fmt_operand(left)
+    right = _fmt_operand(right)
+    if op == "exists":
+        return f"`{left}` exists"
+    return f"`{left}` {op} `{right}`"
+
+
+def _render_blocks(blocks, depth=0):
+    lines = []
+    pad = "  " * depth
+    for b in blocks or []:
+        if "ref" in b:
+            lines.append(f"{pad}- Action **{b['ref']}** participates (in its depends_on position).")
+        elif "if" in b:
+            gid = f" [{b['id']}]" if b.get("id") else ""
+            lines.append(f"{pad}- **If**{gid} {_render_condition(b['if'])}:")
+            lines += _render_blocks(b.get("then"), depth + 1)
+            if b.get("else"):
+                lines.append(f"{pad}- **Else**:")
+                lines += _render_blocks(b["else"], depth + 1)
+        elif "for_each" in b:
+            var = b.get("as", "item")
+            gid = f" [{b['id']}]" if b.get("id") else ""
+            out_note = (f" Aggregated output → `{b['output']['role']}`."
+                        if b.get("output") else "")
+            lines.append(f"{pad}- **For each**{gid} `{var}` in signal `{b['for_each']}` "
+                         f"(cap {b.get('cap')}): run the body once per `{var}`; independent "
+                         f"iterations launch together in one message.{out_note}")
+            lines += _render_blocks(b.get("body"), depth + 1)
+        elif "while" in b or "until" in b:
+            kw = "While" if "while" in b else "Until"
+            cond = b.get("while") or b.get("until")
+            gid = f" [{b['id']}]" if b.get("id") else ""
+            out_note = (f" Aggregated output → `{b['output']['role']}`."
+                        if b.get("output") else "")
+            lines.append(f"{pad}- **{kw}**{gid} {_render_condition(cond)} "
+                         f"(max {b.get('cap')} iterations): re-run the body and re-check "
+                         f"the condition after each pass.{out_note}")
+            lines += _render_blocks(b.get("body"), depth + 1)
+    return lines
+
+
+def render_orchestration(workflow: dict) -> str:
+    """Render the control-flow overlay as (a) an event-driven execution protocol
+    and (b) the branch/loop program. Ordering & concurrency come from depends_on."""
+    if "orchestration" not in workflow:
+        return ""
+    signals = collect_signals(workflow)
+    out = [
+        "## Execution protocol", "",
+        "Drive the pipeline by data dependency, not by list order. Track each "
+        "action as pending / running / done.", "",
+        "1. An action is **ready** when every action in its `depends_on` is **done**.",
+        "2. Launch **all currently ready actions together, in one message** — that is "
+        "where parallelism comes from; there is no explicit parallel construct.",
+        "3. When a launched batch returns, mark **every** action in that batch **done** "
+        "*before* recomputing readiness. Never react to one completion at a time: if two "
+        "finish together you must see both as done, or you will skip an action whose two "
+        "dependencies just completed, or stall the run.",
+        "4. Then re-examine only the **dependents** of the just-finished actions and launch "
+        "any that became ready. Repeat until nothing is left.",
+        "5. **Branches / loops** below gate *which* actions enter the ready set:",
+        "",
+        "### Control flow", "",
+    ]
+    out += _render_blocks(workflow["orchestration"])
+    if signals:
+        out += ["", "**Signals** (how to read each condition operand):", ""]
+        for key, meta in signals.items():
+            how = ("read the ending `SIGNALS` line of its output"
+                   if meta["source"] == "token"
+                   else f"read field `{key.split('.',1)[1]}` of the action's json output")
+            out.append(f"- `{key}` ({meta['type']}, from **{meta['phase']}**) — {how}.")
+    return "\n".join(out) + "\n"
+
+
+def _collect_ref_ids(blocks):
+    ids = []
+    for b in _iter_blocks(blocks):
+        if "ref" in b:
+            ids.append(b["ref"])
+    return ids
+
+
+def build_orchestration_overlay(workflow: dict) -> dict:
+    """Overlay data for the cartography: branch diamonds + loop subgraphs."""
+    overlay = {"branches": [], "loops": []}
+    for b in _iter_blocks(workflow.get("orchestration", [])):
+        if "if" in b:
+            overlay["branches"].append({
+                "id": b.get("id"),
+                "cond": _render_condition(b["if"]),
+                "then_ids": _collect_ref_ids(b.get("then")),
+                "else_ids": _collect_ref_ids(b.get("else")),
+            })
+        if "while" in b or "until" in b or "for_each" in b:
+            label = (b.get("for_each") and f"for each {b['for_each']}") or \
+                    _render_condition(b.get("while") or b.get("until"))
+            overlay["loops"].append({
+                "id": b.get("id"),
+                "label": label,
+                "cap": b.get("cap"),
+                "body_ids": _collect_ref_ids(b.get("body")),
+                "output": (b.get("output") or {}).get("role"),
+            })
+    return overlay
+
+
+def build_view_payload(model: dict) -> dict:
+    """Editor /api/view payload: levels/columns/edges/opportunistic (as today)
+    plus the orchestration overlay and SEMANTIC orchestration warnings.
+    Both orchestration keys are empty when the model has no 'orchestration'."""
+    levels = compute_levels(model)
+    return {
+        "levels": levels,
+        "columns": derive_columns(model, levels),
+        "parallel_with": derive_parallel_with(model, levels),
+        "edges": build_edges(model),
+        "errors": validate_schema(model),
+        "opportunistic": build_opportunistic_view(model),
+        "orchestration_overlay": build_orchestration_overlay(model),
+        "orchestration_warnings": validate_orchestration(model),
+        "dataflow_warnings": _safe_dataflow_warnings(model),
+    }
+
+
+def _safe_dataflow_warnings(model: dict) -> list:
+    """check_dataflow_warnings for the editor — never raise on a mid-edit model."""
+    try:
+        return check_dataflow_warnings(model)
+    except Exception:
+        return []
 
 
 def build_edge_labels(workflow: dict) -> dict:
@@ -1609,13 +2205,13 @@ def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> st
         phases=workflow.get("phases", []),
         groups=workflow.get("groups", {}),
         group_colors=_resolve_group_colors(workflow),
+        orchestration_overlay=build_orchestration_overlay(workflow),
     )
 
 
 def generate_mermaid_cartography(workflow_path: Path, output_path: Path,
                                   templates_dir: Path = None) -> None:
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     apply_parallel_with(workflow, compute_levels(workflow))
     output = render_cartography_mermaid(workflow, templates_dir=templates_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1704,8 +2300,7 @@ def render_dataflow_mermaid(workflow: dict, mode: str = "internal",
 def generate_mermaid_dataflow(workflow_path: Path, output_path: Path,
                               templates_dir: Path = None,
                               mode: str = "internal") -> None:
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     output = render_dataflow_mermaid(workflow, mode=mode, templates_dir=templates_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -1776,8 +2371,7 @@ def generate_mermaid_on_demand(workflow_path: Path, output_path: Path,
     """Render the on-demand agents tab as a mermaid flowchart (one node per
     agent, grouped by trigger family). Returns nothing — writes to disk."""
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
 
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(templates_dir)),
@@ -1797,8 +2391,7 @@ def generate_cartography_texte(workflow_path: Path, output_path: Path,
                                 templates_dir: Path = None) -> None:
     """Generate a text/markdown cartography from workflow.yaml using DAG execution levels."""
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     apply_parallel_with(workflow, compute_levels(workflow))
     dag = build_dag(workflow)
 
@@ -1816,6 +2409,7 @@ def generate_cartography_texte(workflow_path: Path, output_path: Path,
         groups=workflow.get("groups", {}),
         execution_levels=dag.execution_levels(),
         opportunistic_global=opportunistic_global,
+        orchestration_overlay=build_orchestration_overlay(workflow),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -2038,8 +2632,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     Returns (errors_count, warnings_count). Prints findings prefixed with the
     workflow name.
     """
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     schema_errors = validate_schema(workflow)
     coherence_errors = validate_coherence(workflow)
     warnings = check_dataflow_warnings(workflow)
@@ -2103,8 +2696,7 @@ def cmd_check(args):
             return 1
     any_drift = False
     for name, workflow_path in targets:
-        with open(workflow_path) as f:
-            wf = yaml.safe_load(f)
+        wf = load_workflow(workflow_path)
         skill_name = (wf.get("skill") or {}).get("name", name)
         skill_path = Path(args.skill) if (args.skill and len(targets) == 1) else (
             workflow_output_paths(skill_name)["skill"]
@@ -2196,8 +2788,7 @@ def _generate_one(name: str, workflow_path: Path,
                   output_skill_override: Path = None,
                   all_workflows: list = None) -> None:
     """Generate all artifacts for a single workflow."""
-    with open(workflow_path) as f:
-        workflow = yaml.safe_load(f)
+    workflow = load_workflow(workflow_path)
     skill_name = (workflow.get("skill") or {}).get("name", name)
     for w in check_skill_name_matches_filename(workflow, workflow_path):
         print(f"⚠ [{skill_name}] {w}", file=sys.stderr)
@@ -2296,8 +2887,7 @@ def generate_workflows_index(workflows: list, output_path: Path) -> None:
     with its skill metadata + counts + link to its individual cartography."""
     cards_html = []
     for name, workflow_path in workflows:
-        with open(workflow_path) as f:
-            wf = yaml.safe_load(f)
+        wf = load_workflow(workflow_path)
         sk = wf.get("skill") or {}
         skill_name = sk.get("name", name)
         title = sk.get("title") or f"/{skill_name} — {skill_name}"
@@ -2864,9 +3454,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 fp = workflows_dir / f"{name}.yaml"
                 if not fp.exists():
                     return self._json(404, {"error": "not found"})
-                model = yaml.safe_load(fp.read_text())
-                return self._json(200, {"model": model,
-                                        "levels": compute_levels(model)})
+                return self._json(200, read_workflow_payload(fp))
             if p.startswith("/api/invocation/"):
                 agent = p.rsplit("/", 1)[-1]
                 if not is_valid_slug(agent):
@@ -2880,15 +3468,7 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
             p = urllib.parse.urlparse(self.path).path
             data = self._body()
             if p == "/api/view":
-                levels = compute_levels(data)
-                return self._json(200, {
-                    "levels": levels,
-                    "columns": derive_columns(data, levels),
-                    "parallel_with": derive_parallel_with(data, levels),
-                    "edges": build_edges(data),
-                    "errors": validate_schema(data),
-                    "opportunistic": build_opportunistic_view(data),
-                })
+                return self._json(200, build_view_payload(data))
             if p == "/api/preview":
                 try:
                     dataflow = render_dataflow_mermaid(data, templates_dir=templates_dir)
@@ -2908,9 +3488,9 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                     model = clone_workflow(base, name)
                 else:
                     model = blank_workflow(name)
-                errs = save_workflow(name, model, workflows_dir, agents_dir)
-                return self._json(200 if not errs else 422,
-                                  {"errors": errs, "name": name})
+                res = save_workflow(name, model, workflows_dir, agents_dir)
+                return self._json(200 if not res["errors"] else 422,
+                                  {"errors": res["errors"], "warnings": res["warnings"], "name": name})
             if p == "/api/agent":
                 errs = create_agent(
                     data.get("name", ""), data.get("description", ""),
@@ -2927,9 +3507,10 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 if not is_valid_slug(name):
                     return self._json(400, {"errors": ["bad name"]})
                 data = self._body()
-                errs = save_workflow(name, data.get("model", {}),
-                                     workflows_dir, agents_dir)
-                return self._json(200 if not errs else 422, {"errors": errs})
+                res = save_workflow(name, data.get("model", {}),
+                                    workflows_dir, agents_dir)
+                return self._json(200 if not res["errors"] else 422,
+                                  {"errors": res["errors"], "warnings": res["warnings"]})
             if p.startswith("/api/invocation/"):
                 agent = p.rsplit("/", 1)[-1]
                 if not is_valid_slug(agent):

@@ -81,6 +81,11 @@ signal the planned agents do not cover.
 
 ---
 
+{% if orchestration_md %}
+---
+
+{{ orchestration_md }}
+{% endif %}
 ## Pipeline actions (DAG)
 
 {% for phase in phases %}
