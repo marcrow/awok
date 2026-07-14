@@ -94,6 +94,12 @@ signal the planned agents do not cover.
 
 {% if phase.description %}{{ phase.description }}{% endif %}
 
+{% if phase.signal_emissions %}
+**Signals emitted by this action:**
+{% for line in phase.signal_emissions %}{{ line }}
+{% endfor %}
+
+{% endif %}
 {% if phase.interactive %}
 > ⏸️ **Interactive checkpoint.** Present your output for this action, then **STOP and wait** for the maintainer's input/decision before continuing. Do not advance to the next action, and do not decide on their behalf.
 

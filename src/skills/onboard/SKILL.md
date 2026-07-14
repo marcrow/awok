@@ -104,6 +104,8 @@ When launching repo-inventory, also instruct it to decide whether the repo decla
 
 > ⚙️ **Run on `haiku`** — launch via the `Task` tool with `model: haiku` (not inherited from the session model).
 
+- **Emit signal `o0-inventory.has_manifest`**: end your output with a compact line `SIGNALS has_manifest=<true|false>`.
+
 
 
 ### OG-GITSTATS — Git history stats

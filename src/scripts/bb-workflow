@@ -868,6 +868,25 @@ def render_signal_emission(phase: dict, emit: dict) -> str:
     return ""
 
 
+def _attach_signal_emissions(workflow: dict) -> None:
+    """For each phase, attach signal-emission instructions to the right emitter:
+    agent-emitter -> appended into that invocation's rendered block later;
+    phase-emitter (script/main_agent) -> phase['signal_emissions'] (a list of
+    markdown lines the skeleton renders under the phase)."""
+    for phase in workflow.get("phases", []):
+        phase.setdefault("signal_emissions", [])
+        phase["_agent_emissions"] = {}   # agent -> [lines]
+        for emit in phase.get("emits", []) or []:
+            line = render_signal_emission(phase, emit)
+            if not line:
+                continue
+            em = resolve_signal_emitter(workflow, phase, emit)
+            if em["kind"] == "invocation":
+                phase["_agent_emissions"].setdefault(em["agent"], []).append(line)
+            else:  # phase-level (script / main_agent)
+                phase["signal_emissions"].append(line)
+
+
 _NUMERIC_OPS = {"<", ">", "<=", ">="}
 _SIGNAL_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
@@ -1685,6 +1704,11 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
 
     opportunistic_global = resolve_opportunistic(workflow)
 
+    # Route each declared signal's emission instruction to its emitter
+    # (agent invocation vs phase-level script/main_agent) BEFORE rendering,
+    # so the loop below can append agent-routed lines to the right block.
+    _attach_signal_emissions(workflow)
+
     # Render each invocation snippet for each phase
     phases_rendered = []
     for phase in workflow.get("phases", []):
@@ -1708,6 +1732,9 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
             directive = _invocation_run_directive(inv)
             if directive:
                 block = block.rstrip("\n") + "\n\n" + directive + "\n"
+            extra = phase.get("_agent_emissions", {}).get(inv["agent"], [])
+            if extra:
+                block = block.rstrip("\n") + "\n\n" + "\n".join(extra) + "\n"
             rendered_invocations.append(block)
         phase["rendered_invocations"] = rendered_invocations
         phases_rendered.append(phase)

@@ -122,3 +122,24 @@ def test_render_emission_script_exit_code(bbw_module):
     ph = {"id": "S", "name": "s", "group": "g", "type": "script"}
     s = bbw_module.render_signal_emission(ph, {"name": "found", "type": "bool", "source": "exit_code"})
     assert "exit" in s.lower() and "found" in s
+
+
+def test_attach_routes_agent_token_to_invocation(bbw_module):
+    model = _wf([{"id": "P", "name": "p", "group": "g",
+                  "invocations": [{"agent": "a", "description": "do"}],
+                  "emits": [{"name": "status", "type": "string", "source": "token"}]}])
+    bbw_module._attach_signal_emissions(model)
+    ph = model["phases"][0]
+    # agent emitter -> line goes under _agent_emissions[agent], not the phase list
+    assert ph["signal_emissions"] == []
+    assert any("SIGNALS status=" in ln for ln in ph["_agent_emissions"]["a"])
+
+
+def test_attach_routes_script_to_phase_list(bbw_module):
+    model = _wf([{"id": "S", "name": "s", "group": "g", "type": "script",
+                  "emits": [{"name": "found", "type": "bool", "source": "exit_code"}]}])
+    bbw_module._attach_signal_emissions(model)
+    ph = model["phases"][0]
+    # phase-level emitter (script) -> line goes to phase["signal_emissions"]
+    assert ph["_agent_emissions"] == {}
+    assert any("exit" in ln.lower() and "found" in ln for ln in ph["signal_emissions"])
