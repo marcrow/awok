@@ -43,15 +43,19 @@
   (file_exists/dir_exists, escape-hatch). Direct logical follow-up (proposed by Claude).
   Ref: plan § "Suivis hors de ce plan" item 1.
 
-- [ ] **B2 — Web UI: editing condition blocks.** Integrate editing of orchestration blocks
-  (if / while / until / for_each) + "expose a signal" when placing a condition.
-  Direct follow-up of the changes we just made.
-  _To specify: re-check the "few forgotten points" vs the integrated changes._
-  **Partially handled by the depends_on-unification plan (`2026-07-14-orchestration-depends-on-unification.md`, Task 10):**
-  that plan drops `parallel` from the editor and adds block `id` + loop `output` fields.
-  **Still open in B2:** wiring a phase's `depends_on` **to a block id** by drawing an edge on the
-  DAG grid (so "depend on the whole block" is authorable in the UI, not only in YAML), plus the
-  broader "expose a signal when placing a condition" UX.
+- [x] **B2 — Web UI: editing condition blocks.** DONE. The orchestration view is now a
+  full authoring canvas: the whole DAG with gates as frames (then/else/body lanes); drag an
+  action into a lane to gate it (deps renewed to the block context) or out to ungate; drag/nest
+  gates; a gate carries a readable persisted id (COND_n/LOOP_n) shown in its header; an action can
+  **depend on a block** via the Wiring "Depends on" picker (top-level blocks, id assigned on
+  demand); dependency arrows point at the gate frame; a gate's level follows its condition's
+  **signal producer** (evaluated when the signal is ready), not its branch contents; dropping near
+  a gated level defaults deps to the block, not the gated action. Signal exposure when placing a
+  condition already exists (signal picker + declare-signal, webui plan Task 11).
+  _Deliberately NOT done (out of scope, confirmed with maintainer): drawing a dependency edge
+  action→block directly on the grid — there is no drag-an-arrow gesture even action→action; deps
+  are authored in the Wiring panel. Nested (non-top-level) blocks are not yet offered as depends_on
+  targets in the picker (top-level only — always visibility-legal)._
 
 - [ ] **B3 — create-workflow: orchestration + dynamic.** Have it brainstorm/scaffold an
   orchestration, expose signals, and **read `orchestration-capabilities.yaml`** for guidance

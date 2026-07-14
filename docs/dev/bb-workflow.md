@@ -424,6 +424,12 @@ référencé non déclaré est une erreur bloquante.
 **warnings non-bloquants** :
 - *input has no producer* : un input `work/…` qu'aucune phase ne produit
 - *output has no consumer* : un output `work/…` qu'aucune phase ne lit
+- *dataflow inversion* : un consommateur qui tourne **avant** son producteur —
+  une phase `C` lit un artefact `work/…` produit par `P`, mais `P` dépend
+  (transitivement) de `C`, donc `P` s'exécute après `C` (l'artefact n'existe pas
+  encore). L'ordre vient de `depends_on` (source de vérité) ; un couple
+  producteur/consommateur simplement **non ordonné** n'est pas signalé (le gating
+  ou le parallélisme peuvent le rendre légitime).
 
 Le matching est **dir↔fichier** : un input répertoire `work/x/` est satisfait par
 un output `work/x/a.json` (et inversement), et les I/O de **niveau phase** comptent

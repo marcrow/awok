@@ -407,6 +407,16 @@ event-driven ready-set protocol followed by the nested "### Control flow"
 branch/loop program; `build_orchestration_overlay` feeds the cartography's
 branch diamonds and loop subgraphs.
 
+**Authoring in the web editor (`awok edit`)**: the orchestration view renders the
+whole DAG with gates as frames (then/else/body lanes). Drag an action into a lane
+to gate it (its `depends_on` is renewed to the block context) or onto the grid to
+ungate it; drag/nest gates; an action depends on a whole block by picking the
+block (by its persisted `COND_n`/`LOOP_n` id) in the Wiring "Depends on" list. A
+gate is placed at the level of its condition's **signal producer** (when the
+condition can be evaluated), not its branch contents. The frame position is
+display-only — real ordering is always `depends_on`; the "⤳ Dependencies" arrows
+carry it, including an arrow into a gate frame from a deeper blocking dependency.
+
 See `docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md`
 for the full design, and the fixture pair
 `src/scripts/tests/fixtures/workflows/orchestrated.(yaml|orchestration.yaml)`
