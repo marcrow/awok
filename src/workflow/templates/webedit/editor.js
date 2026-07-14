@@ -10,7 +10,7 @@ import { safeDropDepends, blockedDependents, buildNotice,
          orchestrationIssues, ancestorChain, topLevelBlockOfPhase } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
-         ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
+         ioRefEditor, triggerEditor, stringListEditor, signalsEditor } from "./formfields.js";
 import { createDataflow } from "./dataflow.js";
 import * as orch from "./orchestration.js";
 
@@ -785,6 +785,13 @@ function tabWiring(body, p) {
   const outWrap = document.createElement("div"); outWrap.className = "io-out"; outWrap.style.marginTop = "16px";
   outWrap.appendChild(ioRefEditor("outputs", p.outputs || [], next => { if (next.length) p.outputs = next; else delete p.outputs; refreshView(); }, state.model.namespaces));
   body.appendChild(outWrap);
+
+  // Signals this action emits (`emits:`) — declared on the PRODUCING action.
+  const sigWrap = document.createElement("div"); sigWrap.className = "wire-block";
+  sigWrap.appendChild(signalsEditor("signals", p.emits || [], p, next => {
+    if (next.length) p.emits = next; else delete p.emits; refreshView();
+  }));
+  body.appendChild(sigWrap);
 
   // Agent actions usually declare their files per-invocation — surface them here
   // (read-only) so the Wiring tab is never misleadingly empty. They're editable

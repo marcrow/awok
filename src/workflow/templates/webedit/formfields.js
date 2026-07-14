@@ -154,6 +154,125 @@ export function stringListEditor(label, items, onChange){
   return wrap;
 }
 
+// Signal (`emits`) editor — declares signals on the PRODUCING action (Wiring
+// tab). Self-contained: its own type/source lists, independent of the
+// (soon-to-be-removed, see Task 9) EMIT_TYPES/EMIT_SOURCES in orchestration.js
+// which back the older condition-side "declare a new signal" popover.
+const SIGNAL_TYPES = ["number","string","bool","enum","list"];
+// Allowed `source` values per action nature (phase.type). A phase with no
+// `type` defaults to the "agent" nature (mirrors the generator/schema
+// default). Natures not listed here (workflow_call, external, ...) don't
+// support signals at all.
+const SIGNAL_SOURCES_BY_NATURE = {
+  agent: ["token","field"],
+  script: ["exit_code","token","field"],
+  main_agent: ["token","field"],
+};
+const SIGNAL_NAME_RE = /^[a-z][a-z0-9_]*$/;
+
+// Collects this action's own output roles: its phase-level `outputs` plus
+// every invocation's `outputs` — the candidate set for a `source: field`
+// signal's `from` role.
+function collectOutputRoles(phase){
+  const roles = []; const seen = new Set();
+  const add = r => { if (r && !seen.has(r)) { seen.add(r); roles.push(r); } };
+  for (const o of (phase && phase.outputs) || []) add(o.role);
+  for (const inv of (phase && phase.invocations) || []) for (const o of (inv.outputs) || []) add(o.role);
+  return roles;
+}
+
+// Splits a stored `from` string ("<role>" or "<role>.<field>") back into its
+// role/field parts, given the currently-known roles (so a role containing no
+// dot is told apart from an appended `.field`).
+function splitFrom(fromStr, roles){
+  if (!fromStr) return { role: roles[0] || "", field: "" };
+  if (roles.includes(fromStr)) return { role: fromStr, field: "" };
+  for (const r of roles) if (fromStr.startsWith(r + ".")) return { role: r, field: fromStr.slice(r.length + 1) };
+  const idx = fromStr.indexOf(".");
+  return idx === -1 ? { role: fromStr, field: "" } : { role: fromStr.slice(0, idx), field: fromStr.slice(idx + 1) };
+}
+
+// items = phase.emits (or []). `phase` is the owning action, used to derive
+// the nature-filtered source list and the output-role candidates for `from`.
+export function signalsEditor(label, items, phase, onChange){
+  const wrap = document.createElement("div"); wrap.className = "signals-editor";
+  const head = document.createElement("label"); head.textContent = label; wrap.appendChild(head);
+  const nature = (phase && phase.type) || "agent";
+  const sources = SIGNAL_SOURCES_BY_NATURE[nature];
+  if (!sources) {
+    const note = document.createElement("div"); note.className = "muted-note";
+    note.textContent = "signals not supported for this action type";
+    wrap.appendChild(note);
+    return wrap;
+  }
+  const list = (items || []).map(x => ({ ...x }));
+  const emit = () => onChange(list.map(x => ({ ...x })));
+  const outputRoles = collectOutputRoles(phase);
+  const invAgents = ((phase && phase.invocations) || []).map(i => i.agent).filter(Boolean);
+  const body = document.createElement("div"); wrap.appendChild(body);
+  function render(){
+    body.replaceChildren();
+    list.forEach((item, idx) => {
+      const r = document.createElement("div"); r.className = "signal-row";
+      const name = document.createElement("input"); name.type = "text"; name.className = "signal-name";
+      name.placeholder = "name"; name.value = item.name || "";
+      const warn = document.createElement("span"); warn.className = "signal-warn";
+      const refreshWarn = () => { const ok = !item.name || SIGNAL_NAME_RE.test(item.name); warn.textContent = ok ? "" : "⚠ ^[a-z][a-z0-9_]*$"; };
+      name.addEventListener("change", () => { item.name = name.value.trim(); refreshWarn(); emit(); });
+      r.appendChild(name);
+      const type = document.createElement("select");
+      for (const t of SIGNAL_TYPES){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
+      type.addEventListener("change", () => { item.type = type.value; emit(); });
+      r.appendChild(type);
+      const source = document.createElement("select");
+      for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
+      source.addEventListener("change", () => {
+        item.source = source.value;
+        if (item.source !== "field") delete item.from;
+        if (item.source !== "token" && item.source !== "exit_code") delete item.by;
+        emit(); render();
+      });
+      r.appendChild(source);
+      const del = document.createElement("button"); del.className = "signal-del"; del.textContent = "✕";
+      del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
+      r.appendChild(del);
+      r.appendChild(warn);
+      refreshWarn();
+      body.appendChild(r);
+
+      const curSource = item.source || sources[0];
+      if (curSource === "field") {
+        const sub = document.createElement("div"); sub.className = "signal-subrow";
+        const roles = outputRoles.slice();
+        const parsed = splitFrom(item.from, roles);
+        if (parsed.role && !roles.includes(parsed.role)) roles.unshift(parsed.role);
+        const roleSel = document.createElement("select");
+        if (!roles.length) { const o = document.createElement("option"); o.value = ""; o.textContent = "(no output role declared)"; roleSel.appendChild(o); }
+        for (const rl of roles){ const o = document.createElement("option"); o.value = rl; o.textContent = rl; if (rl === parsed.role) o.selected = true; roleSel.appendChild(o); }
+        const fieldInput = document.createElement("input"); fieldInput.type = "text"; fieldInput.placeholder = "field (optional)"; fieldInput.value = parsed.field || "";
+        const setFrom = () => { const role = roleSel.value; const field = fieldInput.value.trim(); item.from = field ? `${role}.${field}` : role; emit(); };
+        roleSel.addEventListener("change", setFrom);
+        fieldInput.addEventListener("change", setFrom);
+        sub.appendChild(roleSel); sub.appendChild(fieldInput);
+        body.appendChild(sub);
+      }
+      if ((curSource === "token" || curSource === "exit_code") && invAgents.length >= 2) {
+        const sub = document.createElement("div"); sub.className = "signal-subrow";
+        const bySel = document.createElement("select");
+        const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "by invocation…"; bySel.appendChild(o0);
+        for (const a of invAgents){ const o = document.createElement("option"); o.value = a; o.textContent = a; if (a === item.by) o.selected = true; bySel.appendChild(o); }
+        bySel.addEventListener("change", () => { if (bySel.value) item.by = bySel.value; else delete item.by; emit(); });
+        sub.appendChild(bySel);
+        body.appendChild(sub);
+      }
+    });
+  }
+  const add = document.createElement("button"); add.className = "signal-add"; add.textContent = "＋ add signal";
+  add.addEventListener("click", () => { list.push({ name: "", type: "string", source: sources[0] }); render(); emit(); });
+  render(); wrap.appendChild(add);
+  return wrap;
+}
+
 const TRIGGER_ON = ["file_appears","file_changes","event","db_event","threshold_reached"];
 const TRIGGER_KEYS = ["path","type","source","condition"];
 const TRIGGER_HELP = "Triggers the phase when: a file appears/changes (fill in path), an event occurs (type/source), a database event happens (type), or a threshold is reached (condition). Leave empty the fields not relevant to the chosen type.";
