@@ -770,6 +770,68 @@ def _validate_block_ids(orchestration, phase_ids):
     return errors
 
 
+def _scope_index(orchestration):
+    """Map each referenced phase and each block id to its lexical scope.
+
+    A scope is a tuple path of (block-token, branch-key) pairs from the root.
+    ref_scope[phase_id] = scope the phase is referenced in.
+    block_scope[block_id] = scope the block itself lives in (NOT its inner scope).
+    """
+    ref_scope = {}
+    block_scope = {}
+
+    def walk(blocks, scope):
+        for i, b in enumerate(blocks or []):
+            if "ref" in b:
+                ref_scope.setdefault(b["ref"], scope)
+            bid = b.get("id")
+            if bid:
+                block_scope[bid] = scope
+            token = bid or f"@{i}"
+            for key in ("then", "else", "body"):
+                if b.get(key):
+                    walk(b[key], scope + ((token, key),))
+
+    walk(orchestration, ())
+    return ref_scope, block_scope
+
+
+def _validate_dependencies(workflow):
+    """Enforce the scope-visibility rule (DL-2): scope(dep) must be a prefix of
+    scope(source). A phase not referenced in orchestration has root scope ()."""
+    orch = workflow.get("orchestration")
+    if not orch:
+        return []
+    ref_scope, block_scope = _scope_index(orch)
+    phase_ids = {p["id"] for p in workflow.get("phases", [])}
+    errors = []
+
+    def scope_of(name):
+        if name in ref_scope:
+            return ref_scope[name]
+        if name in block_scope:
+            return block_scope[name]
+        if name in phase_ids:
+            return ()          # pure-DAG phase: top-level scope
+        return None            # unknown target: reported by other validators
+
+    for p in workflow.get("phases", []):
+        sx = scope_of(p["id"])
+        if sx is None:
+            sx = ()
+        for dep in p.get("depends_on", []) or []:
+            sd = scope_of(dep)
+            if sd is None:
+                continue
+            if sx[:len(sd)] != sd:
+                errors.append(
+                    f"orchestration: '{p['id']}' depends on '{dep}' which is not "
+                    f"visible from its scope — a dependency may only target the same "
+                    f"scope, an ancestor scope, or a sibling block, never reach into "
+                    f"another block (depend on the whole block instead)")
+    return errors
+
+
 def validate_orchestration(workflow, capabilities=None, target="standard"):
     """Validate the orchestration block tree: refs, caps, signal coherence,
     operator/type compatibility, js-safe frontier."""
@@ -780,6 +842,7 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
     known_pids = {p["id"] for p in workflow.get("phases", [])}
     errors = []
     errors.extend(_validate_block_ids(workflow["orchestration"], known_pids))
+    errors.extend(_validate_dependencies(workflow))
 
     for b in _iter_blocks(workflow["orchestration"]):
         # ref -> existing phase

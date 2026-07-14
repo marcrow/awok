@@ -188,3 +188,63 @@ def test_render_condition_renders_bool_literal_lowercase(bbw_module):
     rendered = bbw_module._render_condition(
         {"op": "==", "left": "t1.flag", "right": True})
     assert "`true`" in rendered and "True" not in rendered
+
+
+def _wf_dep(phases, orchestration):
+    return {"phases": phases, "orchestration": orchestration}
+
+
+def test_outsider_cannot_depend_on_inner_action(bbw_module):
+    # Z (root) depends on A which lives inside an if-branch -> forbidden
+    wf = _wf_dep(
+        [{"id": "COND_SRC"}, {"id": "A"}, {"id": "Z", "depends_on": ["A"]}],
+        [{"if": {"op": "exists", "left": "cond_src.x"}, "then": [{"ref": "A"}]},
+         {"ref": "Z"}],
+    )
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("'Z' depends on 'A'" in e and "not visible" in e for e in errs)
+
+
+def test_inner_can_depend_on_outer_action(bbw_module):
+    # A (inside if) depends on RECON (root) -> allowed
+    wf = _wf_dep(
+        [{"id": "RECON"}, {"id": "A", "depends_on": ["RECON"]}],
+        [{"ref": "RECON"},
+         {"if": {"op": "exists", "left": "recon.x"}, "then": [{"ref": "A"}]}],
+    )
+    errs = bbw_module.validate_orchestration(wf)
+    assert not any("not visible" in e for e in errs)
+
+
+def test_outsider_can_depend_on_sibling_block(bbw_module):
+    # Z depends on the if-block G (sibling scope) -> allowed
+    wf = _wf_dep(
+        [{"id": "A"}, {"id": "Z", "depends_on": ["G"]}],
+        [{"id": "G", "if": {"op": "exists", "left": "a.x"}, "then": [{"ref": "A"}]},
+         {"ref": "Z"}],
+    )
+    errs = bbw_module.validate_orchestration(wf)
+    assert not any("not visible" in e for e in errs)
+
+
+def test_outsider_cannot_depend_on_nested_block(bbw_module):
+    # Z depends on inner block H nested inside outer block G -> forbidden
+    wf = _wf_dep(
+        [{"id": "A"}, {"id": "Z", "depends_on": ["H"]}],
+        [{"id": "G", "if": {"op": "exists", "left": "a.x"},
+          "then": [{"id": "H", "if": {"op": "exists", "left": "a.y"}, "then": [{"ref": "A"}]}]},
+         {"ref": "Z"}],
+    )
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("'Z' depends on 'H'" in e and "not visible" in e for e in errs)
+
+
+def test_cross_branch_dependency_forbidden(bbw_module):
+    # B in else depends on A in then -> different scopes, forbidden
+    wf = _wf_dep(
+        [{"id": "S"}, {"id": "A"}, {"id": "B", "depends_on": ["A"]}],
+        [{"if": {"op": "exists", "left": "s.x"},
+          "then": [{"ref": "A"}], "else": [{"ref": "B"}]}],
+    )
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("'B' depends on 'A'" in e and "not visible" in e for e in errs)
