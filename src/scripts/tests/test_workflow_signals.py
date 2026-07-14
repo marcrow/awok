@@ -68,3 +68,38 @@ def test_emitter_script_is_phase_level(bbw_module):
     ph = model["phases"][0]
     em = bbw_module.resolve_signal_emitter(model, ph, ph["emits"][0])
     assert em["kind"] == "phase" and em["nature"] == "script"
+
+
+def _errs(bbw, phases):
+    return bbw.validate_coherence(_wf(phases),
+                                  agents_dir=None, workflows_dir=None)
+
+
+def test_rule_exit_code_requires_script_and_bool(bbw_module):
+    e = _errs(bbw_module, [{"id": "A", "name": "a", "group": "g",
+        "invocations": [{"agent": "x"}],
+        "emits": [{"name": "f", "type": "bool", "source": "exit_code"}]}])
+    assert any("exit_code" in m and "script" in m for m in e)
+    e2 = _errs(bbw_module, [{"id": "S", "name": "s", "group": "g", "type": "script",
+        "emits": [{"name": "f", "type": "string", "source": "exit_code"}]}])
+    assert any("exit_code" in m and "bool" in m for m in e2)
+
+
+def test_rule_list_requires_field(bbw_module):
+    e = _errs(bbw_module, [{"id": "P", "name": "p", "group": "g",
+        "invocations": [{"agent": "x"}],
+        "emits": [{"name": "items", "type": "list", "source": "token"}]}])
+    assert any("list" in m and "field" in m for m in e)
+
+
+def test_rule_field_role_must_be_produced(bbw_module):
+    e = _errs(bbw_module, [{"id": "P", "name": "p", "group": "g",
+        "invocations": [{"agent": "x"}],
+        "emits": [{"name": "n", "type": "number", "source": "field", "from": "work:ghost.n"}]}])
+    assert any("ghost" in m or "not produced" in m for m in e)
+
+
+def test_valid_signals_pass(bbw_module):
+    e = _errs(bbw_module, [{"id": "S", "name": "s", "group": "g", "type": "script",
+        "emits": [{"name": "f", "type": "bool", "source": "exit_code"}]}])
+    assert not any("signal" in m or "exit_code" in m for m in e)

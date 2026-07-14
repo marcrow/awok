@@ -37,6 +37,7 @@ def test_read_workflow_payload_no_sibling(bbw_module, tmp_path):
 def _wf_with_orch(orchestration, emits_status_bad=False):
     phases = [
         {"id": "RECON", "name": "r", "group": "g",
+         "outputs": [{"role": "recon", "path": "recon.json", "kind": "json"}],
          "emits": [{"name": "endpoints", "type": "list", "source": "field", "from": "recon.json"}]},
         {"id": "SCAN", "name": "s", "group": "g"},
     ]
@@ -99,7 +100,7 @@ def test_roundtrip_load_edit_save(bbw_module, tmp_path, restore_roots):
         skill: {name: w, description: x}
         groups: {g: {description: x}}
         phases:
-          - {id: RECON, name: r, group: g, emits: [{name: endpoints, type: list, source: field, from: recon.json}]}
+          - {id: RECON, name: r, group: g, outputs: [{role: recon, path: recon.json, kind: json}], emits: [{name: endpoints, type: list, source: field, from: recon.json}]}
           - {id: SCAN, name: s, group: g}
           - {id: EXPLOIT, name: e, group: g}
     """)

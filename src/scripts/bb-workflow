@@ -801,6 +801,35 @@ def resolve_signal_emitter(workflow: dict, phase: dict, emit: dict) -> dict:
     return {"kind": "unresolved", "reason": "multi-agent token needs `by`"}
 
 
+def _validate_signals(workflow: dict) -> list:
+    """Blocking semantic rules for declared `emits` signals.
+
+    - source: exit_code requires action nature 'script' and type 'bool'.
+    - type: list requires source: field.
+    - a field signal's `from` role must actually be produced by the action
+      (delegated to resolve_signal_emitter, which returns 'unresolved')."""
+    errors = []
+    for phase in workflow.get("phases", []):
+        nature = phase.get("type", "agent")
+        pid = phase["id"]
+        for emit in phase.get("emits", []) or []:
+            name = emit.get("name", "?")
+            src = emit.get("source")
+            typ = emit.get("type")
+            tag = f"signal {pid}.{name}"
+            if src == "exit_code":
+                if nature != "script":
+                    errors.append(f"{tag}: source 'exit_code' is only valid on a 'script' action")
+                if typ != "bool":
+                    errors.append(f"{tag}: source 'exit_code' requires type 'bool'")
+            if typ == "list" and src != "field":
+                errors.append(f"{tag}: type 'list' requires source 'field'")
+            em = resolve_signal_emitter(workflow, phase, emit)
+            if em["kind"] == "unresolved":
+                errors.append(f"{tag}: {em['reason']}")
+    return errors
+
+
 _NUMERIC_OPS = {"<", ">", "<=", ">="}
 _SIGNAL_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
@@ -1154,6 +1183,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
 
     if include_orchestration:
         errors.extend(validate_orchestration(workflow))
+
+    errors.extend(_validate_signals(workflow))
 
     return errors
 
