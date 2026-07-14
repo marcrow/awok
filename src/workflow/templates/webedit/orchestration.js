@@ -126,12 +126,31 @@ export function renderProgram(ctx) {
   const gated = new Set();
   iterBlocks(blocks, b => { if (blockConstruct(b) === "ref") gated.add(b.ref); });
 
-  // A top-level gate sits at the smallest level among the actions it contains, so
-  // it lands where those actions would; an empty gate goes to level 0.
+  // A gate is evaluated when its condition's SIGNALS are available — i.e. after
+  // the phases that emit them — so it sits one level below its signal producers,
+  // independent of what its branches contain (adding a loosely-bound action to a
+  // branch must NOT pull the gate up). Fallback for a signal-less condition
+  // (literal / escape-hatch): the deepest action it contains, so it never floats
+  // above its own body.
+  const sigPhase = {};
+  signalsOf(state.model).forEach(s => { sigPhase[s.key] = s.phase; });
+  const condSignalKeys = (b) => {
+    const k = blockConstruct(b);
+    if (k === "for_each") return (typeof b.for_each === "string" && b.for_each in sigPhase) ? [b.for_each] : [];
+    const c = condOf(b);
+    if (!c || typeof c !== "object") return [];
+    return [c.left, c.right].filter(v => typeof v === "string" && v in sigPhase);
+  };
   const gateLevel = (b) => {
-    let min = Infinity;
-    iterBlocks([b], x => { if (blockConstruct(x) === "ref" && (x.ref in lv)) min = Math.min(min, lv[x.ref]); });
-    return min === Infinity ? 0 : min;
+    let lvl = -1;
+    for (const key of condSignalKeys(b)) {
+      const ph = sigPhase[key];
+      if (ph in lv) lvl = Math.max(lvl, lv[ph]);
+    }
+    if (lvl >= 0) return lvl + 1;
+    let max = -1;
+    iterBlocks([b], x => { if (blockConstruct(x) === "ref" && (x.ref in lv)) max = Math.max(max, lv[x.ref]); });
+    return max < 0 ? 0 : max;
   };
 
   const topGates = blocks.filter(b => blockConstruct(b) !== "ref");
@@ -370,17 +389,40 @@ export function orchDrop(ctx, containerId, slot, ev) {
   } else if (phase) {                            // REFERENCE an action into a gate
     dropped = { _id: newId(), ref: phase }; target.push(dropped);
   }
-  // Renew a dropped ACTION's default dependencies to its new block context: the
-  // actions/blocks that precede it in this lane, or the enclosing block's own
-  // predecessors when the lane starts empty. (Gates carry no depends_on.)
+  // Renew dependencies to the new block context. A dropped ACTION: recompute its
+  // own deps. A dropped GATE (moved with its subtree): recompute the ENTRY action
+  // of each of its lanes — those are the ones whose deps pointed at the gate's old
+  // predecessors; deeper actions depend on siblings that moved along.
   if (dropped && blockConstruct(dropped) === "ref") {
     const p = (ctx.state.model.phases || []).find(x => x.id === dropped.ref);
     if (p) {
       const deps = laneEntryDeps(ctx.state.model, containerId, slot, dropped._id);
       if (deps.length) p.depends_on = deps; else delete p.depends_on;
     }
+  } else if (dropped) {
+    renewGateEntryDeps(ctx.state.model, dropped._id);
   }
   ctx.refreshView().then(() => ctx.rerender());
+}
+
+// After a gate moves, its lanes' ENTRY actions still carry the gate's OLD
+// predecessors as deps. Recompute the first item of each lane to the new context
+// (recursing when the first item is itself a nested gate).
+function renewGateEntryDeps(model, gateUid) {
+  for (const slot of ["then", "else", "body"]) {
+    const lane = containerArray(model.orchestration, gateUid, slot);
+    if (!lane || !lane.length) continue;
+    const first = lane[0];
+    if (blockConstruct(first) === "ref") {
+      const p = (model.phases || []).find(x => x.id === first.ref);
+      if (p) {
+        const deps = laneEntryDeps(model, gateUid, slot, first._id);
+        if (deps.length) p.depends_on = deps; else delete p.depends_on;
+      }
+    } else {
+      renewGateEntryDeps(model, first._id);
+    }
+  }
 }
 
 // ============================================================================
