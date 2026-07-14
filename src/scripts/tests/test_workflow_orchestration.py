@@ -248,3 +248,15 @@ def test_cross_branch_dependency_forbidden(bbw_module):
     )
     errs = bbw_module.validate_orchestration(wf)
     assert any("'B' depends on 'A'" in e and "not visible" in e for e in errs)
+
+
+def test_phase_referenced_twice_is_error(bbw_module):
+    wf = {
+        "phases": [{"id": "S"}, {"id": "A"}],
+        "orchestration": [
+            {"ref": "A"},
+            {"if": {"op": "exists", "left": "s.x"}, "then": [{"ref": "A"}]},
+        ],
+    }
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("'A'" in e and "referenced more than once" in e for e in errs)

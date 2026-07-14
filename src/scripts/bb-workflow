@@ -844,6 +844,13 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
     errors.extend(_validate_block_ids(workflow["orchestration"], known_pids))
     errors.extend(_validate_dependencies(workflow))
 
+    _ref_seen = set()
+    for b in _iter_blocks(workflow["orchestration"]):
+        if "ref" in b:
+            if b["ref"] in _ref_seen:
+                errors.append(f"orchestration: phase '{b['ref']}' is referenced more than once")
+            _ref_seen.add(b["ref"])
+
     for b in _iter_blocks(workflow["orchestration"]):
         # ref -> existing phase
         if "ref" in b and b["ref"] not in known_pids:
