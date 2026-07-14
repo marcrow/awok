@@ -167,6 +167,20 @@ def test_fixture_validates_and_renders(bbw_module):
     assert "For each" in md and "recon.endpoints" in md
 
 
+def test_render_emits_execution_protocol(bbw_module):
+    model = bbw_module.load_workflow(FIX / "orchestrated.yaml")
+    md = bbw_module.render_orchestration(model)
+    assert "## Execution protocol" in md
+    assert "in one message" in md            # explicit concurrency instruction
+    assert "in this order" not in md         # old imperative framing gone
+
+
+def test_render_no_parallel_keyword(bbw_module):
+    model = bbw_module.load_workflow(FIX / "orchestrated.yaml")
+    md = bbw_module.render_orchestration(model)
+    assert "In parallel" not in md
+
+
 def test_discover_workflows_excludes_orchestration_sibling(bbw_module, tmp_path):
     """An <name>.orchestration.yaml is a sibling of <name>.yaml, never a
     workflow of its own — enumerating it as one crashes the grafting."""

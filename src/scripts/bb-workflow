@@ -1720,39 +1720,59 @@ def _render_blocks(blocks, depth=0):
     pad = "  " * depth
     for b in blocks or []:
         if "ref" in b:
-            lines.append(f"{pad}- Run action **{b['ref']}**.")
+            lines.append(f"{pad}- Action **{b['ref']}** participates (in its depends_on position).")
         elif "if" in b:
-            lines.append(f"{pad}- **If** {_render_condition(b['if'])}:")
+            gid = f" [{b['id']}]" if b.get("id") else ""
+            lines.append(f"{pad}- **If**{gid} {_render_condition(b['if'])}:")
             lines += _render_blocks(b.get("then"), depth + 1)
             if b.get("else"):
                 lines.append(f"{pad}- **Else**:")
                 lines += _render_blocks(b["else"], depth + 1)
         elif "for_each" in b:
             var = b.get("as", "item")
-            lines.append(f"{pad}- **For each** `{var}` in signal `{b['for_each']}` "
-                         f"(cap {b.get('cap')}), launch the body once per `{var}` "
-                         f"(independent items → run them together in one message):")
+            gid = f" [{b['id']}]" if b.get("id") else ""
+            out_note = (f" Aggregated output → `{b['output']['role']}`."
+                        if b.get("output") else "")
+            lines.append(f"{pad}- **For each**{gid} `{var}` in signal `{b['for_each']}` "
+                         f"(cap {b.get('cap')}): run the body once per `{var}`; independent "
+                         f"iterations launch together in one message.{out_note}")
             lines += _render_blocks(b.get("body"), depth + 1)
         elif "while" in b or "until" in b:
             kw = "While" if "while" in b else "Until"
             cond = b.get("while") or b.get("until")
-            lines.append(f"{pad}- **{kw}** {_render_condition(cond)} (max {b.get('cap')} iterations):")
+            gid = f" [{b['id']}]" if b.get("id") else ""
+            out_note = (f" Aggregated output → `{b['output']['role']}`."
+                        if b.get("output") else "")
+            lines.append(f"{pad}- **{kw}**{gid} {_render_condition(cond)} "
+                         f"(max {b.get('cap')} iterations): re-run the body and re-check "
+                         f"the condition after each pass.{out_note}")
             lines += _render_blocks(b.get("body"), depth + 1)
-        elif "parallel" in b:
-            lines.append(f"{pad}- **In parallel** (launch all in one message):")
-            lines += _render_blocks(b["parallel"], depth + 1)
     return lines
 
 
 def render_orchestration(workflow: dict) -> str:
-    """Render the block tree as a nested instruction program (standard target)."""
+    """Render the control-flow overlay as (a) an event-driven execution protocol
+    and (b) the branch/loop program. Ordering & concurrency come from depends_on."""
     if "orchestration" not in workflow:
         return ""
     signals = collect_signals(workflow)
-    out = ["## Orchestration program", "",
-           "Run the pipeline actions **in this order and control flow** — this program "
-           "drives the DAG below. Evaluate each condition from the **signals** the actions "
-           "emit; read only the named signal, never reload a whole artifact.", ""]
+    out = [
+        "## Execution protocol", "",
+        "Drive the pipeline by data dependency, not by list order. Track each "
+        "action as pending / running / done.", "",
+        "1. An action is **ready** when every action in its `depends_on` is **done**.",
+        "2. Launch **all currently ready actions together, in one message** — that is "
+        "where parallelism comes from; there is no explicit parallel construct.",
+        "3. When a launched batch returns, mark **every** action in that batch **done** "
+        "*before* recomputing readiness. Never react to one completion at a time: if two "
+        "finish together you must see both as done, or you will skip an action whose two "
+        "dependencies just completed, or stall the run.",
+        "4. Then re-examine only the **dependents** of the just-finished actions and launch "
+        "any that became ready. Repeat until nothing is left.",
+        "5. **Branches / loops** below gate *which* actions enter the ready set:",
+        "",
+        "### Control flow", "",
+    ]
     out += _render_blocks(workflow["orchestration"])
     if signals:
         out += ["", "**Signals** (how to read each condition operand):", ""]
