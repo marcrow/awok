@@ -6,7 +6,7 @@
 // (construct name is the key: {if:{cond},then,else} / {while:{cond},cap,body} /
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
-import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, orchestrationIssues } from "./editlogic.js";
+import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues } from "./editlogic.js";
 import { fieldText, fieldSelect } from "./formfields.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
@@ -356,18 +356,29 @@ export function orchDrop(ctx, containerId, slot, ev) {
   const phase = ev.dataTransfer.getData("text/phase");
   const bs = ctx.state.model.orchestration;
   const target = containerArray(bs, containerId, slot); if (!target) return;
+  let dropped = null;
   if (refId) {                                   // MOVE an existing ref or gate
     const f = findBlock(bs, refId); if (!f) return;
-    const moved = f.parent[f.index];
+    const moved = f.block;
     // Guard: never nest a gate into its own subtree (would detach/loop it).
     if (blockConstruct(moved) !== "ref") {
       let intoSelf = moved._id === containerId;
       iterBlocks([moved], x => { if (x._id === containerId) intoSelf = true; });
       if (intoSelf) return;
     }
-    f.parent.splice(f.index, 1); target.push(moved);
+    f.parent.splice(f.index, 1); target.push(moved); dropped = moved;
   } else if (phase) {                            // REFERENCE an action into a gate
-    target.push({ _id: newId(), ref: phase });
+    dropped = { _id: newId(), ref: phase }; target.push(dropped);
+  }
+  // Renew a dropped ACTION's default dependencies to its new block context: the
+  // actions/blocks that precede it in this lane, or the enclosing block's own
+  // predecessors when the lane starts empty. (Gates carry no depends_on.)
+  if (dropped && blockConstruct(dropped) === "ref") {
+    const p = (ctx.state.model.phases || []).find(x => x.id === dropped.ref);
+    if (p) {
+      const deps = laneEntryDeps(ctx.state.model, containerId, slot, dropped._id);
+      if (deps.length) p.depends_on = deps; else delete p.depends_on;
+    }
   }
   ctx.refreshView().then(() => ctx.rerender());
 }

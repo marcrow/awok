@@ -322,6 +322,54 @@ export function containerArray(blocks, containerId, slot) {
   const f = findBlock(blocks, containerId); if (!f) return null;
   if (!Array.isArray(f.block[slot])) f.block[slot] = []; return f.block[slot];
 }
+// Where a block lives: its containing array, its index, and the enclosing gate's
+// _id + slot (null when top-level). Unlike findBlock this yields the PARENT so a
+// caller can walk UP the nesting.
+export function locateBlock(orchestration, blockUid) {
+  function walk(arr, parentUid, parentSlot) {
+    const a = arr || [];
+    for (let i = 0; i < a.length; i++) {
+      if (a[i]._id === blockUid) return { lane: a, index: i, parentUid, parentSlot };
+      for (const slot of _SLOTS) {
+        const hit = Array.isArray(a[i][slot]) ? walk(a[i][slot], a[i]._id, slot) : null;
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  return walk(orchestration, null, null);
+}
+// Ordered items → dependency ids: a ref → its phase id, a nested gate → its block id.
+function _itemsToDeps(items) {
+  const out = [];
+  for (const b of items || []) {
+    if (blockConstruct(b) === "ref") out.push(b.ref);
+    else if (b.id) out.push(b.id);
+  }
+  return out;
+}
+// The predecessors of a block: the items before it in its parent lane; if it is
+// first there, recurse to the enclosing block's predecessors. [] at top level.
+function blockPredecessors(orch, blockUid) {
+  const loc = locateBlock(orch, blockUid);
+  if (!loc) return [];
+  const deps = _itemsToDeps(loc.lane.slice(0, loc.index));
+  if (deps.length) return deps;
+  if (loc.parentUid) return blockPredecessors(orch, loc.parentUid);
+  return [];
+}
+// Default dependencies for an action just added to a gate lane: the items that
+// precede it in that lane; or, if it is first, the block's own predecessors
+// (walking up). Encodes "runs after what comes before it in this branch".
+export function laneEntryDeps(model, containerUid, slot, addedUid) {
+  const orch = (model && model.orchestration) || [];
+  const f = findBlock(orch, containerUid);
+  const lane = (f && Array.isArray(f.block[slot])) ? f.block[slot] : [];
+  const idx = lane.findIndex(b => b._id === addedUid);
+  const before = idx >= 0 ? lane.slice(0, idx) : [];
+  const deps = _itemsToDeps(before);
+  return deps.length ? deps : blockPredecessors(orch, containerUid);
+}
 // Ancestor chain of `targetId` as [{construct, slot}, ...] — one entry per
 // enclosing gate on the path from the root down to (but not including) the
 // target block, each naming the gate's construct and which slot the path
