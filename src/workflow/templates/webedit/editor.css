@@ -693,15 +693,6 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .sig-pop-item:hover{background:var(--well);color:var(--accent)}
 .sig-pop-item.active{background:rgba(56,189,248,0.14);color:var(--accent);font-weight:700}
 .sig-pop-empty{font-size:11.5px;color:var(--muted);padding:6px 2px}
-.sig-pop-sep{height:1px;background:var(--border);margin:6px 2px}
-.sig-pop-declare{background:transparent;border:1px dashed var(--border-2);color:var(--accent);
-  font:11.5px/1 var(--sans);font-weight:600;text-align:center;padding:8px 9px;border-radius:6px;cursor:pointer;margin-top:2px}
-.sig-pop-declare:hover{background:rgba(56,189,248,0.08)}
-.sig-pop-actions{display:flex;justify-content:space-between;gap:8px;margin-top:6px}
-.sig-pop-back{background:transparent;border:none;color:var(--muted);font:11.5px/1 var(--sans);cursor:pointer;padding:6px 4px}
-.sig-pop-back:hover{color:var(--text)}
-.sig-pop-submit{background:var(--accent);border:none;color:#04121e;font:11.5px/1 var(--sans);font-weight:700;
-  padding:7px 14px;border-radius:6px;cursor:pointer}
 
 /* ---- gate edit panel (Task 10) ---- */
 .op-box{border-radius:9px;padding:9px;border:1px solid var(--border);margin-bottom:8px}

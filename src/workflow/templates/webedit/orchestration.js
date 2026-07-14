@@ -622,7 +622,8 @@ function openSignalPicker(ctx, block, side, buttonEl) {
 
 // Grouped-by-phase signal picker: a button showing the current operand (or
 // a placeholder) opens a popover listing signalsOf(model) grouped by their
-// emitting phase, plus a "＋ Declare a new signal" affordance. Replaces the
+// emitting phase (each headed by phase name+id) for selection only. Signal
+// declaration happens in the producing action's Wiring tab. Replaces the
 // Task 10 INTERIM flat <select> — signature/seam unchanged (called at the
 // `kind === "signal"` branch of operandCtrl below).
 function signalOperandControl(ctx, block, side, cond) {
