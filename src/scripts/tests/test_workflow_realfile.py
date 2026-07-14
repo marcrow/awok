@@ -20,7 +20,8 @@ SKILLS_DIR = REPO_ROOT / "src" / "skills"
 
 
 def _workflow_files():
-    return sorted(WORKFLOWS_DIR.glob("*.yaml"))
+    return sorted(p for p in WORKFLOWS_DIR.glob("*.yaml")
+                  if not p.name.endswith(".orchestration.yaml"))
 
 
 def _skill_path_for(workflow_path: Path) -> Path:

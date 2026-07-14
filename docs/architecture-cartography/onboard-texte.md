@@ -62,3 +62,6 @@ Level 3: O5-GETTING-STARTED
 - Group: `synthesize`
 - Type: `agent`- Depends on: O4-ARCHITECTURE- Invocations:
   - `onboarding-writer` (sonnet)
+## Orchestration
+
+- ❓ If `o0-inventory.has_manifest` == `true` → then: O2-DEPS

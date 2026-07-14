@@ -66,10 +66,32 @@ signal the planned agents do not cover.
 
 ---
 
+---
+
+## Orchestration program
+
+Run the pipeline actions **in this order and control flow** — this program drives the DAG below. Evaluate each condition from the **signals** the actions emit; read only the named signal, never reload a whole artifact.
+
+- **In parallel** (launch all in one message):
+  - Run action **O0-INVENTORY**.
+  - Run action **OG-GITSTATS**.
+- **In parallel** (launch all in one message):
+  - Run action **O1-STRUCTURE**.
+  - Run action **O3-FLOW**.
+  - **If** `o0-inventory.has_manifest` == `true`:
+    - Run action **O2-DEPS**.
+- Run action **O4-ARCHITECTURE**.
+- Run action **O5-GETTING-STARTED**.
+
+**Signals** (how to read each condition operand):
+
+- `o0-inventory.has_manifest` (bool, from **O0-INVENTORY**) — read the ending `SIGNALS` line of its output.
+
 ## Pipeline actions (DAG)
 
 ### O0-INVENTORY — Inventory
 > `scan` · agent · ∥ OG-GITSTATS
+When launching repo-inventory, also instruct it to decide whether the repo declares a dependency manifest (package.json, requirements.txt, pyproject.toml, Cargo.toml, go.mod, pom.xml, Gemfile, composer.json, …) and to end its output with a compact `SIGNALS has_manifest=<true|false>` line. The orchestration program reads that signal to gate the dependency audit.
 
 #### Invocation `repo-inventory`
 
@@ -166,8 +188,9 @@ mkdir -p work/onboard
 
 
 **architecture-writer** [opus] · Synthesizes the architecture doc from explorers + git stats.
-- Reads : `work:structure` (md) → work/onboard/structure.md, `work:deps` (md) → work/onboard/deps.md, `work:flow` (md) → work/onboard/flow.md, `work:git-stats` (md) → work/onboard/git-stats.md
+- Reads : `work:structure` (md) → work/onboard/structure.md, `work:deps` (md, optionnel) → work/onboard/deps.md, `work:flow` (md) → work/onboard/flow.md, `work:git-stats` (md) → work/onboard/git-stats.md
 - Writes : `work:architecture` (md) → work/onboard/architecture.md
+- _(optionnel = peut être absent)_
 
 **Task**: Synthesize the `architecture` from the `structure`, `deps`, `flow` and `git-stats`. Sections: Overview, Components (how they fit), Dataflow (grounded in `flow`), Activity hotspots (grounded in `git-stats`). Cite real names.
 

@@ -29,6 +29,14 @@ phases:
     name: Inventory
     group: scan
     type: agent
+    description: >
+      When launching repo-inventory, also instruct it to decide whether the repo
+      declares a dependency manifest (package.json, requirements.txt, pyproject.toml,
+      Cargo.toml, go.mod, pom.xml, Gemfile, composer.json, …) and to end its output
+      with a compact `SIGNALS has_manifest=<true|false>` line. The orchestration
+      program reads that signal to gate the dependency audit.
+    emits:
+      - { name: has_manifest, type: bool, source: token }
     invocations:
       - agent: repo-inventory
         model: haiku
@@ -118,7 +126,7 @@ phases:
         description: Synthesize the architecture doc from the explorers and git stats
         inputs:
           - { role: work:structure, kind: md }
-          - { role: work:deps, kind: md }
+          - { role: work:deps, kind: md, optional: true }
           - { role: work:flow, kind: md }
           - { role: work:git-stats, kind: md }
         outputs:

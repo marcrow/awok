@@ -136,3 +136,26 @@ def test_fixture_validates_and_renders(bbw_module):
     assert bbw_module.validate_orchestration(model) == []
     md = bbw_module.render_orchestration(model)
     assert "For each" in md and "recon.endpoints" in md
+
+
+def test_discover_workflows_excludes_orchestration_sibling(bbw_module, tmp_path):
+    """An <name>.orchestration.yaml is a sibling of <name>.yaml, never a
+    workflow of its own — enumerating it as one crashes the grafting."""
+    _write(tmp_path, "w.yaml", """
+        schema_version: 1
+        skill: {name: w, description: x}
+        groups: {g: {description: x}}
+        phases: [{id: T1, name: a, group: g}]
+    """)
+    _write(tmp_path, "w.orchestration.yaml", "- ref: T1\n")
+    names = [name for name, _ in bbw_module.discover_workflows(tmp_path)]
+    assert names == ["w"]
+    assert "w.orchestration" not in names
+
+
+def test_render_condition_renders_bool_literal_lowercase(bbw_module):
+    """A YAML `true`/`false` operand loads as a Python bool; render it
+    YAML/JS-style, not as Python's capitalized `True`/`False`."""
+    rendered = bbw_module._render_condition(
+        {"op": "==", "left": "t1.flag", "right": True})
+    assert "`true`" in rendered and "True" not in rendered

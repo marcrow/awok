@@ -99,6 +99,8 @@ def discover_workflows(workflows_dir: Path = None) -> list:
     found = {}
     if workflows_dir.is_dir():
         for p in sorted(workflows_dir.glob("*.yaml")):
+            if p.name.endswith(".orchestration.yaml"):
+                continue  # sibling of <name>.yaml, not a workflow of its own
             found[p.stem] = p
     if "main" not in found and LEGACY_WORKFLOW_PATH.exists():
         found["main"] = LEGACY_WORKFLOW_PATH
@@ -855,7 +857,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
     known_groups = set(workflow.get("groups", {}).keys())
     known_conditions = set(workflow.get("conditions", {}).keys())
     known_workflows = (
-        {p.stem for p in workflows_dir.glob("*.yaml")}
+        {p.stem for p in workflows_dir.glob("*.yaml")
+         if not p.name.endswith(".orchestration.yaml")}
         if workflows_dir.is_dir() else set()
     )
 
@@ -1557,12 +1560,23 @@ def _shorten_artifact(path: str) -> str:
     return ".../" + "/".join(parts[-2:])
 
 
+def _fmt_operand(v):
+    """Render a condition operand for humans: bool literals as YAML/JS-style
+    lowercase (`true`/`false`), not Python's capitalized repr."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return v
+
+
 def _render_condition(cond):
     if isinstance(cond, str):
         return f"_{cond}_"  # escape-hatch: natural-language predicate
     op, left, right = cond.get("op"), cond.get("left"), cond.get("right")
     if isinstance(left, dict):
         left = " ".join(f"{k}({v})" for k, v in left.items())
+    else:
+        left = _fmt_operand(left)
+    right = _fmt_operand(right)
     if op == "exists":
         return f"`{left}` exists"
     return f"`{left}` {op} `{right}`"

@@ -281,6 +281,8 @@ def test_existing_workflows_still_validate_and_generate(bbw_module):
     wf_dir = repo / "src" / "workflows"
     import yaml
     for wf_path in sorted(wf_dir.glob("*.yaml")):
+        if wf_path.name.endswith(".orchestration.yaml"):  # sibling, not a workflow
+            continue
         if wf_path.stem in ("test", "reporter", "report-writer"):  # scratch WIP yamls
             continue
         model = yaml.safe_load(wf_path.read_text())

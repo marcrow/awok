@@ -44,9 +44,14 @@
   Ref: plan § "Suivis hors de ce plan" item 1.
 
 - [ ] **B2 — Web UI: editing condition blocks.** Integrate editing of orchestration blocks
-  (if / while / until / for_each / parallel) + "expose a signal" when placing a condition.
+  (if / while / until / for_each) + "expose a signal" when placing a condition.
   Direct follow-up of the changes we just made.
   _To specify: re-check the "few forgotten points" vs the integrated changes._
+  **Partially handled by the depends_on-unification plan (`2026-07-14-orchestration-depends-on-unification.md`, Task 10):**
+  that plan drops `parallel` from the editor and adds block `id` + loop `output` fields.
+  **Still open in B2:** wiring a phase's `depends_on` **to a block id** by drawing an edge on the
+  DAG grid (so "depend on the whole block" is authorable in the UI, not only in YAML), plus the
+  broader "expose a signal when placing a condition" UX.
 
 - [ ] **B3 — create-workflow: orchestration + dynamic.** Have it brainstorm/scaffold an
   orchestration, expose signals, and **read `orchestration-capabilities.yaml`** for guidance
@@ -56,11 +61,31 @@
 - [ ] **B4 — workflow-doctor: audit an orchestration.** Today it does **not** audit an
   orchestration file. To add: flag "conditional-in-the-prompt = stale orchestration", flag
   best-effort overuse, flag escaped logic (escape-hatch), and check signal↔condition seams +
-  the mandatory `cap`.
+  the mandatory `cap`. It should also verify if action in a condition cause an issue for dependancies 
+  if the condition is not triggered.
   Ref: plan § "Suivis hors de ce plan" item 3.
 
 - [ ] **B5 — edit-workflow: orchestration-aware.** Reason about orchestration seams when editing
   a workflow (currently blind to the orchestration layer).
+
+- [ ] **B6 — Orchestration-graph generator to assist the main-agent's live orchestration.**
+  (Idea by Marc-Antoine, 2026-07-14.) A generated artifact/graph that helps the main agent
+  *decide* orchestration at runtime **as a function of the observed states of the actions** — i.e.
+  given which actions have run / their emitted signals, surface what can/should run next and how.
+  Decision aid for the orchestrator, not a new runtime. **⚠️ Check overlap with B1 (dynamic /
+  JS workflows)** before building — a fully dynamic (JS) workflow may already subsume most of this;
+  the value here is specifically for the *standard* (LLM-driven) target where there is no runtime.
+  _To specify: is it a static generated view, or a per-run state-aware helper? How does it read
+  action states (signals/ledger)? Where does it live (SKILL.md section vs cartography overlay)?_
+
+- [ ] **B7 — Loop `output` role as a first-class dataflow node.** Deferred from the
+  depends_on-unification plan (`2026-07-14-orchestration-depends-on-unification.md`, Task 6/8):
+  a loop block may declare `output: {role, kind}`, but `build_dataflow_graph` is NOT taught that
+  this role is a **producer** (the body writes it) and the downstream action is its **consumer**.
+  Consequence: the orphan-io dataflow warning may fire on that role, and the Dataflow cartography
+  tab won't draw the producer→consumer edge. To add: teach `build_dataflow_graph` about loop
+  outputs (+ optionally an explicit `collect` construct, spec §6 reserve). Stopgap until then:
+  mark the downstream input `external: true`.
 
 > Note: B3/B4/B5 = the 3 meta-workflows **untouched** by the orchestration work (their SKILL.md
 > are byte-identical, `awok check` green) — they work but are not orchestration-aware.

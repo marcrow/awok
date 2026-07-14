@@ -1,0 +1,19 @@
+# Orchestration overlay for onboard — one logic gate over the pure DAG.
+#
+# The dependency audit (O2-DEPS) is skipped when the repo declares no dependency
+# manifest, so deps-auditor isn't spent on a repo with nothing to audit. Every
+# other action keeps its DAG order and parallelism; O4-ARCHITECTURE tolerates a
+# missing work:deps (marked optional in onboard.yaml).
+# Tier 0: the two roots run together (OG-GITSTATS depends on nothing — it reads .git).
+- parallel:
+    - ref: O0-INVENTORY
+    - ref: OG-GITSTATS
+# Tier 1: the explorers fan out from the inventory; the dependency audit is gated.
+- parallel:
+    - ref: O1-STRUCTURE
+    - ref: O3-FLOW
+    - if: { op: "==", left: o0-inventory.has_manifest, right: true }
+      then:
+        - ref: O2-DEPS
+- ref: O4-ARCHITECTURE
+- ref: O5-GETTING-STARTED
