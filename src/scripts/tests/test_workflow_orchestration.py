@@ -274,3 +274,35 @@ def test_block_completion_cycle_detected(bbw_module):
     }
     errs = bbw_module.validate_orchestration(wf)
     assert any("cycle" in e.lower() for e in errs)
+
+
+def test_loop_output_unknown_namespace(bbw_module):
+    wf = {
+        "namespaces": {"work": "work/x"},
+        "phases": [{"id": "SRC", "emits": [{"name": "items", "type": "list",
+                    "source": "field", "from": "src.json"}]},
+                   {"id": "BODY"}],
+        "orchestration": [
+            {"for_each": "src.items", "as": "it", "cap": 10,
+             "output": {"role": "nope:results", "kind": "dir"},
+             "body": [{"ref": "BODY"}]},
+        ],
+    }
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("output" in e and "namespace" in e for e in errs)
+
+
+def test_loop_output_valid_namespace(bbw_module):
+    wf = {
+        "namespaces": {"work": "work/x"},
+        "phases": [{"id": "SRC", "emits": [{"name": "items", "type": "list",
+                    "source": "field", "from": "src.json"}]},
+                   {"id": "BODY"}],
+        "orchestration": [
+            {"for_each": "src.items", "as": "it", "cap": 10,
+             "output": {"role": "work:results", "kind": "dir"},
+             "body": [{"ref": "BODY"}]},
+        ],
+    }
+    errs = bbw_module.validate_orchestration(wf)
+    assert not any("output" in e for e in errs)

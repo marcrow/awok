@@ -901,6 +901,18 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
             elif sig["type"] not in (None, "list"):
                 errors.append(f"orchestration: for_each '{coll}' is type '{sig['type']}', expected list")
 
+        # loop output role: its namespace must be declared
+        if "output" in b:
+            if not ("while" in b or "until" in b or "for_each" in b):
+                errors.append("orchestration: 'output' is only valid on a loop block")
+            role = (b["output"] or {}).get("role", "")
+            ns = role.split(":", 1)[0] if ":" in role else None
+            declared = set(workflow.get("namespaces", {}) or {})
+            if ns is None or ns not in declared:
+                errors.append(
+                    f"orchestration: loop output role '{role}' uses a namespace "
+                    f"not declared in 'namespaces'")
+
         # conditions
         cond = b.get("if") or b.get("while") or b.get("until")
         if cond is not None:

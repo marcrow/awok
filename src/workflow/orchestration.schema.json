@@ -38,7 +38,15 @@
         "for_each": { "type": "string", "description": "a list-typed signal reference" },
         "as": { "type": "string" },
         "cap": { "type": "integer", "minimum": 1 },
-        "body": { "type": "array", "items": { "$ref": "#/definitions/block" } }
+        "body": { "type": "array", "items": { "$ref": "#/definitions/block" } },
+        "output": {
+          "type": "object",
+          "required": ["role", "kind"],
+          "properties": {
+            "role": { "type": "string" },
+            "kind": { "type": "string" }
+          }
+        }
       }
     }
   }
