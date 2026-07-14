@@ -152,11 +152,15 @@ function renderHeader() {
 function renderIssues() {
   const v = validateModel(state.model);
   const extraWarn = orchestrationWarnList();
-  const warnCount = v.warnings.length + extraWarn.length;
+  // Server-computed dataflow warnings (orphan I/O, and — new — a consumer that
+  // runs before its producer). The client mirror doesn't recompute these.
+  const dfWarn = (state.view && state.view.dataflow_warnings) || [];
+  const allWarn = extraWarn.concat(dfWarn);
+  const warnCount = v.warnings.length + allWarn.length;
   const badge = $("#issues-badge");
   if (!v.errors.length && !warnCount) { badge.hidden = true; return; }
   badge.hidden = false; badge.replaceChildren();
-  badge.title = v.errors.concat(v.warnings, extraWarn).join("\n");
+  badge.title = v.errors.concat(v.warnings, allWarn).join("\n");
   if (v.errors.length) { const s = document.createElement("span"); s.className = "err"; s.textContent = "⛔ " + v.errors.length; badge.appendChild(s); }
   if (warnCount) { const s = document.createElement("span"); s.className = "warn"; s.textContent = "⚠ " + warnCount; badge.appendChild(s); }
 }

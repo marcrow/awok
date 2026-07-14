@@ -92,6 +92,53 @@ def test_input_satisfied_by_phase_level_output(bbw_module):
     assert not any("work/x/chunks/" in x and "no producer" in x for x in w)
 
 
+def test_dataflow_inversion_warns(bbw_module):
+    """Consumer C reads work/x produced by P, but P depends on C — so P runs
+    AFTER C. The consumer runs before its producer: flag the inversion."""
+    wf = {
+        "schema_version": 1,
+        "phases": [
+            {"id": "P", "name": "prod", "group": "g", "depends_on": ["C"],
+             "outputs": [{"path": "work/x.md", "kind": "md"}], "invocations": []},
+            {"id": "C", "name": "cons", "group": "g",
+             "invocations": [{"agent": "a", "inputs": [{"path": "work/x.md", "kind": "md"}]}]},
+        ],
+    }
+    w = bbw_module.check_dataflow_warnings(wf)
+    assert any("x.md" in x and ("inversion" in x.lower() or "runs after" in x.lower()) for x in w)
+
+
+def test_no_inversion_when_consumer_depends_on_producer(bbw_module):
+    """Normal order: C depends on P. No inversion warning."""
+    wf = {
+        "schema_version": 1,
+        "phases": [
+            {"id": "P", "name": "prod", "group": "g",
+             "outputs": [{"path": "work/x.md", "kind": "md"}], "invocations": []},
+            {"id": "C", "name": "cons", "group": "g", "depends_on": ["P"],
+             "invocations": [{"agent": "a", "inputs": [{"path": "work/x.md", "kind": "md"}]}]},
+        ],
+    }
+    w = bbw_module.check_dataflow_warnings(wf)
+    assert not any("inversion" in x.lower() or "runs after" in x.lower() for x in w)
+
+
+def test_no_inversion_when_producer_consumer_unordered(bbw_module):
+    """Producer and consumer with no depends_on either way (e.g. gated/optional)
+    are NOT flagged as an inversion — only a true reversal is."""
+    wf = {
+        "schema_version": 1,
+        "phases": [
+            {"id": "P", "name": "prod", "group": "g",
+             "outputs": [{"path": "work/x.md", "kind": "md"}], "invocations": []},
+            {"id": "C", "name": "cons", "group": "g",
+             "invocations": [{"agent": "a", "inputs": [{"path": "work/x.md", "kind": "md"}]}]},
+        ],
+    }
+    w = bbw_module.check_dataflow_warnings(wf)
+    assert not any("inversion" in x.lower() or "runs after" in x.lower() for x in w)
+
+
 def test_dataflow_warnings_work_on_derived_paths(bbw_module):
     wf = {
         "schema_version": 1,

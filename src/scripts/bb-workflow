@@ -1249,6 +1249,49 @@ def check_dataflow_warnings(workflow: dict) -> list:
         if path.startswith("work/") and not path.endswith(("findings.md", "report.md")):
             warnings.append(f"phase '{pid}' invocation '{agent}': output '{path}' has no consumer")
 
+    # 3. Dataflow inversion: a consumer that runs BEFORE its producer. Ordering is
+    # depends_on (the source of truth). If a phase C reads a work/ artifact whose
+    # producer P transitively depends on C, then P runs after C — C reads an
+    # artifact that does not exist yet. Merely-unordered producer/consumer is NOT
+    # flagged: with gating or parallelism that can be legitimate.
+    producers = {}
+    for pid, p in dag.phases.items():
+        outs = [o["path"] for o in p.get("outputs", [])]
+        for inv in p.get("invocations", []):
+            outs += [o["path"] for o in inv.get("outputs", [])]
+        for op in outs:
+            producers.setdefault(op, pid)
+
+    def _ancestors(pid):
+        """Transitive depends_on ancestors of pid (BFS, cycle-safe)."""
+        seen, stack = set(), [pid]
+        while stack:
+            for par in dag.parents.get(stack.pop(), ()):
+                if par in dag.phases and par not in seen:
+                    seen.add(par); stack.append(par)
+        return seen
+
+    for cid, c in dag.phases.items():
+        cins = [i["path"] for i in c.get("inputs", [])]
+        for inv in c.get("invocations", []):
+            cins += [i["path"] for i in inv.get("inputs", [])]
+        anc = None
+        for path in cins:
+            if not path.startswith("work/"):
+                continue
+            prod = next((pid for op, pid in producers.items()
+                         if _paths_match(path, op)), None)
+            if not prod or prod == cid:
+                continue
+            if anc is None:
+                anc = _ancestors(cid)
+            # producer runs after consumer iff the consumer is an ancestor of it
+            if cid in _ancestors(prod) and prod not in anc:
+                warnings.append(
+                    f"phase '{cid}': input '{path}' is produced by '{prod}', which "
+                    f"runs AFTER it (dataflow inversion: the producer depends on the "
+                    f"consumer)")
+
     return warnings
 
 
@@ -1828,7 +1871,16 @@ def build_view_payload(model: dict) -> dict:
         "opportunistic": build_opportunistic_view(model),
         "orchestration_overlay": build_orchestration_overlay(model),
         "orchestration_warnings": validate_orchestration(model),
+        "dataflow_warnings": _safe_dataflow_warnings(model),
     }
+
+
+def _safe_dataflow_warnings(model: dict) -> list:
+    """check_dataflow_warnings for the editor — never raise on a mid-edit model."""
+    try:
+        return check_dataflow_warnings(model)
+    except Exception:
+        return []
 
 
 def build_edge_labels(workflow: dict) -> dict:
