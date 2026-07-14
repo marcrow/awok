@@ -84,157 +84,154 @@ export function openGateMenu(ctx, buttonEl) {
   }, 0);
 }
 
+// Orchestration view = the WHOLE content DAG (every phase, positioned by its
+// depends_on level, exactly like the classic grid) with the control-flow gates
+// drawn ON the actions they gate. Under the depends_on-unification model the
+// orchestration file holds only the deviations (an `if`, a loop), so a phase
+// that runs unconditionally simply carries no tag — it is NOT "unused". The
+// gates strip on top lets you edit any gate (even one with no action yet) and
+// is a drop target so an action can be dragged into a gate.
 export function renderProgram(ctx) {
   CTX = ctx;
   const { state } = ctx;
   const grid = document.querySelector("#grid"); grid.replaceChildren();
-  if (!(state.model.orchestration || []).length) {   // nothing declared yet
-    grid.appendChild(emptyState(ctx));
-    return;
-  }
-  grid.appendChild(renderPalette(ctx));            // "drag into a gate" strip
-  const rows = document.createElement("div"); rows.className = "orch-rows";
-  (state.model.orchestration || []).forEach((b, i) => rows.appendChild(topRow(b, i)));
-  grid.appendChild(rows);
-  grid.appendChild(renderTray(ctx));                // unused-actions library
-}
+  const colors = ctx.resolveGroupColors(state.model);
+  const blocks = state.model.orchestration || [];
 
-// Shown when the workflow has no orchestration program yet: explain that gates
-// are optional, and that adding one creates the <name>.orchestration.yaml sibling.
-function emptyState(ctx) {
-  const wrap = document.createElement("div"); wrap.className = "orch-empty";
-  const icon = document.createElement("div"); icon.className = "orch-empty-icon"; icon.textContent = "◆";
-  const h = document.createElement("div"); h.className = "orch-empty-title";
-  h.textContent = "No orchestration on this workflow yet";
-  const p = document.createElement("p"); p.className = "orch-empty-body";
-  const wf = (ctx.state && ctx.state.name) ? ctx.state.name : "<workflow>";
-  p.textContent = "By default this workflow runs as a plain dependency graph — the actions "
-    + "run as soon as their dependencies are met, with no conditions or loops. Add a gate to "
-    + "control the flow; the orchestration file " + wf + ".orchestration.yaml is created for you "
-    + "when you Save.";
-  const btn = document.createElement("button"); btn.className = "orch-empty-cta";
-  btn.textContent = "＋ Add a gate";
-  btn.addEventListener("click", () => {           // reuse the wired toolbar button
-    const tb = document.querySelector("#add-gate");
-    if (tb) tb.click();
+  // A gate that already wraps an action shows as a FRAME around it in the graph
+  // below — no strip needed. Only a gate with no action yet is invisible in the
+  // DAG, so surface just those, as a small reachable drop zone.
+  const emptyGates = [];
+  iterBlocks(blocks, b => {
+    if (blockConstruct(b) === "ref") return;
+    let hasRef = false; iterBlocks([b], x => { if (blockConstruct(x) === "ref") hasRef = true; });
+    if (!hasRef) emptyGates.push(b);
   });
-  wrap.append(icon, h, p, btn);
-  return wrap;
+  if (emptyGates.length) grid.appendChild(renderEmptyGates(ctx, emptyGates));
+
+  const gateOf = gateMap(state.model);
+  const lv = (state.view && state.view.levels) || {};
+  const phases = state.model.phases || [];
+  const maxLv = Math.max(0, ...phases.map(p => lv[p.id] || 0));
+  const oppPhases = (state.view && state.view.opportunistic && state.view.opportunistic.phases) || {};
+  const sigKeys = new Set(signalsOf(state.model).map(s => s.key));
+  const byId = {}; phases.forEach(p => byId[p.id] = p);
+  const dag = document.createElement("div"); dag.className = "orch-dag";
+  for (let i = 0; i <= maxLv; i++) {
+    const ids = phases.filter(p => (lv[p.id] || 0) === i).map(p => p.id);
+    if (!ids.length) continue;
+    dag.appendChild(dagRow(ctx, ids, i, byId, colors, oppPhases, gateOf, sigKeys));
+  }
+  grid.appendChild(dag);
 }
 
-// --- top-level rows ---------------------------------------------------------
-function topRow(b, i) {
-  const { state } = CTX;
-  const row = document.createElement("div"); row.className = "orch-row";
-  row.dataset.blockTop = b._id;
+// phase-id -> { blockId, kind, slot, block } for every phase referenced inside a
+// gate. A nested ref maps to its innermost enclosing gate. Bare phases are absent.
+function gateMap(model) {
+  const map = {};
+  const walk = (arr, gate) => (arr || []).forEach(b => {
+    if (blockConstruct(b) === "ref") { if (gate && !(b.ref in map)) map[b.ref] = gate; return; }
+    const base = { blockId: b._id, kind: blockConstruct(b), block: b };
+    if (blockConstruct(b) === "if") { walk(b.then, { ...base, slot: "then" }); walk(b.else, { ...base, slot: "else" }); }
+    else walk(b.body, { ...base, slot: "body" });
+  });
+  walk(model.orchestration || [], null);
+  return map;
+}
 
+function dagRow(ctx, ids, i, byId, colors, oppPhases, gateOf, sigKeys) {
+  const { state } = ctx;
+  const row = document.createElement("div"); row.className = "orch-row"; row.dataset.level = i;
   const rail = document.createElement("div"); rail.className = "orch-rail";
   const node = document.createElement("div"); node.className = "node"; node.textContent = String(i + 1);
-  rail.appendChild(node);
-  row.appendChild(rail);
-
-  const content = document.createElement("div"); content.style.flex = "1 1 auto"; content.style.minWidth = "0";
-  if (blockConstruct(b) === "ref") {
-    const vignette = refVignette(b);
-    if (vignette) content.appendChild(vignette);
-  } else {
-    content.appendChild(gateEl(b, 0));
-  }
-  row.appendChild(content);
+  rail.appendChild(node); row.appendChild(rail);
+  const cards = document.createElement("div"); cards.className = "orch-cards";
+  ids.forEach(id => {
+    const p = byId[id]; if (!p) return;
+    const card = makeCard(p, colors[p.group], (oppPhases[id] || {}).mark);
+    card.draggable = true;
+    card.addEventListener("dragstart", e => { try { e.dataTransfer.setData("text/phase", id); } catch (_) {} });
+    card.addEventListener("click", () => ctx.selectPhase(id));
+    if (id === state.selected) card.classList.add("selected");
+    const g = gateOf[id];
+    cards.appendChild(g ? gateFrame(ctx, card, g, sigKeys) : card);
+  });
+  row.appendChild(cards);
   return row;
 }
 
-// --- ref vignette (reuses the classic makeCard) -----------------------------
-function refVignette(b) {
-  const { state } = CTX;
-  const p = (state.model.phases || []).find(x => x.id === b.ref);
-  if (!p) {
-    const miss = document.createElement("div"); miss.className = "help-note";
-    miss.textContent = "Unknown ref: " + b.ref;
-    return miss;
-  }
-  const colors = CTX.resolveGroupColors(state.model);
-  const oppPhases = (state.view && state.view.opportunistic && state.view.opportunistic.phases) || {};
-  const oppMark = (oppPhases[p.id] || {}).mark;
-  const card = makeCard(p, colors[p.group], oppMark);
-  card.addEventListener("dragstart", e => {
-    try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {}
-  });
-  card.addEventListener("click", e => { e.stopPropagation(); CTX.selectPhase(p.id, b._id); });
-  return card;
-}
-
-// --- gate container ----------------------------------------------------------
-function gateEl(b, depth) {
-  const { state } = CTX;
-  const kind = blockConstruct(b);
-  const loop = isLoopBlock(b);
-  const sigKeys = new Set(signalsOf(state.model).map(s => s.key));
-
+// Wrap a gated action card in its gate FRAME — the same clean bordered gate the
+// classic program view used (.gate/.gate-head/.gate-body): a header with the
+// construct + condition (+ cap for loops), the action card inside. Click the
+// header to edit the gate; the card inside keeps its own click (edit the action).
+function gateFrame(ctx, card, g, sigKeys) {
+  const loop = isLoopBlock(g.block);
   const gate = document.createElement("div");
   gate.className = "gate" + (loop ? " loop" : "");
-  gate.dataset.blockId = b._id;
-  if (state.selectedGate === b._id) gate.classList.add("selected");
-  gate.addEventListener("click", e => { e.stopPropagation(); CTX.onSelectGate(b._id); });
+  gate.dataset.blockId = g.blockId;
+  if (ctx.state.selectedGate === g.blockId) gate.classList.add("selected");
 
   const head = document.createElement("div"); head.className = "gate-head";
+  head.addEventListener("click", e => { e.stopPropagation(); ctx.onSelectGate(g.blockId); });
   const icon = document.createElement("span");
   icon.className = loop ? "gate-icon-loop" : "gate-icon-if"; if (loop) icon.textContent = "↻";
   head.appendChild(icon);
-
   const kw = document.createElement("span"); kw.className = "gate-kw";
-  kw.textContent = kind.replace("_", " ");
+  kw.textContent = g.kind.replace("_", " ") + (g.slot === "else" ? " · else" : "");
   head.appendChild(kw);
-
-  if (kind === "for_each") head.appendChild(forEachHeaderEl(b, sigKeys));
-  else head.appendChild(condEl(condOf(b), sigKeys));
-
-  // Task 13: inline "condition incomplete" marker — additive, keyed off this
-  // block's own _id (never the top-level dep-crossing issues), never touches
-  // the cap chip below (that one is Task 7, untouched).
-  const condWarn = orchestrationIssues(state.model).some(i => i.id === b._id &&
-    ["if", "while", "until"].includes(i.kind) &&
-    /condition incomplete|left operand|right operand|unknown signal/.test(i.msg));
-  if (condWarn) {
-    const warn = document.createElement("span"); warn.className = "gate-warn"; warn.textContent = "⚠ condition incomplete";
-    head.appendChild(warn);
-  }
-
+  if (g.kind === "for_each") head.appendChild(forEachHeaderEl(g.block, sigKeys));
+  else head.appendChild(condEl(condOf(g.block), sigKeys));
   if (loop) {
-    const capOk = Number.isInteger(b.cap) && b.cap > 0;
-    const chip = document.createElement("span"); chip.className = "cap-chip";
-    if (capOk) chip.textContent = "cap " + b.cap;
-    else { chip.classList.add("bad"); chip.textContent = "cap required"; }
-    head.appendChild(chip);
+    const ok = Number.isInteger(g.block.cap) && g.block.cap > 0;
+    const cap = document.createElement("span"); cap.className = "cap-chip";
+    if (ok) cap.textContent = "cap " + g.block.cap; else { cap.classList.add("bad"); cap.textContent = "cap required"; }
+    head.appendChild(cap);
   }
-
   const edit = document.createElement("span"); edit.className = "gate-edit";
-  edit.textContent = state.selectedGate === b._id ? "✎ editing" : "✎";
-  edit.addEventListener("click", e => { e.stopPropagation(); CTX.onSelectGate(b._id); });
+  edit.textContent = ctx.state.selectedGate === g.blockId ? "✎ editing" : "✎";
   head.appendChild(edit);
   gate.appendChild(head);
 
   const body = document.createElement("div"); body.className = "gate-body";
-  if (kind === "if") {
-    body.classList.add("branches");
-    body.appendChild(laneEl(b, "then", depth));
-    body.appendChild(laneEl(b, "else", depth));
-  } else {
-    listEl(b.body, depth + 1).forEach(el => body.appendChild(el));
-    body.appendChild(dropSlot(b._id, "body"));
-  }
+  body.appendChild(card);
   gate.appendChild(body);
-
   return gate;
 }
 
-function laneEl(b, slot, depth) {
-  const lane = document.createElement("div"); lane.className = "lane" + (slot === "then" ? " then" : "");
-  const label = document.createElement("div"); label.className = "lane-label"; label.textContent = slot;
-  lane.appendChild(label);
-  listEl(b[slot], depth + 1).forEach(el => lane.appendChild(el));
-  lane.appendChild(dropSlot(b._id, slot));
-  return lane;
+// Reachable home for gates that wrap no action yet (they'd be invisible in the
+// DAG). Shown only when such gates exist. Each chip edits its gate and is a drop
+// target so an action can be dragged in.
+function renderEmptyGates(ctx, gates) {
+  const { state } = ctx;
+  const sigKeys = new Set(signalsOf(state.model).map(s => s.key));
+  const wrap = document.createElement("div"); wrap.className = "orch-empty-gates";
+  const head = document.createElement("span"); head.className = "tray-head";
+  head.textContent = "New condition — set it, then drag an action here to gate it";
+  wrap.appendChild(head);
+  const list = document.createElement("div"); list.className = "orch-gates-list";
+  gates.forEach(b => {
+    const k = blockConstruct(b), loop = isLoopBlock(b);
+    const chip = document.createElement("div"); chip.className = "gate-chip" + (loop ? " loop" : "");
+    if (state.selectedGate === b._id) chip.classList.add("selected");
+    const icon = document.createElement("span"); icon.className = "gate-tag-icon"; icon.textContent = loop ? "↻" : "◇";
+    chip.appendChild(icon);
+    const kw = document.createElement("span"); kw.className = "gate-tag-kw"; kw.textContent = k.replace("_", " ");
+    chip.appendChild(kw);
+    if (k === "for_each") chip.appendChild(forEachHeaderEl(b, sigKeys));
+    else chip.appendChild(condEl(condOf(b), sigKeys));
+    const refs = []; iterBlocks([b], x => { if (blockConstruct(x) === "ref") refs.push(x.ref); });
+    const count = document.createElement("span"); count.className = "gate-chip-count";
+    count.textContent = refs.length ? "▸ " + refs.join(", ") : "▸ (drag an action here)";
+    chip.appendChild(count);
+    chip.addEventListener("click", e => { e.stopPropagation(); ctx.onSelectGate(b._id); });
+    const slot = k === "if" ? "then" : "body";
+    chip.addEventListener("dragover", e => { e.preventDefault(); chip.classList.add("hover"); });
+    chip.addEventListener("dragleave", () => chip.classList.remove("hover"));
+    chip.addEventListener("drop", e => { e.preventDefault(); chip.classList.remove("hover"); ctx.onDrop(ctx, b._id, slot, e); });
+    list.appendChild(chip);
+  });
+  wrap.appendChild(list);
+  return wrap;
 }
 
 // --- condition rendering -----------------------------------------------------
@@ -288,24 +285,6 @@ function forEachHeaderEl(b, sigKeys) {
   return wrap;
 }
 
-// --- block list (ref vignettes + nested gates) ------------------------------
-function listEl(arr, depth) {
-  return (arr || []).map(b => blockConstruct(b) === "ref" ? refVignette(b) : gateEl(b, depth));
-}
-
-// --- drop target -------------------------------------------------------------
-function dropSlot(containerId, slot) {
-  const el = document.createElement("div"); el.className = "drop-slot";
-  el.textContent = "＋ drag an action here";
-  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("hover"); });
-  el.addEventListener("dragleave", () => el.classList.remove("hover"));
-  el.addEventListener("drop", e => {
-    e.preventDefault(); el.classList.remove("hover");
-    CTX.onDrop(CTX, containerId, slot, e);
-  });
-  return el;
-}
-
 // Two explicit drag gestures, distinguished by dataTransfer payload (never by
 // container/slot): a ref vignette drags "text/refid" (its own `_id`) → MOVE —
 // splice it out of its current parent array and push it into the target, no
@@ -325,45 +304,6 @@ export function orchDrop(ctx, containerId, slot, ev) {
     target.push({ _id: newId(), ref: phase });
   }
   ctx.refreshView().then(() => ctx.rerender());
-}
-
-// --- palette + library tray --------------------------------------------------
-function phaseChip(p, colors) {
-  const chip = document.createElement("div"); chip.className = "phase-chip";
-  chip.draggable = true; chip.dataset.id = p.id;
-  const color = colors[p.group] || "var(--accent)";
-  chip.style.borderLeftColor = color;
-  const dot = document.createElement("span");
-  dot.style.width = "6px"; dot.style.height = "6px"; dot.style.borderRadius = "50%";
-  dot.style.background = color; dot.style.display = "inline-block"; dot.style.flex = "0 0 auto";
-  chip.appendChild(dot);
-  const id = document.createElement("span"); id.textContent = p.id;
-  chip.appendChild(id);
-  chip.addEventListener("dragstart", e => { try { e.dataTransfer.setData("text/phase", p.id); } catch (_) {} });
-  return chip;
-}
-
-export function renderPalette(ctx) {
-  const { state } = ctx;
-  const colors = ctx.resolveGroupColors(state.model);
-  const wrap = document.createElement("div"); wrap.className = "orch-palette";
-  const label = document.createElement("span"); label.className = "tray-head"; label.textContent = "drag into a gate";
-  wrap.appendChild(label);
-  (state.model.phases || []).forEach(p => wrap.appendChild(phaseChip(p, colors)));
-  return wrap;
-}
-
-export function renderTray(ctx) {
-  const { state } = ctx;
-  const colors = ctx.resolveGroupColors(state.model);
-  const refIds = new Set();
-  iterBlocks(state.model.orchestration || [], b => { if (blockConstruct(b) === "ref") refIds.add(b.ref); });
-  const unused = (state.model.phases || []).filter(p => !refIds.has(p.id));
-  const wrap = document.createElement("div"); wrap.className = "orch-tray";
-  const label = document.createElement("span"); label.className = "tray-head"; label.textContent = "Library — unused actions";
-  wrap.appendChild(label);
-  unused.forEach(p => wrap.appendChild(phaseChip(p, colors)));
-  return wrap;
 }
 
 // ============================================================================
