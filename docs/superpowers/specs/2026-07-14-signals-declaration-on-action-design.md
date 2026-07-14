@@ -16,14 +16,20 @@ descriptions.
 
 ## Context and relationship to other work
 
-- **Independent of the `depends_on`-unification** (`2026-07-14-orchestration-depends-on-unification-design.md`,
-  already executed on `feat/portes-logiques-orchestration`, which removed the `parallel`
-  construct and reframed the overlay as an event-driven Execution protocol). That work
-  changed how the **control-flow overlay** renders; this work renders the emission
+- **Independent of the `depends_on`-unification** (`2026-07-14-orchestration-depends-on-unification-design.md`)
+  and the authorable-editor work (backlog **B2**) — both now **merged to `main`** (merge
+  `2e20a7e`). They removed the `parallel` construct, reframed the overlay as an event-driven
+  Execution protocol, and turned the orchestration view into a full authoring canvas (gates
+  as frames over the DAG, block ids, depend-on-a-block). That work changed how the
+  **control-flow overlay** renders and how gates are authored; this work renders the emission
   instruction on the **content phases** (agent snippet / script section / main_agent
-  section), which the unification did not touch. The only shared contract is the golden
-  rule — a condition reads a *cheap named signal*, never a whole artifact reload — which
-  both designs already honor. The `parallel` nature is therefore absent from this design.
+  section), which they did not touch. The only shared contract is the golden rule — a
+  condition reads a *cheap named signal*, never a whole artifact reload — which all designs
+  honor. The `parallel` nature is therefore absent from this design.
+- **Branch baseline:** implement off current **`main`** (which now carries the merged
+  orchestration + editor). The old target `feat/portes-logiques-orchestration` is merged;
+  use `main`. The web-editor tasks re-baseline onto the merged editor (line anchors drifted;
+  the Wiring `tabWiring` and the signal picker `renderSignalList` still exist).
 - **Aligns with D1** (`TODO.md` — "Ban multi-agent action blocks"). The one place this
   design needs to name *which* invocation emits a token — a block with several agents — is
   exactly the case D1 would remove. Until D1 lands, we handle it (see Data model). If D1
@@ -128,7 +134,19 @@ on the reading side) stays; this adds the symmetric **producing** side.
    signals (grouped by producing phase). The current in-condition **"＋ Declare a new
    signal" is removed** — declaration happens exclusively from the producing action's
    Wiring.
-4. All web-UI strings and documentation are **English**.
+4. **Unambiguous emitter identification when selecting a signal.** The picker must clearly
+   identify each signal's *emitter*, not just the signal name — the producing phase by its
+   human `name` **and** `id` (grouped by phase), plus the signal's `source`/`type`. This is
+   **not cosmetic**: in the unified model a gate's evaluation point follows its condition's
+   signal **producer**, so if two similar or identical action blocks (e.g. the same agent
+   used twice) emit a same-named signal at different points in the workflow, picking the
+   wrong emitter silently moves where the branch/loop is evaluated. Signal keys never
+   collide (`<phase_id>.<name>`, phase ids unique) — this requirement is about the UI making
+   the *right* emitter obvious. To support it, `signalsOf` (webedit `editlogic.js`) is
+   enriched with the phase's human `name` (and `group`); the picker's group header shows
+   `<name> (<id>)` and each item shows `name · type · source`; the selected operand keeps
+   displaying the fully-qualified `◈ <phase_id>.<name>`.
+5. All web-UI strings and documentation are **English**.
 
 ## 4. Validation rules (blocking, in `validate` / schema / coherence)
 

@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Spec:** `docs/superpowers/specs/2026-07-14-signals-declaration-on-action-design.md` — the authoritative source; every task implements part of it.
-- **Separate branch / worktree.** Implement in an isolated git worktree (via `superpowers:using-git-worktrees`) OFF the current `feat/portes-logiques-orchestration` HEAD — another agent is actively working that branch; do not collide.
+- **Separate branch / worktree, off `main`.** The orchestration + authorable-editor work is now **merged to `main`** (merge `2e20a7e`); implement in an isolated git worktree (via `superpowers:using-git-worktrees`) OFF **`main`**. The Phase-3 line anchors below drifted with the merge — the implementer must locate the REAL anchors (`tabWiring` ≈ editor.js:725, phase inputs ≈ :783, outputs ≈ :786; `renderSignalList` ≈ orchestration.js:579; `signalsOf` ≈ editlogic.js:394). Structure is unchanged; only line numbers moved.
 - **English only** for all web-UI strings and documentation.
 - **`emits` is the source of truth** — the concrete signal key is `<phase_id lowercased>.<name>`; never move declarations out of the phase's `emits`.
 - **Never edit a generated `SKILL.md` by hand.** After any engine/template change: `awok generate` (all), commit the regenerated artifacts, and `awok check` must be green. Add the `Regen:` commit trailer per CLAUDE.md when generated output changes.
@@ -33,10 +33,11 @@
 - Regenerate: `src/skills/*/SKILL.md`, `docs/architecture-cartography/*` (via `awok generate`).
 - Test: `src/scripts/tests/test_workflow_signals.py`, plus the golden regression already in the suite.
 
-**Phase 3 — web editor:**
+**Phase 3 — web editor** (anchors are post-merge `main`; verify before editing):
 - Modify: `src/workflow/templates/webedit/formfields.js` — new `signalsEditor(label, items, phase, onChange)` builder.
-- Modify: `src/workflow/templates/webedit/editor.js` — `tabWiring` (~684) mounts the Signals editor; `tabInvocations` (~771) titles the prompt field.
-- Modify: `src/workflow/templates/webedit/orchestration.js` — `renderSignalList` (~520) drops the declare button; delete `renderDeclareForm`/`submitDeclare` (~556+); keep selection.
+- Modify: `src/workflow/templates/webedit/editor.js` — `tabWiring` (~725) mounts the Signals editor after Outputs (~786); `tabInvocations` titles the prompt field.
+- Modify: `src/workflow/templates/webedit/editlogic.js` — `signalsOf` (~394) enriched with `phaseName`/`group`/`source` (Task 9).
+- Modify: `src/workflow/templates/webedit/orchestration.js` — `renderSignalList` (~579) drops the declare button + identifies the emitter; delete `renderDeclareForm`/`submitDeclare`; keep selection.
 - Modify: `src/workflow/templates/webedit/editor.css` — Signals-editor + prompt-title classes.
 
 **How the server serves the JS:** `/editor/<file>.js` is read live from `templates_dir`, so editing `src/workflow/templates/webedit/*` and reloading `awok edit` picks up changes with no build.
@@ -663,33 +664,80 @@ git commit -m "feat(signals): title the invocation prompt field (launch instruct
 
 ---
 
-### Task 9: Gate condition = selection-only (remove in-condition declare)
+### Task 9: Gate condition = selection-only + unambiguous emitter identification
 
 **Files:**
-- Modify: `src/workflow/templates/webedit/orchestration.js` — `renderSignalList` (~520); delete `renderDeclareForm` and `submitDeclare` (~556+)
+- Modify: `src/workflow/templates/webedit/editlogic.js` — `signalsOf` (~394): enrich each signal with the producing phase's human `name` and `group`.
+- Modify: `src/workflow/templates/webedit/orchestration.js` — `renderSignalList` (~579): drop the in-condition declare; make the group header identify the emitter (`<name> (<id>)`) and each item show `name · type · source`. Delete `renderDeclareForm` and `submitDeclare`.
 
 **Interfaces:**
-- Produces: the signal picker popover lists declared signals (grouped by phase) with NO "＋ Declare a new signal" affordance; selecting a signal wires the operand exactly as before.
+- Consumes: `signalsOf(model)` → now `{key, name, type, source, phase, phaseName, group}`.
+- Produces: the picker lists declared signals grouped by producing phase, each group headed by the phase's **human name + id** (so two identical action blocks emitting a same-named signal at different places are distinguishable), each item showing `name · type · source`, with **no** "＋ Declare a new signal". Selecting still wires the operand to the fully-qualified `<phase_id>.<name>` key.
 
-- [ ] **Step 1: Remove the declare affordance + dead code**
+> **Why the emitter must be identifiable (spec §3.4):** in the merged unified model a gate's
+> evaluation point follows its condition's **signal producer**. Two similar/identical blocks
+> (same agent used twice) emit distinct keys (`RECON1.status` ≠ `RECON2.status`) but a bare
+> id is easy to mis-pick; showing `<name> (<id>)` + source makes the right emitter obvious,
+> because the choice determines *where* the branch/loop is evaluated.
 
-In `renderSignalList`, delete the `sep` separator and the `declareBtn` block (the "＋ Declare a new signal" button + its listener, ~lines 548-551). Delete the now-unused functions `renderDeclareForm` and `submitDeclare` (and any helper only they used, e.g. `EMIT_TYPES`/`EMIT_SOURCES` if referenced nowhere else — grep first). Keep the empty-state ("no signals yet") but reword it to point the user to declare signals from the producing action's Wiring:
+- [ ] **Step 1: Enrich `signalsOf`**
+
+In `editlogic.js` `signalsOf` (~394), carry the phase's human name, group, and the emit source:
+
+```javascript
+export function signalsOf(model) {
+  const out = [];
+  for (const p of (model && model.phases) || [])
+    for (const e of p.emits || [])
+      out.push({ key: p.id.toLowerCase() + "." + e.name, name: e.name, type: e.type,
+                 source: e.source, phase: p.id, phaseName: p.name || p.id, group: p.group || "" });
+  return out;
+}
+```
+
+Run `node --check src/workflow/templates/webedit/editlogic.js`. (Consumers reading only `key`/`name`/`type`/`phase` keep working — the new fields are additive.)
+
+- [ ] **Step 2: Rewrite `renderSignalList` — identify the emitter, drop declare**
+
+In `renderSignalList` (~579): keep the group-by-phase, but head each group with the emitter identity and show the source per item; remove the separator + `declareBtn`:
+
+```javascript
+  phaseIds.forEach(phaseId => {
+    const s0 = groups[phaseId][0];
+    const head = document.createElement("div"); head.className = "sig-pop-group";
+    head.textContent = (s0.phaseName && s0.phaseName !== phaseId)
+      ? `${s0.phaseName} (${phaseId})` : phaseId;      // emitter: human name + id
+    pop.appendChild(head);
+    groups[phaseId].forEach(s => {
+      const item = document.createElement("button"); item.type = "button"; item.className = "sig-pop-item";
+      if (cond && cond[side] === s.key) item.classList.add("active");
+      item.textContent = `${s.name} · ${s.type}` + (s.source ? ` · ${s.source}` : "");  // + how it's produced
+      item.addEventListener("click", e => {
+        e.stopPropagation(); setOperand(block, side, s.key); closeSigPopover(); applyGateEdit(ctx);
+      });
+      pop.appendChild(item);
+    });
+  });
+  // NO "＋ Declare a new signal" — declaration lives on the producing action's Wiring.
+```
+
+Reword the empty-state and delete `renderDeclareForm` / `submitDeclare` (and any helper only they used — grep `EMIT_TYPES`/`EMIT_SOURCES` first; if the Wiring Signals editor from Task 7 reuses them, keep them there):
 
 ```javascript
     empty.textContent = "No signals declared. Declare one in the producing action's Wiring → Signals.";
 ```
 
-Run `node --check src/workflow/templates/webedit/orchestration.js` and grep to confirm no remaining reference to `renderDeclareForm`/`submitDeclare`.
+Run `node --check src/workflow/templates/webedit/orchestration.js`; grep to confirm no remaining reference to `renderDeclareForm`/`submitDeclare`.
 
-- [ ] **Step 2: MCP browser verification**
+- [ ] **Step 3: MCP browser verification**
 
-Open a workflow with a gate (deploy the `orchestrated` test fixture into `src/workflows/` temporarily, or use onboard's `if`). Open the gate → condition → a signal operand → the picker. Observe: signals listed grouped by phase, and **no "＋ Declare a new signal"** button. Selecting a signal still wires the operand. Remove the temp fixture after. Screenshot.
+Build a repro with **two same-agent blocks emitting a same-named signal**: temporarily add to a workflow two phases using the same agent, each with `emits: [{name: status, type: string, source: token}]` and distinct ids/names (e.g. `RECON1`/"Recon pass A", `RECON2`/"Recon pass B"). Open a gate → condition → signal operand → picker. Observe: **two groups**, headed `Recon pass A (RECON1)` and `Recon pass B (RECON2)`, each item `status · string · token`; **no** "＋ Declare a new signal". Pick one → the operand shows `◈ recon1.status` (fully-qualified, unambiguous). Remove the temp phases after. Screenshot.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/workflow/templates/webedit/orchestration.js
-git commit -m "feat(signals): gate condition picks declared signals only (declare moved to the action)"
+git add src/workflow/templates/webedit/editlogic.js src/workflow/templates/webedit/orchestration.js
+git commit -m "feat(signals): condition picks declared signals only; picker identifies the emitter (name+id+source)"
 ```
 
 ---
@@ -731,7 +779,7 @@ git commit -m "chore(signals): final regression sweep + deploy"
 
 - Spec §1 data model (source enum + exit_code + `by`): Task 1 (schema), Task 2 (emitter), Task 3 (validation). ✔
 - Spec §2 generation (per-nature emission, never the shared agent file): Tasks 4 & 5. ✔
-- Spec §3 UX (Signals in Wiring, invocation title, select-only condition, remove in-condition declare, English): Tasks 7, 8, 9. ✔
+- Spec §3 UX (Signals in Wiring, invocation title, select-only condition, remove in-condition declare, emitter identification, English): Tasks 7, 8, 9 (§3.4 emitter identification = Task 9: enriched `signalsOf` + `<name> (<id>)` group header + `source` per item + two-same-agent repro). ✔
 - Spec §4 validation (exit_code=script+bool, list=field, field role produced, multi-agent `by`): Task 3. ✔
 - Spec §5 migration (drop hand-written prose, onboard, awok check green): Task 6. ✔
 - Spec §6 deferred (B4 doctor, B8 file, B1 js): out of scope — tracked in TODO, no task. ✔
