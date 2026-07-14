@@ -88,11 +88,38 @@ export function renderProgram(ctx) {
   CTX = ctx;
   const { state } = ctx;
   const grid = document.querySelector("#grid"); grid.replaceChildren();
+  if (!(state.model.orchestration || []).length) {   // nothing declared yet
+    grid.appendChild(emptyState(ctx));
+    return;
+  }
   grid.appendChild(renderPalette(ctx));            // "drag into a gate" strip
   const rows = document.createElement("div"); rows.className = "orch-rows";
   (state.model.orchestration || []).forEach((b, i) => rows.appendChild(topRow(b, i)));
   grid.appendChild(rows);
   grid.appendChild(renderTray(ctx));                // unused-actions library
+}
+
+// Shown when the workflow has no orchestration program yet: explain that gates
+// are optional, and that adding one creates the <name>.orchestration.yaml sibling.
+function emptyState(ctx) {
+  const wrap = document.createElement("div"); wrap.className = "orch-empty";
+  const icon = document.createElement("div"); icon.className = "orch-empty-icon"; icon.textContent = "◆";
+  const h = document.createElement("div"); h.className = "orch-empty-title";
+  h.textContent = "No orchestration on this workflow yet";
+  const p = document.createElement("p"); p.className = "orch-empty-body";
+  const wf = (ctx.state && ctx.state.name) ? ctx.state.name : "<workflow>";
+  p.textContent = "By default this workflow runs as a plain dependency graph — the actions "
+    + "run as soon as their dependencies are met, with no conditions or loops. Add a gate to "
+    + "control the flow; the orchestration file " + wf + ".orchestration.yaml is created for you "
+    + "when you Save.";
+  const btn = document.createElement("button"); btn.className = "orch-empty-cta";
+  btn.textContent = "＋ Add a gate";
+  btn.addEventListener("click", () => {           // reuse the wired toolbar button
+    const tb = document.querySelector("#add-gate");
+    if (tb) tb.click();
+  });
+  wrap.append(icon, h, p, btn);
+  return wrap;
 }
 
 // --- top-level rows ---------------------------------------------------------
