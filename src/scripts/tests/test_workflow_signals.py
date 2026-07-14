@@ -103,3 +103,22 @@ def test_valid_signals_pass(bbw_module):
     e = _errs(bbw_module, [{"id": "S", "name": "s", "group": "g", "type": "script",
         "emits": [{"name": "f", "type": "bool", "source": "exit_code"}]}])
     assert not any("signal" in m or "exit_code" in m for m in e)
+
+
+def test_render_emission_agent_token(bbw_module):
+    ph = {"id": "P", "name": "p", "group": "g", "invocations": [{"agent": "a"}]}
+    s = bbw_module.render_signal_emission(ph, {"name": "status", "type": "string", "source": "token"})
+    assert "SIGNALS status=" in s
+
+
+def test_render_emission_agent_field(bbw_module):
+    ph = {"id": "P", "name": "p", "group": "g",
+          "invocations": [{"agent": "a", "outputs": [{"role": "work:o", "kind": "json"}]}]}
+    s = bbw_module.render_signal_emission(ph, {"name": "n", "type": "number", "source": "field", "from": "work:o.n"})
+    assert "field" in s and "`n`" in s
+
+
+def test_render_emission_script_exit_code(bbw_module):
+    ph = {"id": "S", "name": "s", "group": "g", "type": "script"}
+    s = bbw_module.render_signal_emission(ph, {"name": "found", "type": "bool", "source": "exit_code"})
+    assert "exit" in s.lower() and "found" in s

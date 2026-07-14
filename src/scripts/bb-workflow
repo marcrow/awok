@@ -830,6 +830,44 @@ def _validate_signals(workflow: dict) -> list:
     return errors
 
 
+def _value_spec(emit):
+    t = emit.get("type")
+    if t == "bool":
+        return "<true|false>"
+    if t == "enum":
+        return "<one of the allowed values>"
+    return f"<{t}>"
+
+
+def render_signal_emission(phase: dict, emit: dict) -> str:
+    """One instruction line telling the emitter how to produce this signal.
+    Phrased for the emitter's nature (agent snippet vs orchestrator-facing)."""
+    name = emit["name"]
+    src = emit.get("source")
+    key = f"{phase['id'].lower()}.{name}"
+    role = (emit.get("from") or "").split(".")[0] if src == "field" else None
+    nature = phase.get("type", "agent")
+
+    if nature in ("agent",):
+        if src == "token":
+            return f"- **Emit signal `{key}`**: end your output with a compact line `SIGNALS {name}={_value_spec(emit)}`."
+        if src == "field":
+            return f"- **Emit signal `{key}`**: your `{role}` json output MUST contain a field `{name}` of type `{emit.get('type')}`."
+    if nature == "script":
+        if src == "exit_code":
+            return f"- **Signal `{key}`** = this script's exit code (`0` ⇒ `true`, non-zero ⇒ `false`)."
+        if src == "token":
+            return f"- **Signal `{key}`** = the `SIGNALS {name}=…` line the script prints on stdout."
+        if src == "field":
+            return f"- **Signal `{key}`** = the field `{name}` of the script's `{role}` json output."
+    if nature == "main_agent":
+        if src == "token":
+            return f"- **Produce signal `{key}`** as you do this step: state a line `SIGNALS {name}={_value_spec(emit)}`."
+        if src == "field":
+            return f"- **Produce signal `{key}`**: write a field `{name}` ({emit.get('type')}) into `{role}`."
+    return ""
+
+
 _NUMERIC_OPS = {"<", ">", "<=", ">="}
 _SIGNAL_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
