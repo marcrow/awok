@@ -1045,7 +1045,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#add-phase").addEventListener("click", addPhase);
   $("#target-pill").addEventListener("click", (e) => openTargetMenu(e.currentTarget));
   $("#info-btn").addEventListener("click", (e) => openInfoPopover(e.currentTarget));
-  $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, selectGate, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
+  $("#add-gate").addEventListener("click", (e) => orch.openGateMenu({ state, selectGate, refreshView, rerender: () => { renderGrid(); applyDrawerLayout(); } }, e.currentTarget));
   $("#toggle-links").addEventListener("click", () => { state.showLinks = !state.showLinks; $("#toggle-links").classList.toggle("on", state.showLinks); schedulePaint(); });
   $("#toggle-orch").addEventListener("click", () => {
     state.showOrch = !state.showOrch; state.selectedGate = null;

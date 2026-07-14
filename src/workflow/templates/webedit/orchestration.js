@@ -30,6 +30,12 @@ export function addGate(ctx, kind) {
     ctx.state.selectedGate = b._id; ctx.state.selected = null;
     ctx.rerender();
   }
+  // Structural mutation (a new, possibly-invalid gate just entered the model):
+  // refresh the server-backed view so the issues badge + toast pick it up right
+  // away, instead of lagging until the next operand/cap edit routes through
+  // applyGateEdit -> refreshView. Plain gate SELECTION (selectGate alone, e.g.
+  // clicking an existing gate) must NOT do this — only creation is a model change.
+  if (ctx.refreshView) ctx.refreshView();
 }
 
 let _gateMenuEl = null;
