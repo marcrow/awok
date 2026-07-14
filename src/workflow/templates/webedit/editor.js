@@ -7,7 +7,7 @@ import { safeDropDepends, blockedDependents, buildNotice,
          globalOpportunisticState, setGlobalOpportunistic, resolvedOppLabel,
          applyPhaseGroup, validateModel, classifyLinkSpan,
          aggregateInvocationIo, iterBlocks, blockConstruct, findBlock,
-         orchestrationIssues, ancestorChain } from "./editlogic.js";
+         orchestrationIssues, ancestorChain, topLevelBlockOfPhase } from "./editlogic.js";
 import { makeCard, helpNote, helpIcon, labelWithHelp } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor } from "./formfields.js";
@@ -371,6 +371,19 @@ function makeRow(ids, i, byId, colors, oppPhases) {
   row.appendChild(cards);
   return row;
 }
+// Default depends_on for a phase dropped at a level: the previous-row targets,
+// but any GATED action is redirected to its enclosing top-level block (an outside
+// action may depend on a block, never on an action inside it — else it trips the
+// visibility rule and raises an alert). Deduped, self excluded.
+function levelDropDeps(rows, level, phaseId) {
+  const blockOf = topLevelBlockOfPhase(state.model);
+  const out = [];
+  for (const d of safeDropDepends(state.model.phases, rows, level, phaseId)) {
+    const t = blockOf[d] || d;
+    if (t !== phaseId && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
 // Orchestration grid drop: a REF dragged out of a gate onto a level UNGATES it
 // (removed from the tree → bare action) and takes that level's depends_on; a
 // GATE dragged onto a level moves to top-level. Only fires in orchestration view.
@@ -384,7 +397,7 @@ async function orchDropToLevel(refId, level) {
     const p = (state.model.phases || []).find(x => x.id === block.ref);
     if (p) {
       const rows = rowsFromView();
-      const dep = safeDropDepends(state.model.phases, rows, level, p.id);
+      const dep = levelDropDeps(rows, level, p.id);
       if (dep.length) p.depends_on = dep; else delete p.depends_on;
     }
   } else {
@@ -401,7 +414,7 @@ async function onDrop(ev, level) {
   const p = (state.model.phases || []).find(x => x.id === id); if (!p) return;
   const rows = rowsFromView();
   const blocked = blockedDependents(state.model.phases, rows, level, id);
-  p.depends_on = safeDropDepends(state.model.phases, rows, level, id);
+  p.depends_on = levelDropDeps(rows, level, id);
   if (!p.depends_on.length) delete p.depends_on;
   await refreshView();
   if (blocked.length) {

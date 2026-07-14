@@ -34,6 +34,20 @@ export function safeDropDepends(phases, rows, level, draggedId) {
   return computeDropDepends(rows, level, draggedId).filter(id => !desc.has(id));
 }
 
+// Map each phase referenced (transitively) inside a TOP-LEVEL logic block to that
+// block's id. Used to keep a default dependency legal: an action outside a block
+// may depend on the block as a whole, never on an action inside it (the scope-
+// visibility rule). So a default link that would point at a gated action is
+// redirected to its enclosing top-level block.
+export function topLevelBlockOfPhase(model) {
+  const map = {};
+  for (const b of (model && model.orchestration) || []) {
+    if (blockConstruct(b) === "ref" || !b.id) continue;
+    iterBlocks([b], x => { if (blockConstruct(x) === "ref" && !(x.ref in map)) map[x.ref] = b.id; });
+  }
+  return map;
+}
+
 // Previous-row phases that were dropped because they depend on the dragged
 // phase (the links that "block" the move). Empty when the drop is unconstrained.
 export function blockedDependents(phases, rows, level, draggedId) {
