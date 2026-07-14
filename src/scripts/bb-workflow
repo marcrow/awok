@@ -736,7 +736,7 @@ def _iter_blocks(blocks):
     """Yield every block in the tree, depth-first."""
     for b in blocks or []:
         yield b
-        for key in ("then", "else", "body", "parallel"):
+        for key in ("then", "else", "body"):
             yield from _iter_blocks(b.get(key))
 
 

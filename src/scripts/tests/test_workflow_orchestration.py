@@ -95,6 +95,13 @@ def test_escape_hatch_ok_in_standard(bbw_module):
     assert errs == []
 
 
+def test_parallel_block_rejected_by_schema(bbw_module):
+    import jsonschema, pytest
+    schema = bbw_module.load_orchestration_schema()
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate([{"parallel": [{"ref": "A"}]}], schema)
+
+
 def test_until_missing_cap_message_names_the_loop(bbw_module):
     wf = _wf([{"until": {"op": "==", "left": "t1.v", "right": "x"}, "body": [{"ref": "T1"}]}],
              emits=[{"name": "v", "type": "string", "source": "token"}])

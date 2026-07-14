@@ -25,8 +25,7 @@
         { "required": ["if"] },
         { "required": ["while"] },
         { "required": ["until"] },
-        { "required": ["for_each"] },
-        { "required": ["parallel"] }
+        { "required": ["for_each"] }
       ],
       "properties": {
         "ref": { "type": "string" },
@@ -38,8 +37,7 @@
         "for_each": { "type": "string", "description": "a list-typed signal reference" },
         "as": { "type": "string" },
         "cap": { "type": "integer", "minimum": 1 },
-        "body": { "type": "array", "items": { "$ref": "#/definitions/block" } },
-        "parallel": { "type": "array", "items": { "$ref": "#/definitions/block" } }
+        "body": { "type": "array", "items": { "$ref": "#/definitions/block" } }
       }
     }
   }
