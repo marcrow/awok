@@ -54,6 +54,28 @@ def test_block_ref_unknown_phase(bbw_module):
     assert any("NOPE" in e for e in errs)
 
 
+def test_block_id_collides_with_phase(bbw_module):
+    wf = {
+        "phases": [{"id": "A"}, {"id": "B"}],
+        "orchestration": [{"id": "A", "if": {"op": "exists", "left": "b.x"},
+                           "then": [{"ref": "B"}]}],
+    }
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("block id 'A'" in e and "phase" in e for e in errs)
+
+
+def test_duplicate_block_id(bbw_module):
+    wf = {
+        "phases": [{"id": "A"}],
+        "orchestration": [
+            {"id": "G", "if": {"op": "exists", "left": "a.x"}, "then": [{"ref": "A"}]},
+            {"id": "G", "while": {"op": "exists", "left": "a.x"}, "cap": 2, "body": [{"ref": "A"}]},
+        ],
+    }
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("duplicate block id 'G'" in e for e in errs)
+
+
 def test_loop_requires_cap(bbw_module):
     wf = _wf([{"while": {"op": "==", "left": "t1.v", "right": "x"}, "body": [{"ref": "T1"}]}],
              emits=[{"name": "v", "type": "string", "source": "token"}])

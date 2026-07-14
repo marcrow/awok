@@ -28,6 +28,7 @@
         { "required": ["for_each"] }
       ],
       "properties": {
+        "id": { "type": "string" },
         "ref": { "type": "string" },
         "if": { "$ref": "#/definitions/condition" },
         "then": { "type": "array", "items": { "$ref": "#/definitions/block" } },

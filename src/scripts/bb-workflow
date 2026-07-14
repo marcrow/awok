@@ -754,6 +754,22 @@ def _operand_type(operand, signals):
     return None
 
 
+def _validate_block_ids(orchestration, phase_ids):
+    """Block ids must be unique and disjoint from phase ids."""
+    errors = []
+    seen = set()
+    for b in _iter_blocks(orchestration):
+        bid = b.get("id")
+        if not bid:
+            continue
+        if bid in phase_ids:
+            errors.append(f"orchestration: block id '{bid}' collides with a phase id")
+        if bid in seen:
+            errors.append(f"orchestration: duplicate block id '{bid}'")
+        seen.add(bid)
+    return errors
+
+
 def validate_orchestration(workflow, capabilities=None, target="standard"):
     """Validate the orchestration block tree: refs, caps, signal coherence,
     operator/type compatibility, js-safe frontier."""
@@ -763,6 +779,7 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
     signals = collect_signals(workflow)
     known_pids = {p["id"] for p in workflow.get("phases", [])}
     errors = []
+    errors.extend(_validate_block_ids(workflow["orchestration"], known_pids))
 
     for b in _iter_blocks(workflow["orchestration"]):
         # ref -> existing phase
