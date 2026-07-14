@@ -290,14 +290,10 @@ export function resolvedOppLabel(viewOpp, id) {
 }
 
 // ---- orchestration (block tree) pure helpers -----------------------------
-// Child-block slots walked by iterBlocks/findBlock/containerArray. `parallel`
-// holds its children directly under the construct key (unlike then/else/body),
-// but treating it as a slot lets the whole block-tree machinery — id hydration,
-// findBlock, drop targeting, palette/tray ref-collection — reach into a
-// parallel block's branches uniformly.
-const _SLOTS = ["then", "else", "body", "parallel"];
+// Child-block slots walked by iterBlocks/findBlock/containerArray.
+const _SLOTS = ["then", "else", "body"];
 export function blockConstruct(b) {
-  for (const k of ["ref", "if", "while", "until", "for_each", "parallel"]) if (k in b) return k;
+  for (const k of ["ref", "if", "while", "until", "for_each"]) if (k in b) return k;
   return "ref";
 }
 export function isLoopBlock(b) { return "while" in b || "until" in b || "for_each" in b; }

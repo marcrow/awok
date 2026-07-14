@@ -157,3 +157,34 @@ def test_save_with_absent_cap_is_warning_only(bbw_module, tmp_path, restore_root
     assert any("cap" in w for w in res["warnings"])
     sib = yaml.safe_load((wfs / "w.orchestration.yaml").read_text())
     assert "cap" not in sib[0]
+
+
+def test_save_persists_block_id_and_loop_output(bbw_module, tmp_path, restore_roots):
+    # Task 10: the web editor can now author a block `id` (all gate kinds) and
+    # a loop `output` ({role, kind}); both must round-trip through save_workflow
+    # into the sibling <name>.orchestration.yaml untouched.
+    import yaml
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    model = _wf_with_orch([{"id": "DEPS_GATE", "cap": 5,
+                            "while": {"op": "==", "left": "recon.endpoints", "right": "x"},
+                            "output": {"role": "work:results", "kind": "dir"},
+                            "body": [{"ref": "SCAN"}]}])
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] == []
+    sib = yaml.safe_load((wfs / "w.orchestration.yaml").read_text())
+    assert sib[0]["id"] == "DEPS_GATE"
+    assert sib[0]["output"] == {"role": "work:results", "kind": "dir"}
+
+
+def test_save_rejects_parallel_block(bbw_module, tmp_path, restore_roots):
+    # A `parallel` block is no longer an authorable/valid construct (the
+    # editor's add-menu never offered it, and orchestration.schema.json's
+    # block `oneOf` only lists ref/if/while/until/for_each) — save_workflow
+    # must reject it as a structural (blocking) error, not silently accept it.
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    model = _wf_with_orch([{"parallel": [{"ref": "SCAN"}, {"ref": "RECON"}]}])
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] != []
+    assert not (wfs / "w.orchestration.yaml").exists()
