@@ -719,14 +719,46 @@ function tabWiring(body, p) {
     chip.appendChild(x); chips.appendChild(chip);
   });
   body.appendChild(chips);
-  // add dep — exclude self, current deps, and descendants (anti-cycle)
+  // add dep — actions (exclude self, current deps, descendants for anti-cycle)
+  // AND top-level condition/loop blocks by id. A top-level block's scope is the
+  // root, which is visible (an ancestor-or-equal) from every action, so it is
+  // always a legal depends_on target — no scope filtering needed here.
   const desc = descendantSet(p.id);
   const avail = (state.model.phases || []).filter(x => x.id !== p.id && !deps.includes(x.id) && !desc.has(x.id)).map(x => x.id);
-  if (avail.length) {
+  // Top-level blocks are addressable by their _id here; a persisted `id` is
+  // assigned on demand when picked. Skip ones already depended on (by their id).
+  const availBlocks = (state.model.orchestration || [])
+    .filter(b => blockConstruct(b) !== "ref" && !(b.id && deps.includes(b.id)));
+  if (avail.length || availBlocks.length) {
     const sel = document.createElement("select"); sel.style.marginTop = "9px";
     const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "+ add dependency…"; sel.appendChild(o0);
-    avail.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; sel.appendChild(o); });
-    sel.addEventListener("change", () => { if (!sel.value) return; p.depends_on = p.depends_on || []; p.depends_on.push(sel.value); refreshView().then(() => selectPhase(p.id)); });
+    if (avail.length) {
+      const g = document.createElement("optgroup"); g.label = "Actions";
+      avail.forEach(a => { const o = document.createElement("option"); o.value = a; o.textContent = a; g.appendChild(o); });
+      sel.appendChild(g);
+    }
+    if (availBlocks.length) {
+      const g = document.createElement("optgroup"); g.label = "Condition / loop blocks";
+      availBlocks.forEach(b => {
+        const o = document.createElement("option"); o.value = "block:" + b._id;
+        o.textContent = "◇ " + (b.id || (blockConstruct(b).replace("_", " ") + " block"));
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+    sel.addEventListener("change", () => {
+      if (!sel.value) return;
+      let target = sel.value;
+      if (target.startsWith("block:")) {
+        const _id = target.slice(6);
+        const blk = (state.model.orchestration || []).find(b => b._id === _id);
+        if (!blk) return;
+        target = orch.ensureBlockId(state.model, blk);
+      }
+      p.depends_on = p.depends_on || [];
+      if (!p.depends_on.includes(target)) p.depends_on.push(target);
+      refreshView().then(() => selectPhase(p.id));
+    });
     body.appendChild(sel);
   }
   // inputs / outputs (the io editor labels itself; coloured via .io-in/.io-out wrappers)

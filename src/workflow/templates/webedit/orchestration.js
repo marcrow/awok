@@ -17,15 +17,35 @@ let CTX = null;   // set each render so drag/drop handlers can reach state + cal
 let _seq = 1000;
 const newId = () => "b" + (++_seq);
 
+// A readable, unique block id (COND_1 / LOOP_1, …) disjoint from phase ids and
+// existing block ids — matches the engine's uniqueness/disjointness rule.
+function freshBlockId(model, kind) {
+  const taken = new Set((model.phases || []).map(p => p.id));
+  iterBlocks(model.orchestration || [], b => { if (b.id) taken.add(b.id); });
+  const base = kind === "loop" ? "LOOP" : "COND";
+  let n = 1; while (taken.has(base + "_" + n)) n++;
+  return base + "_" + n;
+}
+
+// Ensure a block has a persisted id (assigning one on demand — e.g. the first
+// time an action is made to depend on it) and return it.
+export function ensureBlockId(model, block) {
+  if (!block.id) block.id = freshBlockId(model, isLoopBlock(block) ? "loop" : "if");
+  return block.id;
+}
+
 export function addGate(ctx, kind) {
   const m = ctx.state.model; m.orchestration = m.orchestration || [];
   // No `cap` key on creation — unset-and-OK is ABSENT, never `cap: null`
   // (the schema requires cap to be an integer >= 1 when present; null fails
   // validate_schema's blocking structural check, whereas an absent key only
   // trips validate_orchestration's warning-only "missing mandatory cap").
+  // Assign a readable, persisted block id on creation so an action can depend on
+  // the whole block right away (depends_on references the persisted id, not _id).
+  const id = freshBlockId(m, kind);
   const b = kind === "loop"
-    ? { _id: newId(), while: { op: "==", left: "", right: "" }, body: [] }
-    : { _id: newId(), if: { op: "==", left: "", right: "" }, then: [], else: [] };
+    ? { _id: newId(), id, while: { op: "==", left: "", right: "" }, body: [] }
+    : { _id: newId(), id, if: { op: "==", left: "", right: "" }, then: [], else: [] };
   m.orchestration.push(b);
   if (ctx.selectGate) {
     ctx.selectGate(b._id);
