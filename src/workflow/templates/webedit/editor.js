@@ -989,9 +989,11 @@ async function openPrompt(agent) {
   const agentExists = ag.status === 200;
   const sources = [
     { label: "Agent prompt — src/agents/" + agent + ".md", value: (ag.j && ag.j.body) || "", disabled: !agentExists,
+      title: "The agent's static system prompt file",
       hint: agentExists ? "The agent's full system prompt (frontmatter preserved)." : "Agent not found — create it via « + new agent ».",
       save: v => api("PUT", "/api/agent/" + agent, { body: v }) },
     { label: "Invocation snippet — included in the SKILL", value: (iv.j && iv.j.prompt) || "", disabled: false,
+      title: "Instruction sent to the agent at launch (via Task)",
       hint: "The Task block injected into the generated SKILL.md for this action.",
       save: v => api("PUT", "/api/invocation/" + agent, { prompt: v }) },
   ];
@@ -1000,14 +1002,15 @@ async function openPrompt(agent) {
   const box = document.createElement("div"); box.className = "prompt-box";
   const h = document.createElement("div"); h.className = "notice-title"; h.textContent = "Prompts — " + agent; box.appendChild(h);
   const tabs = document.createElement("div"); tabs.className = "panel-tabs"; box.appendChild(tabs);
+  const fieldTitle = document.createElement("div"); fieldTitle.className = "field-title";
   const hint = document.createElement("div"); hint.className = "muted";
   const ta = document.createElement("textarea"); ta.className = "prompt-textarea"; ta.spellcheck = false;
   const st = document.createElement("span"); st.className = "muted";
   let active = sources[0];
-  const activate = s => { active = s; [...tabs.children].forEach((b, i) => b.classList.toggle("active", sources[i] === s)); ta.value = s.value; ta.disabled = !!s.disabled; hint.textContent = s.hint || ""; st.textContent = ""; };
+  const activate = s => { active = s; [...tabs.children].forEach((b, i) => b.classList.toggle("active", sources[i] === s)); ta.value = s.value; ta.disabled = !!s.disabled; fieldTitle.textContent = s.title || ""; hint.textContent = s.hint || ""; st.textContent = ""; };
   sources.forEach(s => { const tb = document.createElement("button"); tb.className = "ptab"; tb.textContent = s.label;
     tb.addEventListener("click", () => { if (!active.disabled) active.value = ta.value; activate(s); }); tabs.appendChild(tb); });
-  box.appendChild(hint); box.appendChild(ta);
+  box.appendChild(fieldTitle); box.appendChild(hint); box.appendChild(ta);
   const bar = document.createElement("div"); bar.className = "prompt-bar";
   const save = document.createElement("button"); save.textContent = "Save";
   save.addEventListener("click", async () => { if (active.disabled) { st.textContent = "nothing to save"; return; } active.value = ta.value; const r = await active.save(ta.value); st.textContent = r.status === 200 ? "✓ saved" : "✗ " + (((r.j && r.j.errors) || ["error"]).join("; ")); });

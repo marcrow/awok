@@ -402,6 +402,7 @@ select:disabled{opacity:.42;cursor:not-allowed}
   padding:6px 12px;font-size:11.5px}
 .prompt-box .ptab.active{background:var(--well);color:var(--accent);border-bottom-color:var(--well)}
 .prompt-box .muted{padding:6px 20px;font-size:11px;color:var(--faint)}
+.field-title{padding:10px 20px 0;font-size:12px;font-weight:700;color:var(--text-2)}
 .prompt-textarea{flex:1 1 auto;width:100%;resize:none;background:var(--well);border:none;color:var(--text);
   padding:18px 22px;font:13.5px/1.7 var(--mono);outline:none}
 .prompt-bar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:13px 20px;border-top:1px solid var(--border);
