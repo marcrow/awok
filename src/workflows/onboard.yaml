@@ -32,8 +32,7 @@ phases:
     description: >
       When launching repo-inventory, also instruct it to decide whether the repo
       declares a dependency manifest (package.json, requirements.txt, pyproject.toml,
-      Cargo.toml, go.mod, pom.xml, Gemfile, composer.json, …) and to end its output
-      with a compact `SIGNALS has_manifest=<true|false>` line. The orchestration
+      Cargo.toml, go.mod, pom.xml, Gemfile, composer.json, …). The orchestration
       program reads that signal to gate the dependency audit.
     emits:
       - { name: has_manifest, type: bool, source: token }

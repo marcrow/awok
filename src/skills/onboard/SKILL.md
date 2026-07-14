@@ -91,7 +91,7 @@ Drive the pipeline by data dependency, not by list order. Track each action as p
 
 ### O0-INVENTORY — Inventory
 > `scan` · agent · ∥ OG-GITSTATS
-When launching repo-inventory, also instruct it to decide whether the repo declares a dependency manifest (package.json, requirements.txt, pyproject.toml, Cargo.toml, go.mod, pom.xml, Gemfile, composer.json, …) and to end its output with a compact `SIGNALS has_manifest=<true|false>` line. The orchestration program reads that signal to gate the dependency audit.
+When launching repo-inventory, also instruct it to decide whether the repo declares a dependency manifest (package.json, requirements.txt, pyproject.toml, Cargo.toml, go.mod, pom.xml, Gemfile, composer.json, …). The orchestration program reads that signal to gate the dependency audit.
 
 #### Invocation `repo-inventory`
 
