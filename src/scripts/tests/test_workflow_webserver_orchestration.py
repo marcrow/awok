@@ -120,3 +120,40 @@ def test_roundtrip_load_edit_save(bbw_module, tmp_path, restore_roots):
     reload = bbw_module.read_workflow_payload(wfs / "w.yaml")["model"]
     assert reload["orchestration"][1]["cap"] == 50
     assert "orchestration" not in yaml.safe_load((wfs / "w.yaml").read_text())
+
+
+def test_save_with_null_cap_is_warning_only_and_cap_absent_on_disk(bbw_module, tmp_path, restore_roots):
+    # Pins the fix: the web-editor client used to encode "no cap yet" as
+    # `cap: null` (addGate/setConstruct/setCap in orchestration.js). That
+    # literal null fails validate_schema's blocking structural check
+    # ({"cap": {"type": "integer", "minimum": 1}} -> None is not an integer),
+    # so save_workflow used to return a schema error and write nothing. The
+    # server-side sanitize (_sanitize_orchestration) now coerces cap=None to
+    # absent BEFORE validate_schema runs, so this is warning-only like the
+    # canonical capless case, and the value written to disk has no cap key at
+    # all (never a literal `cap: null`).
+    import yaml
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    model = _wf_with_orch([{"while": {"op": "==", "left": "recon.endpoints", "right": "x"},
+                            "cap": None, "body": [{"ref": "SCAN"}]}])
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] == []
+    assert any("cap" in w for w in res["warnings"])
+    sib = yaml.safe_load((wfs / "w.orchestration.yaml").read_text())
+    assert "cap" not in sib[0]                      # absent, not null, on disk
+
+
+def test_save_with_absent_cap_is_warning_only(bbw_module, tmp_path, restore_roots):
+    # The canonical unset-cap encoding (no `cap` key at all) must behave the
+    # same as the null-cap case above: warning-only, not blocked.
+    import yaml
+    agents = tmp_path / "agents"; agents.mkdir()
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    model = _wf_with_orch([{"while": {"op": "==", "left": "recon.endpoints", "right": "x"},
+                            "body": [{"ref": "SCAN"}]}])   # no cap key
+    res = bbw_module.save_workflow("w", model, wfs, agents)
+    assert res["errors"] == []
+    assert any("cap" in w for w in res["warnings"])
+    sib = yaml.safe_load((wfs / "w.orchestration.yaml").read_text())
+    assert "cap" not in sib[0]

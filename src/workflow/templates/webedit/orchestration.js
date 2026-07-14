@@ -19,8 +19,12 @@ const newId = () => "b" + (++_seq);
 
 export function addGate(ctx, kind) {
   const m = ctx.state.model; m.orchestration = m.orchestration || [];
+  // No `cap` key on creation — unset-and-OK is ABSENT, never `cap: null`
+  // (the schema requires cap to be an integer >= 1 when present; null fails
+  // validate_schema's blocking structural check, whereas an absent key only
+  // trips validate_orchestration's warning-only "missing mandatory cap").
   const b = kind === "loop"
-    ? { _id: newId(), while: { op: "==", left: "", right: "" }, cap: null, body: [] }
+    ? { _id: newId(), while: { op: "==", left: "", right: "" }, body: [] }
     : { _id: newId(), if: { op: "==", left: "", right: "" }, then: [], else: [] };
   m.orchestration.push(b);
   if (ctx.selectGate) {
@@ -375,7 +379,10 @@ export function setConstruct(block, kind) {
   const kids = (block.then || block.body || []).concat(block.else || []);      // preserved children
   const oldForEach = typeof block.for_each === "string" ? block.for_each : "";
   const oldAs = block.as;
-  const oldCap = "cap" in block ? block.cap : null;
+  // Preserve an existing VALID integer cap across the switch; otherwise the
+  // cap key stays ABSENT (never re-introduced as `cap: null`) — unset-and-OK
+  // is absent, not null (see addGate's comment for why).
+  const oldCap = Number.isInteger(block.cap) && block.cap > 0 ? block.cap : undefined;
 
   delete block.if; delete block.while; delete block.until; delete block.for_each;
   delete block.then; delete block.else; delete block.body; delete block.as; delete block.cap;
@@ -387,11 +394,11 @@ export function setConstruct(block, kind) {
   } else if (kind === "for_each") {
     block.for_each = oldForEach;
     block.as = oldAs || "item";
-    block.cap = oldCap;             // never auto-fill — an empty/invalid cap is a valid (warning-only) state
+    if (oldCap !== undefined) block.cap = oldCap;  // else leave absent — never auto-fill, never null
     block.body = kids;
   } else { // while / until
     block[kind] = cond != null ? cond : defaultCond();
-    block.cap = oldCap;
+    if (oldCap !== undefined) block.cap = oldCap;  // else leave absent — never auto-fill, never null
     block.body = kids;
   }
 }
@@ -413,7 +420,12 @@ export function toggleEscape(block) {
 }
 export function setCap(block, raw) {
   const n = parseInt(raw, 10);
-  block.cap = (raw === "" || Number.isNaN(n)) ? null : n;   // no auto-fill; empty/bad stays invalid on purpose
+  // Empty/invalid/<=0 -> DELETE the key (absent, never `cap: null` — null
+  // fails validate_schema's blocking check; absent only trips the
+  // warning-only "missing mandatory cap" semantic check). No auto-fill;
+  // empty/bad stays an unset, warning-flagged cap on purpose.
+  if (raw === "" || Number.isNaN(n) || n <= 0) delete block.cap;
+  else block.cap = n;
 }
 export function setList(block, v) { block.for_each = v; }
 export function setAs(block, v) { block.as = v; }

@@ -982,7 +982,11 @@ function modelForSave() {
   // Strip editor-only transient keys (standalone file blocks, block _id) so they
   // never leak into the persisted YAML.
   const m = JSON.parse(JSON.stringify(state.model)); delete m.files;
-  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
+  // Belt-and-suspenders: coerce any residual `cap: null` to absent (the
+  // on-disk/schema convention is "absent = unset-and-OK, null = invalid") —
+  // on top of the client-side fix that never writes `cap: null` in the first
+  // place (addGate/setConstruct/setCap in orchestration.js).
+  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; if (b.cap == null) delete b.cap; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
   return m;
 }
 // Canonical string of what would be persisted — the unit of unsaved-changes

@@ -392,6 +392,34 @@ def is_valid_slug(name: str) -> bool:
     return bool(isinstance(name, str) and _SLUG_RE.match(name))
 
 
+_ORCH_TRANSIENT_KEYS = ("_id", "_leftKind", "_rightKind")
+
+
+def _sanitize_orchestration_block(block: dict) -> None:
+    """In-place, one block: drop client-only transient keys (defense-in-depth —
+    the web-editor client already strips these, but this is the shared save
+    choke point and the schema has no additionalProperties:false, so junk would
+    otherwise silently persist) and coerce cap=None -> absent (the on-disk/
+    schema convention is "absent = unset-and-OK, null = invalid"; a literal
+    `cap: null` fails validate_schema's blocking structural check)."""
+    for key in _ORCH_TRANSIENT_KEYS:
+        block.pop(key, None)
+    if block.get("cap") is None and "cap" in block:
+        del block["cap"]
+    for key in ("then", "else", "body"):
+        for child in block.get(key) or []:
+            _sanitize_orchestration_block(child)
+    for child in block.get("parallel") or []:
+        _sanitize_orchestration_block(child)
+
+
+def _sanitize_orchestration(blocks) -> None:
+    """In-place: sanitize every top-level block and its then/else/body/parallel
+    descendants. No-op on an empty/absent orchestration list."""
+    for block in blocks or []:
+        _sanitize_orchestration_block(block)
+
+
 def save_workflow(name: str, model: dict, workflows_dir: Path = None,
                   agents_dir: Path = None) -> dict:
     """Validate then write. Returns {"errors": [...], "warnings": [...]}.
@@ -404,6 +432,8 @@ def save_workflow(name: str, model: dict, workflows_dir: Path = None,
     if not is_valid_slug(name):
         return {"errors": [f"invalid workflow name: {name!r}"], "warnings": []}
     apply_parallel_with(model, compute_levels(model))
+    if "orchestration" in model:
+        _sanitize_orchestration(model["orchestration"])   # cap=None -> absent, drop UI-only keys
     errors = validate_schema(model)                 # includes orchestration SCHEMA (structural)
     if errors:
         return {"errors": errors, "warnings": []}
