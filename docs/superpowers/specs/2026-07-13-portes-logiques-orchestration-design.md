@@ -90,6 +90,9 @@ comme la résolution `role → path` actuelle.
 
 ## 5. Catalogue des constructs (6, exhaustif)
 
+> **Révisé 2026-07-14** : `parallel` supprimé, modèle unifié sur `depends_on`. Voir
+> 2026-07-14-orchestration-depends-on-unification-design.md.
+
 Validé exhaustif contre le skill de référence `workflow-builder` (ses 5 topologies —
 fan-out, pipeline, loop, barrier, judge-panel — se ramènent toutes à ces 6) :
 

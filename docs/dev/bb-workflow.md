@@ -275,7 +275,7 @@ contrôle. `load_workflow` le greffe sous `model["orchestration"]` s'il existe.
 **Absent ⇒ pas de clé ⇒ DAG pur, rendu identique** — rien ne change pour un
 workflow existant tant qu'on n'ajoute pas ce fichier.
 
-**Les 6 constructs** (arbre de blocs, imbricables) :
+**Les 5 constructs** (arbre de blocs, imbricables) :
 
 | Bloc | Rôle |
 |---|---|
@@ -284,10 +284,26 @@ workflow existant tant qu'on n'ajoute pas ce fichier.
 | `while` | Boucle tant que la condition est vraie |
 | `until` | Boucle jusqu'à ce que la condition soit vraie |
 | `for_each` (+ `as`) | Itère une collection (signal de type `list`) |
-| `parallel` | Liste de blocs à lancer ensemble |
 
 Toute boucle (`while`/`until`/`for_each`) **exige un `cap`** (nombre max
 d'itérations) — `validate_orchestration` rejette une boucle sans cap.
+
+**Plus de construct `parallel`** : la concurrence vient de l'**absence** de
+`depends_on` entre deux actions — exactement comme dans le DAG plat, un bloc
+d'orchestration ne réintroduit pas une seconde autorité d'ordre.
+
+**Loi de visibilité** des dépendances (`depends_on` d'une phase ou d'un bloc) :
+une dépendance ne peut cibler que le **même scope, un scope ancêtre, ou un bloc
+sœur** — jamais entrer *dans* un bloc depuis l'extérieur. Pour dépendre d'un
+bloc entier (`if`/`while`/`until`/`for_each`), on dépend de son **`id`**, pas
+d'une phase à l'intérieur. `validate_orchestration` rejette une violation de
+cette règle comme une dépendance illégale.
+
+**`output` de boucle** : `while`/`until`/`for_each` peuvent déclarer un
+`output: {role, kind}` — un répertoire pour le fan-out par itération de
+`for_each`, ou un jsonl accumulé (append) pour le motif accumulateur de
+`while`/`until` — que les phases avales lisent comme n'importe quel I/O par
+rôle.
 
 Exemple (fixture `src/scripts/tests/fixtures/workflows/orchestrated.*`) :
 
@@ -352,11 +368,19 @@ opérandes.
 **Rendu** :
 - SKILL.md → section "## Orchestration program" (`render_orchestration`),
   un programme d'instructions imbriqué qui pilote le DAG en dessous, plus la
-  liste des signaux et comment les lire.
+  liste des signaux et comment les lire. Cette section rend aussi un
+  "**Execution protocol**" événementiel : au lieu d'un ordre séquentiel
+  narratif, chaque phase/bloc est décrit comme "dès que ses deps finissent,
+  lance-le" — cohérent avec la concurrence par défaut du DAG (pas de
+  `parallel` qui la réintroduirait comme cas spécial).
 - Cartography → `build_orchestration_overlay` ajoute les losanges de branche
   et les sous-graphes de boucle par-dessus le DAG.
 
-Spec complète : `docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md`.
+Spec complète (design initial) :
+`docs/superpowers/specs/2026-07-13-portes-logiques-orchestration-design.md` —
+**révisée** par
+`docs/superpowers/specs/2026-07-14-orchestration-depends-on-unification-design.md`
+(suppression de `parallel`, loi de visibilité, `id` de bloc, `output` de boucle).
 
 ## Modèle I/O — comment les fichiers arrivent aux agents
 

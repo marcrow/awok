@@ -368,10 +368,22 @@ control-flow blocks. `load_workflow` grafts it under `model["orchestration"]`
 if present. **Absent ⇒ no key ⇒ pure DAG, identical output** — nothing about
 existing workflows changes until you add the file.
 
-**Six constructs** (block-tree, nestable): `ref` (run one phase), `if/then/else`,
-`while`, `until`, `for_each` (+ `as`, iterates a list signal), `parallel` (a list
-of blocks run together). Every `while`/`until`/`for_each` **requires a mandatory
-`cap`** (max iterations) — `validate_orchestration` rejects an uncapped loop.
+**Five constructs** (block-tree, nestable): `ref` (run one phase), `if/then/else`,
+`while`, `until`, `for_each` (+ `as`, iterates a list signal). Every `while`/`until`/`for_each`
+**requires a mandatory `cap`** (max iterations) — `validate_orchestration` rejects an uncapped
+loop.
+
+There is no explicit `parallel` construct: concurrency comes from `depends_on` — two
+actions with no dependency between them (same scope or not) run together by default,
+exactly like in the plain DAG. A dependency may only target the **same scope, an
+ancestor scope, or a sibling block** — it can never reach *into* a block from outside;
+depend on the whole block instead, via its `id`. A loop (`while`/`until`/`for_each`) may
+declare an `output:` role that downstream phases read — a directory for `for_each`'s
+per-iteration fan-out, or an appended jsonl for `while`/`until`'s accumulator pattern.
+
+See `docs/superpowers/specs/2026-07-14-orchestration-depends-on-unification-design.md`
+for the full depends_on-unification design (removal of `parallel`, the visibility rule,
+block `id`, loop `output`).
 
 **Signals**: a phase opts in to emitting one with `emits: [{name, type, source,
 from?}]` — `source: field` (a field of a json output, `from: <path>`) or

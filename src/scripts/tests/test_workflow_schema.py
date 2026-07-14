@@ -81,7 +81,7 @@ def test_phase_emits_accepted(bbw_module):
 
 def test_orchestration_schema_accepts_standalone_until(bbw_module):
     """A standalone `until` block (no sibling `while`) must validate — this is
-    the 6th supported construct (ref/if/while/until/for_each/parallel)."""
+    the 5th supported construct (ref/if/while/until/for_each)."""
     wf = {
         "schema_version": 1,
         "skill": {"name": "w", "description": "x"},

@@ -258,9 +258,6 @@ const NOT_DONE = [
   "Gate drag-reorder / re-nesting: dragging an action card into a gate's slot " +
     "(then / else / loop body) works, but reordering gates themselves, moving a gate " +
     "across nesting levels, or dropping one on a top-level “root” zone is not implemented.",
-  "parallel construct: present in the schema (block.parallel) and never removed, but " +
-    "has no editor UI by design — awok is parallel-by-default via depends_on, so the " +
-    "block renders as an inert placeholder in the program view.",
 ];
 let _infoPopEl = null;
 function closeInfoPopover() {
@@ -986,7 +983,7 @@ function modelForSave() {
   // on-disk/schema convention is "absent = unset-and-OK, null = invalid") —
   // on top of the client-side fix that never writes `cap: null` in the first
   // place (addGate/setConstruct/setCap in orchestration.js).
-  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; if (b.cap == null) delete b.cap; ["then","else","body","parallel"].forEach(s=>strip(b[s])); }); })(m.orchestration);
+  (function strip(bs){ (bs||[]).forEach(b=>{ delete b._id; delete b._leftKind; delete b._rightKind; if (b.cap == null) delete b.cap; ["then","else","body"].forEach(s=>strip(b[s])); }); })(m.orchestration);
   return m;
 }
 // Canonical string of what would be persisted — the unit of unsaved-changes

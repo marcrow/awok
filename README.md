@@ -125,6 +125,18 @@ skipped before the pipeline advances. Swap the posture and the same gate keeps a
 summariser from stopping at one source, or an extraction agent from quitting at the first parse
 error. Full wiring recipe: `docs/superpowers/specs/2026-07-03-completeness-critic-design.md`.
 
+### Branch and loop — logic gates
+
+A workflow's DAG says *what can run once its deps finish*; it can't express a
+branch or a loop. Add an optional sibling `src/workflows/<name>.orchestration.yaml`
+(absent = pure DAG, unchanged). It carries only the control-flow deviations —
+`if/else`, `while`, `until`, `for_each` — over the content DAG. Ordering and
+concurrency stay in `depends_on` (there is no `parallel` construct: independent
+actions run together by default). A gated action lives in its branch/loop; from
+outside you depend on the **whole block** (via its `id`), never on an action
+inside it. Loops bound iterations with a mandatory `cap`, and may expose an
+aggregated `output` file the next action reads.
+
 ### Edit visually — `awok edit`
 
 Prefer a GUI to YAML? `awok edit` serves a local, dependency-free web editor on
@@ -139,7 +151,8 @@ phase/agent in a side panel — **save** writes the YAML back, ready for `genera
 
 `awok generate` also emits an offline HTML cartography (no network, no build step).
 The **Workflow** tab renders the DAG with phases coloured by group and the model
-each runs on; parallel phases sit side by side:
+each runs on; phases with no dependency between them sit side by side (they run
+concurrently):
 
 <p align="center">
   <img src="assets/workflow_preview.png" alt="cartography — Workflow tab showing the onboard DAG" width="820">
