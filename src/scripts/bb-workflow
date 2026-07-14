@@ -411,12 +411,10 @@ def _sanitize_orchestration_block(block: dict) -> None:
     for key in ("then", "else", "body"):
         for child in block.get(key) or []:
             _sanitize_orchestration_block(child)
-    for child in block.get("parallel") or []:
-        _sanitize_orchestration_block(child)
 
 
 def _sanitize_orchestration(blocks) -> None:
-    """In-place: sanitize every top-level block and its then/else/body/parallel
+    """In-place: sanitize every top-level block and its then/else/body
     descendants. No-op on an empty/absent orchestration list."""
     for block in blocks or []:
         _sanitize_orchestration_block(block)
