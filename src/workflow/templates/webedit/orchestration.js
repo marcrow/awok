@@ -84,154 +84,156 @@ export function openGateMenu(ctx, buttonEl) {
   }, 0);
 }
 
-// Orchestration view = the WHOLE content DAG (every phase, positioned by its
-// depends_on level, exactly like the classic grid) with the control-flow gates
-// drawn ON the actions they gate. Under the depends_on-unification model the
-// orchestration file holds only the deviations (an `if`, a loop), so a phase
-// that runs unconditionally simply carries no tag — it is NOT "unused". The
-// gates strip on top lets you edit any gate (even one with no action yet) and
-// is a drop target so an action can be dragged into a gate.
+// Orchestration view = the full content DAG. An ungated action is a card at its
+// depends_on level; a gate is a FRAME at its level with then/else (if) or body
+// (loop) LANES you drop actions and nested gates into. Levels are indicative
+// (awok orders by depends_on, shown as arrows); a gated action lives in its
+// frame, not on a level row.
 export function renderProgram(ctx) {
   CTX = ctx;
   const { state } = ctx;
   const grid = document.querySelector("#grid"); grid.replaceChildren();
   const colors = ctx.resolveGroupColors(state.model);
   const blocks = state.model.orchestration || [];
-
-  // A gate that already wraps an action shows as a FRAME around it in the graph
-  // below — no strip needed. Only a gate with no action yet is invisible in the
-  // DAG, so surface just those, as a small reachable drop zone.
-  const emptyGates = [];
-  iterBlocks(blocks, b => {
-    if (blockConstruct(b) === "ref") return;
-    let hasRef = false; iterBlocks([b], x => { if (blockConstruct(x) === "ref") hasRef = true; });
-    if (!hasRef) emptyGates.push(b);
-  });
-  if (emptyGates.length) grid.appendChild(renderEmptyGates(ctx, emptyGates));
-
-  const gateOf = gateMap(state.model);
-  const lv = (state.view && state.view.levels) || {};
   const phases = state.model.phases || [];
-  const maxLv = Math.max(0, ...phases.map(p => lv[p.id] || 0));
+  const lv = (state.view && state.view.levels) || {};
   const oppPhases = (state.view && state.view.opportunistic && state.view.opportunistic.phases) || {};
   const sigKeys = new Set(signalsOf(state.model).map(s => s.key));
   const byId = {}; phases.forEach(p => byId[p.id] = p);
+
+  // A phase referenced anywhere in the tree is gated — it renders inside its gate
+  // frame, never as a bare card. Everything else is a bare card at its level.
+  const gated = new Set();
+  iterBlocks(blocks, b => { if (blockConstruct(b) === "ref") gated.add(b.ref); });
+
+  // A top-level gate sits at the smallest level among the actions it contains, so
+  // it lands where those actions would; an empty gate goes to level 0.
+  const gateLevel = (b) => {
+    let min = Infinity;
+    iterBlocks([b], x => { if (blockConstruct(x) === "ref" && (x.ref in lv)) min = Math.min(min, lv[x.ref]); });
+    return min === Infinity ? 0 : min;
+  };
+
+  const topGates = blocks.filter(b => blockConstruct(b) !== "ref");
+  const maxLv = Math.max(0, ...phases.map(p => lv[p.id] || 0), ...topGates.map(gateLevel));
+  const rows = Array.from({ length: maxLv + 1 }, () => ({ cards: [], gates: [] }));
+  phases.forEach(p => { if (!gated.has(p.id)) rows[lv[p.id] || 0].cards.push(p.id); });
+  topGates.forEach(b => rows[gateLevel(b)].gates.push(b));
+
   const dag = document.createElement("div"); dag.className = "orch-dag";
-  for (let i = 0; i <= maxLv; i++) {
-    const ids = phases.filter(p => (lv[p.id] || 0) === i).map(p => p.id);
-    if (!ids.length) continue;
-    dag.appendChild(dagRow(ctx, ids, i, byId, colors, oppPhases, gateOf, sigKeys));
-  }
+  rows.forEach((row, i) => {
+    if (!row.cards.length && !row.gates.length) return;
+    const el = document.createElement("div"); el.className = "orch-row"; el.dataset.level = i;
+    const rail = document.createElement("div"); rail.className = "orch-rail";
+    const node = document.createElement("div"); node.className = "node"; node.textContent = String(i + 1);
+    rail.appendChild(node); el.appendChild(rail);
+    const cards = document.createElement("div"); cards.className = "orch-cards";
+    row.cards.forEach(id => cards.appendChild(phaseCardEl(ctx, byId[id], colors, oppPhases)));
+    row.gates.forEach(b => cards.appendChild(gateFrame(ctx, b, colors, oppPhases, sigKeys, 0)));
+    el.appendChild(cards);
+    dag.appendChild(el);
+  });
   grid.appendChild(dag);
 }
 
-// phase-id -> { blockId, kind, slot, block } for every phase referenced inside a
-// gate. A nested ref maps to its innermost enclosing gate. Bare phases are absent.
-function gateMap(model) {
-  const map = {};
-  const walk = (arr, gate) => (arr || []).forEach(b => {
-    if (blockConstruct(b) === "ref") { if (gate && !(b.ref in map)) map[b.ref] = gate; return; }
-    const base = { blockId: b._id, kind: blockConstruct(b), block: b };
-    if (blockConstruct(b) === "if") { walk(b.then, { ...base, slot: "then" }); walk(b.else, { ...base, slot: "else" }); }
-    else walk(b.body, { ...base, slot: "body" });
-  });
-  walk(model.orchestration || [], null);
-  return map;
-}
-
-function dagRow(ctx, ids, i, byId, colors, oppPhases, gateOf, sigKeys) {
+// An ungated action card on the grid. Draggable two ways at once: text/phase to
+// REFERENCE it into a gate lane, text/plain to move its depends_on level.
+function phaseCardEl(ctx, p, colors, oppPhases) {
   const { state } = ctx;
-  const row = document.createElement("div"); row.className = "orch-row"; row.dataset.level = i;
-  const rail = document.createElement("div"); rail.className = "orch-rail";
-  const node = document.createElement("div"); node.className = "node"; node.textContent = String(i + 1);
-  rail.appendChild(node); row.appendChild(rail);
-  const cards = document.createElement("div"); cards.className = "orch-cards";
-  ids.forEach(id => {
-    const p = byId[id]; if (!p) return;
-    const card = makeCard(p, colors[p.group], (oppPhases[id] || {}).mark);
-    card.draggable = true;
-    card.addEventListener("dragstart", e => { try { e.dataTransfer.setData("text/phase", id); } catch (_) {} });
-    card.addEventListener("click", () => ctx.selectPhase(id));
-    if (id === state.selected) card.classList.add("selected");
-    const g = gateOf[id];
-    cards.appendChild(g ? gateFrame(ctx, card, g, sigKeys) : card);
+  const card = makeCard(p, colors[p.group], (oppPhases[p.id] || {}).mark);
+  card.draggable = true;
+  card.addEventListener("dragstart", e => {
+    try { e.dataTransfer.setData("text/phase", p.id); e.dataTransfer.setData("text/plain", p.id); } catch (_) {}
+    state.dragId = p.id; document.body.classList.add("dragging");
   });
-  row.appendChild(cards);
-  return row;
+  card.addEventListener("dragend", () => { state.dragId = null; document.body.classList.remove("dragging"); });
+  card.addEventListener("click", () => ctx.selectPhase(p.id));
+  if (p.id === state.selected) card.classList.add("selected");
+  return card;
 }
 
-// Wrap a gated action card in its gate FRAME — the same clean bordered gate the
-// classic program view used (.gate/.gate-head/.gate-body): a header with the
-// construct + condition (+ cap for loops), the action card inside. Click the
-// header to edit the gate; the card inside keeps its own click (edit the action).
-function gateFrame(ctx, card, g, sigKeys) {
-  const loop = isLoopBlock(g.block);
+// A gate rendered as a FRAME with header + lanes (then/else for if, body for a
+// loop). Draggable (text/refid) so it can be moved or nested into another lane.
+function gateFrame(ctx, b, colors, oppPhases, sigKeys, depth) {
+  const kind = blockConstruct(b), loop = isLoopBlock(b);
   const gate = document.createElement("div");
   gate.className = "gate" + (loop ? " loop" : "");
-  gate.dataset.blockId = g.blockId;
-  if (ctx.state.selectedGate === g.blockId) gate.classList.add("selected");
+  gate.dataset.blockId = b._id;
+  gate.draggable = true;
+  gate.addEventListener("dragstart", e => { e.stopPropagation(); try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {} });
+  if (ctx.state.selectedGate === b._id) gate.classList.add("selected");
 
   const head = document.createElement("div"); head.className = "gate-head";
-  head.addEventListener("click", e => { e.stopPropagation(); ctx.onSelectGate(g.blockId); });
-  const icon = document.createElement("span");
-  icon.className = loop ? "gate-icon-loop" : "gate-icon-if"; if (loop) icon.textContent = "↻";
+  head.addEventListener("click", e => { e.stopPropagation(); ctx.onSelectGate(b._id); });
+  const icon = document.createElement("span"); icon.className = loop ? "gate-icon-loop" : "gate-icon-if";
+  if (loop) icon.textContent = "↻";
   head.appendChild(icon);
-  const kw = document.createElement("span"); kw.className = "gate-kw";
-  kw.textContent = g.kind.replace("_", " ") + (g.slot === "else" ? " · else" : "");
+  const kw = document.createElement("span"); kw.className = "gate-kw"; kw.textContent = kind.replace("_", " ");
   head.appendChild(kw);
-  if (g.kind === "for_each") head.appendChild(forEachHeaderEl(g.block, sigKeys));
-  else head.appendChild(condEl(condOf(g.block), sigKeys));
+  if (kind === "for_each") head.appendChild(forEachHeaderEl(b, sigKeys));
+  else head.appendChild(condEl(condOf(b), sigKeys));
   if (loop) {
-    const ok = Number.isInteger(g.block.cap) && g.block.cap > 0;
+    const ok = Number.isInteger(b.cap) && b.cap > 0;
     const cap = document.createElement("span"); cap.className = "cap-chip";
-    if (ok) cap.textContent = "cap " + g.block.cap; else { cap.classList.add("bad"); cap.textContent = "cap required"; }
+    if (ok) cap.textContent = "cap " + b.cap; else { cap.classList.add("bad"); cap.textContent = "cap required"; }
     head.appendChild(cap);
   }
   const edit = document.createElement("span"); edit.className = "gate-edit";
-  edit.textContent = ctx.state.selectedGate === g.blockId ? "✎ editing" : "✎";
+  edit.textContent = ctx.state.selectedGate === b._id ? "✎ editing" : "✎";
   head.appendChild(edit);
   gate.appendChild(head);
 
   const body = document.createElement("div"); body.className = "gate-body";
-  body.appendChild(card);
+  if (kind === "if") {
+    body.classList.add("branches");
+    body.appendChild(laneEl(ctx, b, "then", colors, oppPhases, sigKeys, depth));
+    body.appendChild(laneEl(ctx, b, "else", colors, oppPhases, sigKeys, depth));
+  } else {
+    listBlocks(ctx, b.body, colors, oppPhases, sigKeys, depth + 1).forEach(el => body.appendChild(el));
+    body.appendChild(dropSlot(ctx, b._id, "body"));
+  }
   gate.appendChild(body);
   return gate;
 }
 
-// Reachable home for gates that wrap no action yet (they'd be invisible in the
-// DAG). Shown only when such gates exist. Each chip edits its gate and is a drop
-// target so an action can be dragged in.
-function renderEmptyGates(ctx, gates) {
+function laneEl(ctx, b, slot, colors, oppPhases, sigKeys, depth) {
+  const lane = document.createElement("div"); lane.className = "lane" + (slot === "then" ? " then" : "");
+  const label = document.createElement("div"); label.className = "lane-label"; label.textContent = slot;
+  lane.appendChild(label);
+  listBlocks(ctx, b[slot], colors, oppPhases, sigKeys, depth + 1).forEach(el => lane.appendChild(el));
+  lane.appendChild(dropSlot(ctx, b._id, slot));
+  return lane;
+}
+
+// The children of a lane/body: a ref renders as its action card, a nested gate
+// as another frame (recursion — this is how gates nest).
+function listBlocks(ctx, arr, colors, oppPhases, sigKeys, depth) {
+  return (arr || []).map(b => blockConstruct(b) === "ref"
+    ? refCardEl(ctx, b, colors, oppPhases)
+    : gateFrame(ctx, b, colors, oppPhases, sigKeys, depth));
+}
+
+// A ref (a gated action) inside a lane. Draggable as text/refid so it MOVES
+// (out to the grid, or into another lane) rather than duplicating.
+function refCardEl(ctx, b, colors, oppPhases) {
   const { state } = ctx;
-  const sigKeys = new Set(signalsOf(state.model).map(s => s.key));
-  const wrap = document.createElement("div"); wrap.className = "orch-empty-gates";
-  const head = document.createElement("span"); head.className = "tray-head";
-  head.textContent = "New condition — set it, then drag an action here to gate it";
-  wrap.appendChild(head);
-  const list = document.createElement("div"); list.className = "orch-gates-list";
-  gates.forEach(b => {
-    const k = blockConstruct(b), loop = isLoopBlock(b);
-    const chip = document.createElement("div"); chip.className = "gate-chip" + (loop ? " loop" : "");
-    if (state.selectedGate === b._id) chip.classList.add("selected");
-    const icon = document.createElement("span"); icon.className = "gate-tag-icon"; icon.textContent = loop ? "↻" : "◇";
-    chip.appendChild(icon);
-    const kw = document.createElement("span"); kw.className = "gate-tag-kw"; kw.textContent = k.replace("_", " ");
-    chip.appendChild(kw);
-    if (k === "for_each") chip.appendChild(forEachHeaderEl(b, sigKeys));
-    else chip.appendChild(condEl(condOf(b), sigKeys));
-    const refs = []; iterBlocks([b], x => { if (blockConstruct(x) === "ref") refs.push(x.ref); });
-    const count = document.createElement("span"); count.className = "gate-chip-count";
-    count.textContent = refs.length ? "▸ " + refs.join(", ") : "▸ (drag an action here)";
-    chip.appendChild(count);
-    chip.addEventListener("click", e => { e.stopPropagation(); ctx.onSelectGate(b._id); });
-    const slot = k === "if" ? "then" : "body";
-    chip.addEventListener("dragover", e => { e.preventDefault(); chip.classList.add("hover"); });
-    chip.addEventListener("dragleave", () => chip.classList.remove("hover"));
-    chip.addEventListener("drop", e => { e.preventDefault(); chip.classList.remove("hover"); ctx.onDrop(ctx, b._id, slot, e); });
-    list.appendChild(chip);
-  });
-  wrap.appendChild(list);
-  return wrap;
+  const p = (state.model.phases || []).find(x => x.id === b.ref);
+  if (!p) { const miss = document.createElement("div"); miss.className = "help-note"; miss.textContent = "Unknown ref: " + b.ref; return miss; }
+  const card = makeCard(p, colors[p.group], (oppPhases[p.id] || {}).mark);
+  card.draggable = true;
+  card.addEventListener("dragstart", e => { e.stopPropagation(); try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {} });
+  card.addEventListener("click", e => { e.stopPropagation(); ctx.selectPhase(p.id, b._id); });
+  if (p.id === state.selected) card.classList.add("selected");
+  return card;
+}
+
+function dropSlot(ctx, containerId, slot) {
+  const el = document.createElement("div"); el.className = "drop-slot";
+  el.textContent = "＋ drag an action here";
+  el.addEventListener("dragover", e => { e.preventDefault(); e.stopPropagation(); el.classList.add("hover"); });
+  el.addEventListener("dragleave", () => el.classList.remove("hover"));
+  el.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); el.classList.remove("hover"); ctx.onDrop(ctx, containerId, slot, e); });
+  return el;
 }
 
 // --- condition rendering -----------------------------------------------------
