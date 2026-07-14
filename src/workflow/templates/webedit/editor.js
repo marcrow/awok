@@ -86,6 +86,12 @@ function hydrateBlockIds(model) {
   _blkSeq = 0;
   if (!model || !model.orchestration) return;
   iterBlocks(model.orchestration, b => { if (!b._id) b._id = "b" + (++_blkSeq); });
+  // Every gate also gets a persisted, unique `id` (COND_1 / LOOP_1, …). It is the
+  // ONLY way to tell two identical conditions apart and the address a phase's
+  // depends_on uses to depend on the whole block, so it must always exist.
+  iterBlocks(model.orchestration, b => {
+    if (blockConstruct(b) !== "ref") orch.ensureBlockId(model, b);
+  });
 }
 async function loadWorkflow(name) {
   const switching = name !== state.name;   // real switch vs. same-workflow reload (e.g. after Save)
@@ -420,31 +426,25 @@ function paintDepLinks() {
   const lvl = (state.view && state.view.levels) || {};
   const rects = {};
   root.querySelectorAll(".phase-card").forEach(el => rects[el.dataset.id] = el.getBoundingClientRect());
-  // Orchestration (ON) view: a dep crossing a top-level block boundary points at
-  // the enclosing gate element (data-block-top), not at the nested ref card —
-  // action->block. Same-block deps keep the classic action->action routing.
-  let topOf = null, topEl = null;
-  if (state.showOrch) {
-    topEl = {};
-    root.querySelectorAll("[data-block-top]").forEach(el => topEl[el.dataset.blockTop] = el);
-    topOf = {};
-    (state.model.orchestration || []).forEach(tb => iterBlocks([tb], b => {
-      if (blockConstruct(b) === "ref" && !(b.ref in topOf)) topOf[b.ref] = tb._id;
-    }));
-  }
+  // A dependency may name a logic BLOCK (depend on the whole gate) rather than an
+  // action — depends_on then holds the block's persisted id. Anchor those arrows
+  // to the gate frame, which carries that id as data-block-key.
+  const blockRects = {}, blockLvl = {};
+  root.querySelectorAll("[data-block-key]").forEach(el => {
+    blockRects[el.dataset.blockKey] = el.getBoundingClientRect();
+    const row = el.closest(".orch-row");
+    if (row) blockLvl[el.dataset.blockKey] = Number(row.dataset.level);
+  });
+  const levelOf = (id) => (lvl[id] !== undefined ? lvl[id] : blockLvl[id]);
   const links = [];
   for (const p of state.model.phases || []) for (const dep of p.depends_on || []) {
-    if (!(rects[dep] && rects[p.id])) continue;
-    let aRect = rects[dep], bRect = rects[p.id];
-    if (topOf && topOf[dep] !== topOf[p.id]) {
-      const gate = topEl[topOf[p.id]];
-      if (gate) bRect = gate.getBoundingClientRect();
-    }
-    links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8", aRect, bRect });
+    const aRect = rects[dep] || blockRects[dep];
+    if (!(aRect && rects[p.id])) continue;
+    links.push({ from: dep, to: p.id, color: colors[p.group] || "#38bdf8", aRect, bRect: rects[p.id] });
   }
   const direct = [], far = [], same = [];
   for (const l of links) {
-    const cls = classifyLinkSpan(lvl[l.from], lvl[l.to]);
+    const cls = classifyLinkSpan(levelOf(l.from), lvl[l.to]);
     (cls === "same" ? same : cls === "far" ? far : direct).push({ a: l.aRect, b: l.bRect, color: l.color });
   }
   const seg = (d, arrow, c) => '<path d="' + d + '" stroke="' + c + '" stroke-width="1.8" opacity="0.62"/>' +

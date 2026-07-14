@@ -194,9 +194,17 @@ function gateFrame(ctx, b, colors, oppPhases, sigKeys, depth) {
   const kind = blockConstruct(b), loop = isLoopBlock(b);
   const gate = document.createElement("div");
   gate.className = "gate" + (loop ? " loop" : "");
-  gate.dataset.blockId = b._id;
+  gate.dataset.blockId = b._id;                 // transient handle (selection/drag)
+  if (b.id) gate.dataset.blockKey = b.id;       // persisted id — what depends_on points at
   gate.draggable = true;
-  gate.addEventListener("dragstart", e => { e.stopPropagation(); try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {} });
+  // body.dragging is what expands the grid drop zones from 4px to a hittable
+  // band — without it a gate/ref can be picked up but has nowhere to land.
+  gate.addEventListener("dragstart", e => {
+    e.stopPropagation();
+    try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {}
+    document.body.classList.add("dragging");
+  });
+  gate.addEventListener("dragend", () => document.body.classList.remove("dragging"));
   if (ctx.state.selectedGate === b._id) gate.classList.add("selected");
 
   const head = document.createElement("div"); head.className = "gate-head";
@@ -206,6 +214,12 @@ function gateFrame(ctx, b, colors, oppPhases, sigKeys, depth) {
   head.appendChild(icon);
   const kw = document.createElement("span"); kw.className = "gate-kw"; kw.textContent = kind.replace("_", " ");
   head.appendChild(kw);
+  // The block id — what tells two identical conditions apart, and what a phase's
+  // depends_on points at. Always shown so the graph and the Wiring list agree.
+  if (b.id) {
+    const bid = document.createElement("span"); bid.className = "gate-id"; bid.textContent = b.id;
+    head.appendChild(bid);
+  }
   if (kind === "for_each") head.appendChild(forEachHeaderEl(b, sigKeys));
   else head.appendChild(condEl(condOf(b), sigKeys));
   if (loop) {
@@ -257,7 +271,14 @@ function refCardEl(ctx, b, colors, oppPhases) {
   if (!p) { const miss = document.createElement("div"); miss.className = "help-note"; miss.textContent = "Unknown ref: " + b.ref; return miss; }
   const card = makeCard(p, colors[p.group], (oppPhases[p.id] || {}).mark);
   card.draggable = true;
-  card.addEventListener("dragstart", e => { e.stopPropagation(); try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {} });
+  // body.dragging expands the grid drop zones so this card can be pulled OUT of
+  // its gate onto the graph (ungate); without it there is nowhere to drop.
+  card.addEventListener("dragstart", e => {
+    e.stopPropagation();
+    try { e.dataTransfer.setData("text/refid", b._id); } catch (_) {}
+    state.dragId = p.id; document.body.classList.add("dragging");
+  });
+  card.addEventListener("dragend", () => { state.dragId = null; document.body.classList.remove("dragging"); });
   card.addEventListener("click", e => { e.stopPropagation(); ctx.selectPhase(p.id, b._id); });
   if (p.id === state.selected) card.classList.add("selected");
   return card;

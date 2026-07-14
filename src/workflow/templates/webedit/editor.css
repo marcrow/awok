@@ -577,6 +577,9 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .gate-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 13px;border-bottom:1px solid rgba(167,139,250,0.22)}
 .gate.loop .gate-head{border-bottom-style:dashed}
 .gate-kw{font:11px/1 var(--mono);font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--violet-2)}
+/* the block's persisted id — disambiguates two identical conditions */
+.gate-id{font:10px/1 var(--mono);font-weight:700;color:var(--violet-2);background:var(--violet-soft);
+  border:1px solid rgba(167,139,250,0.4);border-radius:5px;padding:3px 7px;letter-spacing:.04em}
 .gate-icon-if{width:16px;height:16px;background:var(--violet);transform:rotate(45deg);border-radius:3px}
 .gate-icon-loop{width:19px;height:19px;border-radius:50%;border:2px solid var(--violet);color:var(--violet-2);
   display:inline-flex;align-items:center;justify-content:center;font-size:11px}
