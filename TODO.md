@@ -63,6 +63,13 @@
   best-effort overuse, flag escaped logic (escape-hatch), and check signal↔condition seams +
   the mandatory `cap`. It should also verify if action in a condition cause an issue for dependancies 
   if the condition is not triggered.
+  **Signal-emitter contract check (from the signals-on-action brainstorm, 2026-07-14):** awok
+  cannot execute a script, so it cannot prove a signal is actually produced. The doctor should
+  warn when a declared signal's emitter is unverifiable: for `source: field`, that the emitting
+  action's `<role>` output really is a produced json in the dataflow (and ideally that the field
+  is plausibly written); for `source: exit_code`, that the action is a `script`; for
+  `source: token`, that the emitting action's prose actually instructs the emission. Goal: catch
+  "signal declared but never produced" before runtime.
   Ref: plan § "Suivis hors de ce plan" item 3.
 
 - [ ] **B5 — edit-workflow: orchestration-aware.** Reason about orchestration seams when editing
@@ -86,6 +93,16 @@
   tab won't draw the producer→consumer edge. To add: teach `build_dataflow_graph` about loop
   outputs (+ optionally an explicit `collect` construct, spec §6 reserve). Stopgap until then:
   mark the downstream input `external: true`.
+
+- [ ] **B8 — Emit a signal directly from a file (incl. external files).** (Deferred from the
+  signals-on-action brainstorm, 2026-07-14.) Today a signal is emitted by an *action* (agent /
+  script / main_agent). Some useful values live in **files outside the project** (external
+  inputs) or in the output of a `workflow_call` — neither of which is a signal-emitting action.
+  Idea: allow a signal whose source is a **file + field** directly, so `external` and
+  `workflow_call` results become readable as signals. Adds complexity (typing, existence checks,
+  who reads it) → **later**. **Stopgap (works today):** insert a tiny `script` or `main_agent`
+  action that reads the file and re-emits the value as a normal signal — so this is a convenience,
+  not a blocker.
 
 > Note: B3/B4/B5 = the 3 meta-workflows **untouched** by the orchestration work (their SKILL.md
 > are byte-identical, `awok check` green) — they work but are not orchestration-aware.
