@@ -37,3 +37,34 @@ def test_collect_signals_from_emits(bbw_module):
 def test_collect_signals_empty_when_no_emits(bbw_module):
     wf = {"phases": [{"id": "T1", "name": "a", "group": "g"}]}
     assert bbw_module.collect_signals(wf) == {}
+
+
+def test_emitter_field_resolves_to_role_producer(bbw_module):
+    model = _wf([
+        {"id": "SRC", "name": "s", "group": "g",
+         "invocations": [{"agent": "a1", "outputs": [{"role": "work:data", "kind": "json"}]}],
+         "emits": [{"name": "n", "type": "number", "source": "field", "from": "work:data.n"}]},
+    ])
+    model["namespaces"] = {"work": "work/w"}
+    ph = model["phases"][0]
+    em = bbw_module.resolve_signal_emitter(model, ph, ph["emits"][0])
+    assert em["kind"] == "invocation" and em["agent"] == "a1"
+
+
+def test_emitter_token_single_agent_is_that_agent(bbw_module):
+    model = _wf([
+        {"id": "P", "name": "p", "group": "g",
+         "invocations": [{"agent": "a1"}],
+         "emits": [{"name": "s", "type": "string", "source": "token"}]},
+    ])
+    ph = model["phases"][0]
+    em = bbw_module.resolve_signal_emitter(model, ph, ph["emits"][0])
+    assert em["kind"] == "invocation" and em["agent"] == "a1"
+
+
+def test_emitter_script_is_phase_level(bbw_module):
+    model = _wf([{"id": "S", "name": "s", "group": "g", "type": "script",
+                  "emits": [{"name": "f", "type": "bool", "source": "exit_code"}]}])
+    ph = model["phases"][0]
+    em = bbw_module.resolve_signal_emitter(model, ph, ph["emits"][0])
+    assert em["kind"] == "phase" and em["nature"] == "script"

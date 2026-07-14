@@ -757,6 +757,50 @@ def collect_signals(workflow: dict) -> dict:
     return signals
 
 
+def _role_path(workflow, io_ref):
+    """Concrete path an io_ref (role or path) resolves to (mirrors resolve_io_path)."""
+    if io_ref.get("path"):
+        return io_ref["path"]
+    return resolve_io_path(io_ref, workflow.get("namespaces", {}))
+
+
+def resolve_signal_emitter(workflow: dict, phase: dict, emit: dict) -> dict:
+    """Which producer emits this signal.
+
+    - source=field: the invocation/producer of the `from` role (via dataflow).
+    - source=token/exit_code: the action itself — the single invocation, the
+      `by`-named invocation, or the phase (script/main_agent).
+    Returns {"kind": "invocation", "agent": ...} | {"kind": "phase", "nature": ...}
+    | {"kind": "unresolved", "reason": ...}."""
+    nature = phase.get("type", "agent")
+    invs = phase.get("invocations", []) or []
+    src = emit.get("source")
+
+    if src == "field":
+        role = (emit.get("from") or "").split(".")[0]
+        if not role:
+            return {"kind": "unresolved", "reason": "field signal has no from-role"}
+        # find the invocation of THIS phase whose outputs produce that role
+        for inv in invs:
+            for out in inv.get("outputs", []) or []:
+                if (out.get("role", "").split(".")[0] == role):
+                    return {"kind": "invocation", "agent": inv["agent"]}
+        for out in phase.get("outputs", []) or []:
+            if out.get("role", "").split(".")[0] == role:
+                return {"kind": "phase", "nature": nature}
+        return {"kind": "unresolved", "reason": f"role {role!r} not produced by this action"}
+
+    # token / exit_code
+    if nature in ("script", "main_agent"):
+        return {"kind": "phase", "nature": nature}
+    if len(invs) == 1:
+        return {"kind": "invocation", "agent": invs[0]["agent"]}
+    by = emit.get("by")
+    if by and any(i.get("agent") == by for i in invs):
+        return {"kind": "invocation", "agent": by}
+    return {"kind": "unresolved", "reason": "multi-agent token needs `by`"}
+
+
 _NUMERIC_OPS = {"<", ">", "<=", ">="}
 _SIGNAL_PREFIX_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
