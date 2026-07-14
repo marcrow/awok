@@ -93,8 +93,9 @@
             "properties": {
               "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
               "type": { "enum": ["number", "string", "bool", "enum", "list"] },
-              "source": { "enum": ["field", "token"] },
-              "from": { "type": "string", "description": "For source=field: 'role' or 'role.field' of an existing json output." }
+              "source": { "enum": ["field", "token", "exit_code"] },
+              "from": { "type": "string", "description": "For source=field: 'role' or 'role.field' of an existing json output." },
+              "by": { "type": "string", "description": "For source token/exit_code on a multi-agent block: the agent whose output carries the signal. Omit for single-producer actions and for source=field." }
             }
           }
         }
