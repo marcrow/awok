@@ -118,7 +118,7 @@ phases:
     name: Architecture synthesis
     group: synthesize
     type: agent
-    depends_on: [O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS]
+    depends_on: [O1-STRUCTURE, O3-FLOW, OG-GITSTATS]
     opportunistic: false
     invocations:
       - agent: architecture-writer

@@ -645,7 +645,7 @@ def test_render_orchestration_for_each_and_if(bbw_module):
         ],
     }
     md = bbw_module.render_orchestration(wf)
-    assert "Orchestration program" in md
+    assert "## Execution protocol" in md
     assert "For each" in md and "recon.endpoints" in md and "ep" in md
     assert "EXPLOIT" in md and "scan.status" in md
 

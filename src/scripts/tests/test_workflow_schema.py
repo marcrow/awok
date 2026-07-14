@@ -108,14 +108,3 @@ def test_orchestration_schema_accepts_for_each(bbw_module):
     assert bbw_module.validate_schema(wf) == []
 
 
-def test_orchestration_schema_accepts_parallel(bbw_module):
-    wf = {
-        "schema_version": 1,
-        "skill": {"name": "w", "description": "x"},
-        "groups": {"g": {"description": "x"}},
-        "phases": [{"id": "T1", "name": "a", "group": "g"}],
-        "orchestration": [
-            {"parallel": [{"ref": "T1"}, {"ref": "T1"}]},
-        ],
-    }
-    assert bbw_module.validate_schema(wf) == []

@@ -68,20 +68,20 @@ signal the planned agents do not cover.
 
 ---
 
-## Orchestration program
+## Execution protocol
 
-Run the pipeline actions **in this order and control flow** — this program drives the DAG below. Evaluate each condition from the **signals** the actions emit; read only the named signal, never reload a whole artifact.
+Drive the pipeline by data dependency, not by list order. Track each action as pending / running / done.
 
-- **In parallel** (launch all in one message):
-  - Run action **O0-INVENTORY**.
-  - Run action **OG-GITSTATS**.
-- **In parallel** (launch all in one message):
-  - Run action **O1-STRUCTURE**.
-  - Run action **O3-FLOW**.
-  - **If** `o0-inventory.has_manifest` == `true`:
-    - Run action **O2-DEPS**.
-- Run action **O4-ARCHITECTURE**.
-- Run action **O5-GETTING-STARTED**.
+1. An action is **ready** when every action in its `depends_on` is **done**.
+2. Launch **all currently ready actions together, in one message** — that is where parallelism comes from; there is no explicit parallel construct.
+3. When a launched batch returns, mark **every** action in that batch **done** *before* recomputing readiness. Never react to one completion at a time: if two finish together you must see both as done, or you will skip an action whose two dependencies just completed, or stall the run.
+4. Then re-examine only the **dependents** of the just-finished actions and launch any that became ready. Repeat until nothing is left.
+5. **Branches / loops** below gate *which* actions enter the ready set:
+
+### Control flow
+
+- **If** `o0-inventory.has_manifest` == `true`:
+  - Action **O2-DEPS** participates (in its depends_on position).
 
 **Signals** (how to read each condition operand):
 
@@ -180,7 +180,7 @@ mkdir -p work/onboard
 
 
 ### O4-ARCHITECTURE — Architecture synthesis
-> `synthesize` · agent · ⇐ O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS
+> `synthesize` · agent · ⇐ O1-STRUCTURE, O3-FLOW, OG-GITSTATS
 
 > ⛔ **No opportunistic autonomy here.** If the need is compelling, ask the user.
 

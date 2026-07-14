@@ -53,7 +53,7 @@ Level 3: O5-GETTING-STARTED
 ### O4-ARCHITECTURE — Architecture synthesis
 
 - Group: `synthesize`
-- Type: `agent`- Depends on: O1-STRUCTURE, O2-DEPS, O3-FLOW, OG-GITSTATS- Invocations:
+- Type: `agent`- Depends on: O1-STRUCTURE, O3-FLOW, OG-GITSTATS- Invocations:
   - `architecture-writer` (opus)
 - ⛔ Opportunism locked
 
