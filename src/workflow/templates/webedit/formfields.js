@@ -155,9 +155,9 @@ export function stringListEditor(label, items, onChange){
 }
 
 // Signal (`emits`) editor — declares signals on the PRODUCING action (Wiring
-// tab). Self-contained: its own type/source lists, independent of the
-// (soon-to-be-removed, see Task 9) EMIT_TYPES/EMIT_SOURCES in orchestration.js
-// which back the older condition-side "declare a new signal" popover.
+// tab). Self-contained: its own type/source lists (the older condition-side
+// "declare a new signal" popover in orchestration.js, and the constants that
+// backed it, were removed in Task 9 — declaration lives here only).
 const SIGNAL_TYPES = ["number","string","bool","enum","list"];
 // Allowed `source` values per action nature (phase.type). A phase with no
 // `type` defaults to the "agent" nature (mirrors the generator/schema

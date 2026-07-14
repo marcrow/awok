@@ -7,7 +7,6 @@
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
 import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues } from "./editlogic.js";
-import { fieldText, fieldSelect } from "./formfields.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
@@ -553,15 +552,10 @@ function operandKind(block, side, sigKeys) {
   return block[key];
 }
 
-// Allowed emit `type`/`source` values — mirrors the `emits` item schema in
-// workflow.schema.json (definitions.phase.properties.emits.items). Keep in
-// sync if the schema enum ever changes.
-const EMIT_TYPES = ["number", "string", "bool", "enum", "list"];
-const EMIT_SOURCES = ["field", "token"];
-
-// --- signal picker popover (grouped by emitting phase) + "declare a new
-// signal" inline form. One popover instance at a time, closed on outside
-// click / Escape — same idiom as openGateMenu above.
+// --- signal picker popover (grouped by emitting phase). Selection-only —
+// declaration lives on the producing action's Wiring → Signals (Task 7). One
+// popover instance at a time, closed on outside click / Escape — same idiom
+// as openGateMenu above.
 let _sigPopEl = null;
 function closeSigPopover() {
   if (_sigPopEl) { _sigPopEl.remove(); _sigPopEl = null; }
@@ -585,16 +579,19 @@ function renderSignalList(pop, ctx, block, side) {
   const phaseIds = Object.keys(groups);
   if (!phaseIds.length) {
     const empty = document.createElement("div"); empty.className = "sig-pop-empty";
-    empty.textContent = "No signals declared yet.";
+    empty.textContent = "No signals declared. Declare one in the producing action's Wiring → Signals.";
     pop.appendChild(empty);
   }
   phaseIds.forEach(phaseId => {
-    const head = document.createElement("div"); head.className = "sig-pop-group"; head.textContent = phaseId;
+    const s0 = groups[phaseId][0];
+    const head = document.createElement("div"); head.className = "sig-pop-group";
+    head.textContent = (s0.phaseName && s0.phaseName !== phaseId)
+      ? `${s0.phaseName} (${phaseId})` : phaseId;      // emitter: human name + id
     pop.appendChild(head);
     groups[phaseId].forEach(s => {
       const item = document.createElement("button"); item.type = "button"; item.className = "sig-pop-item";
       if (cond && cond[side] === s.key) item.classList.add("active");
-      item.textContent = s.name + " · " + s.type;
+      item.textContent = `${s.name} · ${s.type}` + (s.source ? ` · ${s.source}` : "");  // + how it's produced
       item.addEventListener("click", e => {
         e.stopPropagation();
         setOperand(block, side, s.key);
@@ -604,59 +601,7 @@ function renderSignalList(pop, ctx, block, side) {
       pop.appendChild(item);
     });
   });
-  const sep = document.createElement("div"); sep.className = "sig-pop-sep"; pop.appendChild(sep);
-  const declareBtn = document.createElement("button"); declareBtn.type = "button";
-  declareBtn.className = "sig-pop-declare"; declareBtn.textContent = "＋ Declare a new signal";
-  declareBtn.addEventListener("click", e => { e.stopPropagation(); renderDeclareForm(pop, ctx, block, side); });
-  pop.appendChild(declareBtn);
-}
-
-// "Declare a new signal" inline form (phase / name / type / source / from).
-function renderDeclareForm(pop, ctx, block, side) {
-  pop.replaceChildren();
-  const phaseIds = ((ctx.state.model.phases) || []).map(p => p.id);
-  const form = { phaseId: phaseIds[0] || "", name: "", type: EMIT_TYPES[0], source: EMIT_SOURCES[0], from: "" };
-
-  const title = document.createElement("div"); title.className = "sig-pop-group"; title.textContent = "Declare a new signal";
-  pop.appendChild(title);
-
-  pop.appendChild(fieldSelect("phase", form.phaseId, phaseIds, v => { form.phaseId = v; }));
-  pop.appendChild(fieldText("name", form.name, v => { form.name = v.trim(); }));
-  pop.appendChild(fieldSelect("type", form.type, EMIT_TYPES, v => { form.type = v; }));
-  pop.appendChild(fieldSelect("source", form.source, EMIT_SOURCES, v => { form.source = v; fromRow.style.display = v === "field" ? "" : "none"; }));
-  const fromRow = fieldText("from", form.from, v => { form.from = v.trim(); });
-  fromRow.style.display = form.source === "field" ? "" : "none";
-  pop.appendChild(fromRow);
-
-  const actions = document.createElement("div"); actions.className = "sig-pop-actions";
-  const back = document.createElement("button"); back.type = "button"; back.className = "sig-pop-back";
-  back.textContent = "‹ back";
-  back.addEventListener("click", e => { e.stopPropagation(); renderSignalList(pop, ctx, block, side); });
-  actions.appendChild(back);
-  const submit = document.createElement("button"); submit.type = "button"; submit.className = "sig-pop-submit";
-  submit.textContent = "Declare";
-  submit.addEventListener("click", e => { e.stopPropagation(); submitDeclare(ctx, block, side, form); });
-  actions.appendChild(submit);
-  pop.appendChild(actions);
-}
-
-// Validates the name, pushes a schema-shaped emits entry onto the target
-// phase, wires the operand to the new signal's key, then refreshes the
-// server-side view and rebuilds the whole gate panel (ctx.reselectGate) so
-// the freshly-declared signal shows up selected in the picker.
-function submitDeclare(ctx, block, side, form) {
-  if (!/^[a-z][a-z0-9_]*$/.test(form.name)) { ctx.setStatus("signal name must match ^[a-z][a-z0-9_]*$"); return; }
-  const ph = (ctx.state.model.phases || []).find(p => p.id === form.phaseId);
-  if (!ph) { ctx.setStatus("pick a phase to declare the signal on"); return; }
-  ph.emits = ph.emits || [];
-  ph.emits.push({
-    name: form.name, type: form.type, source: form.source,
-    ...(form.source === "field" ? { from: form.from || "output.json" } : {}),
-  });
-  const key = form.phaseId.toLowerCase() + "." + form.name;
-  setOperand(block, side, key);       // wire it straight into the condition
-  closeSigPopover();
-  ctx.refreshView().then(ctx.reselectGate);
+  // NO "＋ Declare a new signal" — declaration lives on the producing action's Wiring.
 }
 
 function openSignalPicker(ctx, block, side, buttonEl) {
