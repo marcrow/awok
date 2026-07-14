@@ -829,6 +829,40 @@ def _validate_dependencies(workflow):
                     f"visible from its scope — a dependency may only target the same "
                     f"scope, an ancestor scope, or a sibling block, never reach into "
                     f"another block (depend on the whole block instead)")
+
+    # Cycle check over an augmented graph: phases + block ids. A block id
+    # depends on every phase referenced inside it (a block is "done" only once
+    # its inner actions are). Reuse _detect_cycle — note it takes a *list* of
+    # {"id", "depends_on"} dicts (not a {node: set(deps)} graph), so the
+    # augmented graph is built in that shape rather than the dict shape the
+    # brief sketch assumed.
+    def _inner_refs(blocks):
+        out = set()
+        for b in blocks or []:
+            if "ref" in b:
+                out.add(b["ref"])
+            for key in ("then", "else", "body"):
+                out |= _inner_refs(b.get(key))
+        return out
+
+    nodes = {}
+    for p in workflow.get("phases", []):
+        nodes[p["id"]] = set(p.get("depends_on", []) or [])
+    for b in _iter_blocks(orch):
+        bid = b.get("id")
+        if bid:
+            nodes.setdefault(bid, set()).update(
+                _inner_refs(b.get("then")) | _inner_refs(b.get("else")) | _inner_refs(b.get("body")))
+    # ensure every referenced node exists as a key
+    for deps in list(nodes.values()):
+        for d in deps:
+            nodes.setdefault(d, set())
+
+    augmented_phases = [{"id": nid, "depends_on": list(deps)} for nid, deps in nodes.items()]
+    cycle = _detect_cycle(augmented_phases)
+    if cycle:
+        errors.append(f"orchestration: dependency cycle through a block — {cycle}")
+
     return errors
 
 

@@ -260,3 +260,17 @@ def test_phase_referenced_twice_is_error(bbw_module):
     }
     errs = bbw_module.validate_orchestration(wf)
     assert any("'A'" in e and "referenced more than once" in e for e in errs)
+
+
+def test_block_completion_cycle_detected(bbw_module):
+    # A is inside block G; Z depends on G; A depends on Z -> cycle through G-completion
+    wf = {
+        "phases": [{"id": "S"}, {"id": "A", "depends_on": ["Z"]},
+                   {"id": "Z", "depends_on": ["G"]}],
+        "orchestration": [
+            {"id": "G", "if": {"op": "exists", "left": "s.x"}, "then": [{"ref": "A"}]},
+            {"ref": "Z"},
+        ],
+    }
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("cycle" in e.lower() for e in errs)
