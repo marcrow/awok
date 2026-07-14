@@ -613,7 +613,11 @@ select:disabled{opacity:.42;cursor:not-allowed}
    .gate-body/.lane). A row's cards center against a tall gate frame. */
 .orch-dag{position:relative;display:flex;flex-direction:column;gap:18px}
 .orch-cards{display:flex;flex-wrap:wrap;gap:12px;flex:1 1 auto;min-width:0;align-items:center}
-.orch-cards>.gate{align-self:center;flex:1 1 300px;min-width:260px}
+/* A gate carries two lanes (then/else) side by side, so it needs the width of
+   ~two cards. Give it its OWN full-width line inside its level band: the plain
+   cards flow above it, the gate sits below them, and its lanes get real room.
+   Several gates on one level simply stack. */
+.orch-cards>.gate{align-self:stretch;flex:1 1 100%;min-width:0}
 /* the card's flex-basis is a WIDTH in the row; inside a column lane/gate-body it
    would become a spurious height — reset it so a framed card hugs its content */
 .orch-cards .gate .phase-card{flex:1 1 auto}
