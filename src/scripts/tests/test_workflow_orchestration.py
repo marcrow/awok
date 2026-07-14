@@ -320,3 +320,19 @@ def test_loop_output_valid_namespace(bbw_module):
     }
     errs = bbw_module.validate_orchestration(wf)
     assert not any("output" in e for e in errs)
+
+
+def test_overlay_carries_block_id_and_loop_output(bbw_module):
+    wf = {
+        "namespaces": {"work": "work/x"},
+        "phases": [{"id": "SRC", "emits": [{"name": "items", "type": "list",
+                    "source": "field", "from": "src.json"}]}, {"id": "BODY"}],
+        "orchestration": [
+            {"id": "LOOP1", "for_each": "src.items", "as": "it", "cap": 5,
+             "output": {"role": "work:results", "kind": "dir"},
+             "body": [{"ref": "BODY"}]},
+        ],
+    }
+    ov = bbw_module.build_orchestration_overlay(wf)
+    assert ov["loops"][0]["id"] == "LOOP1"
+    assert ov["loops"][0]["output"] == "work:results"

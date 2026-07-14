@@ -1798,6 +1798,7 @@ def build_orchestration_overlay(workflow: dict) -> dict:
     for b in _iter_blocks(workflow.get("orchestration", [])):
         if "if" in b:
             overlay["branches"].append({
+                "id": b.get("id"),
                 "cond": _render_condition(b["if"]),
                 "then_ids": _collect_ref_ids(b.get("then")),
                 "else_ids": _collect_ref_ids(b.get("else")),
@@ -1806,9 +1807,11 @@ def build_orchestration_overlay(workflow: dict) -> dict:
             label = (b.get("for_each") and f"for each {b['for_each']}") or \
                     _render_condition(b.get("while") or b.get("until"))
             overlay["loops"].append({
+                "id": b.get("id"),
                 "label": label,
                 "cap": b.get("cap"),
                 "body_ids": _collect_ref_ids(b.get("body")),
+                "output": (b.get("output") or {}).get("role"),
             })
     return overlay
 
