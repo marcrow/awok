@@ -109,8 +109,9 @@ into the **content-phase** rendering of the SKILL.md (never the shared agent fil
     (`<value-spec>` is `<true|false>` for bool, the enum set for enum, etc.)
   - `field`: "Your `<role>` json output must contain a field `<name>` of type `<type>`."
 - **`script`** → an **orchestrator-facing** instruction in the script's action section:
-  "Run this script; the signal `<name>` is its exit code (`0` ⇒ `true`) / its stdout
-  `SIGNALS <name>=…` line / the field `<role>.<name>` of its json output."
+  "Run this script; the signal `<name>` is its exit code (as a `bool`, `0` ⇒ `true`; or,
+  when typed `number`, the raw integer exit code) / its stdout `SIGNALS <name>=…` line /
+  the field `<role>.<name>` of its json output."
 - **`main_agent`** → an instruction **to the orchestrator** in that action's section:
   "Produce signal `<name>` (`<type>`) as you perform this step, via …".
 
@@ -150,8 +151,12 @@ on the reading side) stays; this adds the symmetric **producing** side.
 
 ## 4. Validation rules (blocking, in `validate` / schema / coherence)
 
-1. **`source: exit_code` ⇒ action nature is `script` AND `type: bool`** (mapping
-   `exit 0 = true`). exit_code makes no sense on a non-script or a non-bool signal.
+1. **`source: exit_code` ⇒ action nature is `script` AND `type ∈ {bool, number}`.**
+   `bool` maps `exit 0 = true` (success/failure shorthand); `number` carries the raw
+   integer exit code, for commands whose man page documents several codes (e.g. `grep`
+   `0` match / `1` no match / `2` error). exit_code makes no sense on a non-script action
+   or on a string/enum/list signal. *(Amended 2026-07-15: originally `bool` only; relaxed
+   to allow `number` so a documented multi-valued exit code isn't flattened to a boolean.)*
 2. **`type: list` ⇒ `source: field`** (a json array field). A `list` over token/exit_code is
    impractical — forbid it.
 3. **`source: field` ⇒ the `from` role is produced by this action** (checked via the
