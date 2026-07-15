@@ -1184,6 +1184,10 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
     errors = []
     known_agents = _all_agent_names(agents_dir)
     known_phase_ids = {p["id"] for p in workflow.get("phases", [])}
+    # A depends_on may name a logic block; it means "after all the block's
+    # member phases" (spec §3 — depend on the whole block, never reach inside).
+    # Block-target scope/visibility is enforced separately in validate_orchestration.
+    known_block_ids = set(_block_members(workflow))
     known_groups = set(workflow.get("groups", {}).keys())
     known_conditions = set(workflow.get("conditions", {}).keys())
     known_workflows = (
@@ -1200,10 +1204,10 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
         if phase["group"] not in known_groups:
             errors.append(f"phase '{pid}' references unknown group '{phase['group']}'")
 
-        # depends_on must reference existing phases
+        # depends_on must reference an existing phase or logic-block id
         for dep in phase.get("depends_on", []):
-            if dep not in known_phase_ids:
-                errors.append(f"phase '{pid}' depends_on references unknown phase '{dep}'")
+            if dep not in known_phase_ids and dep not in known_block_ids:
+                errors.append(f"phase '{pid}' depends_on references unknown phase or block '{dep}'")
 
         # parallel_with similarly
         for par in phase.get("parallel_with", []):
@@ -1291,14 +1295,29 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
 class WorkflowDAG:
     """Represents the DAG of phases with execution order and data flow."""
 
-    def __init__(self, phases: list):
+    def __init__(self, phases: list, block_members: dict = None):
         self.phases = {p["id"]: p for p in phases}
+        # block id -> set(member phase ids); a depends_on naming a block means
+        # "after all its member phases" (spec §3). Empty => pure DAG.
+        self.block_members = block_members or {}
         self._build_edges()
+
+    def _resolve_deps(self, deps):
+        """Expand each dep to real phase ids: a phase id stays; a logic-block id
+        becomes its member phases. Keeps only known phases so downstream indexing
+        (children/indeg) never hits a KeyError on a block id."""
+        out = set()
+        for d in deps or []:
+            for r in self.block_members.get(d, {d}):
+                if r in self.phases:
+                    out.add(r)
+        return out
 
     def _build_edges(self):
         """Build control-flow edges (depends_on) and data-flow edges (inputs/outputs)."""
-        # Control edges: child -> set(parents)
-        self.parents = {pid: set(p.get("depends_on", [])) for pid, p in self.phases.items()}
+        # Control edges: child -> set(parents), with block-id deps resolved to members
+        self.parents = {pid: self._resolve_deps(p.get("depends_on", []))
+                        for pid, p in self.phases.items()}
 
         # parallel_with is symmetric; treated as no order constraint between them
         self.parallel_with = {pid: set(p.get("parallel_with", [])) for pid, p in self.phases.items()}
@@ -1382,7 +1401,7 @@ class WorkflowDAG:
 def build_dag(workflow: dict) -> WorkflowDAG:
     """Construct DAG from workflow dict."""
     workflow = resolve_io_paths(workflow)
-    return WorkflowDAG(workflow.get("phases", []))
+    return WorkflowDAG(workflow.get("phases", []), _block_members(workflow))
 
 
 def _paths_match(a: str, b: str) -> bool:

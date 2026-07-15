@@ -196,6 +196,29 @@ def test_discover_workflows_excludes_orchestration_sibling(bbw_module, tmp_path)
     assert "w.orchestration" not in names
 
 
+def test_depends_on_block_id_accepted_by_coherence(bbw_module):
+    """A phase may depend on a logic-block id; coherence resolves it to the
+    block's members instead of rejecting it as an unknown phase (spec §3:
+    depend on the whole block, not an action reaching inside it)."""
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "w", "description": "x"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [
+            {"id": "A", "name": "a", "group": "g",
+             "emits": [{"name": "flag", "type": "bool", "source": "token"}]},
+            {"id": "B", "name": "b", "group": "g"},
+            {"id": "Z", "name": "z", "group": "g", "depends_on": ["GATE"]},
+        ],
+        "orchestration": [
+            {"id": "GATE", "if": {"op": "==", "left": "a.flag", "right": True},
+             "then": [{"ref": "A"}], "else": [{"ref": "B"}]},
+        ],
+    }
+    errs = bbw_module.validate_coherence(wf)
+    assert not any("GATE" in e for e in errs), errs
+
+
 def test_render_condition_renders_bool_literal_lowercase(bbw_module):
     """A YAML `true`/`false` operand loads as a Python bool; render it
     YAML/JS-style, not as Python's capitalized `True`/`False`."""
