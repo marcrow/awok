@@ -118,6 +118,45 @@ clé. Deux garde-fous (warn + rien injecté) :
 Modifiable par invocation dans l'éditeur web (liste déroulante à côté du modèle) et sur les
 agents on-demand — le YAML/UI reste la source de vérité ; seul `deploy` écrit le frontmatter.
 
+### `tools:` par invocation — matérialisé au frontmatter au `deploy`
+
+Exactement calqué sur `effort`. Une invocation (ou un agent on-demand) peut épingler une
+**liste `tools`** dans le YAML ; `awok deploy` l'**inscrit** dans le frontmatter de l'agent
+*déployé* (`~/.claude/agents/<nom>.md`), car le `Task` tool n'a **pas** d'argument `tools`
+non plus — le frontmatter est le seul canal. Différence avec effort : le frontmatter
+**source** de l'agent a déjà un `tools:` (l'identité de l'agent) ; le pin par-invocation le
+**surcharge** au deploy. **Absent/vide** → les `tools` de la frontmatter source sont conservés
+tels quels (copie verbatim).
+
+Résolution (politique « un frontmatter partagé par agent », comme effort) :
+- **Un seul set** distinct (insensible à l'ordre) pour un agent → injecté.
+- **Conflit** — ≥2 sets distincts pour un même agent partagé entre workflows ne tiennent pas
+  dans un frontmatter unique → warning au `deploy`, **rien injecté** : les `tools` source
+  survivent (fail-safe, plutôt que casser un workflow avec le narrowing d'un autre).
+
+> ⚠️ **C'est global.** Comme effort, la matérialisation vise **un** fichier agent partagé par
+> tous les workflows. Épingler `inv.tools` sur un agent utilisé par plusieurs workflows
+> (fréquent quand ils composent par `workflow_call`) peut donc soit être abandonné (conflit),
+> soit — s'il est le seul à pinner — s'appliquer à cet agent **partout**. `awok check` ne le
+> voit pas (il ne compare que les SKILL.md) ; le signal est le warning du `deploy`.
+
+Modifiable par invocation dans l'éditeur web (champ `tools` à côté de model/effort dans
+l'onglet actions) et sur les agents on-demand — le YAML/UI reste la source de vérité.
+
+### `$AWOK_DEFAULT_TOOLS` — seed d'outils au scaffold d'un agent
+
+Confort de scaffolding : quand `create_agent` crée un agent **sans** `tools` explicite, il
+initialise le frontmatter `tools:` depuis la variable d'env `$AWOK_DEFAULT_TOOLS` (liste
+séparée par des virgules) au lieu de le laisser vide. La **source de vérité reste le
+frontmatter de l'agent** (les outils sont l'identité de l'agent, stable d'un workflow à
+l'autre) : un agent spécifique peut ensuite **réduire** le set dans son propre frontmatter —
+un agent en lecture seule garde juste `Read, Glob, Grep`. `deploy` copie les `tools` source
+verbatim — sauf si une invocation les surcharge via `inv.tools` (section précédente).
+
+```bash
+export AWOK_DEFAULT_TOOLS="Bash,Read,Edit,Grep,Glob"
+```
+
 ### Patch du moteur ou d'un template — ça touche TOUS les workflows
 
 `bb-workflow` et les templates Jinja (`src/workflow/templates/*.jinja`) sont

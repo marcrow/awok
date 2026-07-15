@@ -906,6 +906,20 @@ function invocationCard(p, inv, idx) {
   } else {
     effort.title = effortTip; top.appendChild(effort);
   }
+  // Per-invocation tool allow-list — materialized into the sub-agent's frontmatter at
+  // `awok deploy` (like effort; the Task tool has no tools arg). Empty → the agent's own
+  // source frontmatter tools apply. Comma-separated. A shared agent given conflicting
+  // pins across workflows keeps its source tools (a deploy warning flags it).
+  const tools = document.createElement("input"); tools.className = "inv-tools"; tools.type = "text";
+  tools.placeholder = "tools: inherit";
+  tools.value = Array.isArray(inv.tools) ? inv.tools.join(", ") : "";
+  tools.title = "Per-invocation tools — written into the sub-agent's frontmatter at deploy (overrides the agent's source tools; the Task tool has no tools argument). Empty = the agent's own frontmatter tools apply. Comma-separated, e.g. Read, Grep, Glob.";
+  tools.addEventListener("change", () => {
+    const arr = tools.value.split(",").map(s => s.trim()).filter(Boolean);
+    if (arr.length) inv.tools = arr; else delete inv.tools;
+    refreshView();
+  });
+  top.appendChild(tools);
   const rm = document.createElement("button"); rm.className = "inv-rm"; rm.textContent = "×";
   rm.addEventListener("click", () => { p.invocations.splice(idx, 1); if (!p.invocations.length) delete p.invocations; refreshView().then(() => selectPhase(p.id)); });
   top.appendChild(rm); box.appendChild(top);

@@ -342,6 +342,7 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
 .inv-agent{flex:1;min-width:0;color:#7dd3fc;font:12.5px/1.3 var(--mono);font-weight:600}
 .inv-model{flex:0 0 86px;color:var(--muted);font-size:12px}
 .inv-effort{flex:0 0 104px;color:var(--muted);font-size:12px}
+.inv-tools{flex:1 1 120px;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:7px 9px;outline:none;color:var(--muted);font:12px var(--mono)}
 /* Greyed-out disabled selects (the theme's custom colors otherwise hide the
    native disabled look) — used when effort isn't settable on the chosen model. */
 select:disabled{opacity:.42;cursor:not-allowed}

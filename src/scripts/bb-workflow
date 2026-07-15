@@ -630,6 +630,11 @@ def create_agent(name: str, description: str, tools: str, model: str,
     invocations_dir = invocations_dir or DEFAULT_INVOCATIONS_DIR
     if not is_valid_slug(name):
         return [f"invalid agent name: {name!r}"]
+    # Seed an unspecified tool allow-list from the project default ($AWOK_DEFAULT_TOOLS)
+    # so a new agent inherits the baseline instead of being scaffolded tool-less. A
+    # specific agent still overrides by passing its own (narrower) `tools`.
+    if not (tools and str(tools).strip()):
+        tools = os.environ.get("AWOK_DEFAULT_TOOLS", "").strip()
     agent_md = (
         f"---\nname: {name}\ndescription: {description}\n"
         f"tools: {tools}\nmodel: {model}\n---\n\n{prompt}\n"
@@ -695,6 +700,36 @@ def _set_frontmatter_effort(fm_raw: str, effort):
         m_idx = next((i for i, ln in enumerate(lines) if re.match(r"^model\s*:", ln)), None)
         if m_idx is not None:
             lines.insert(m_idx + 1, new_line)
+        else:
+            while lines and lines[-1].strip() == "":
+                lines.pop()
+            lines.append(new_line)
+    return "\n".join(lines)
+
+
+def _set_frontmatter_tools(fm_raw: str, tools):
+    """Idempotently set the top-level `tools:` key in raw agent frontmatter to `tools`
+    (a list, rendered inline comma-separated), preserving everything else verbatim.
+    Replaces an existing `tools:` whether inline (`tools: A, B`) or block-sequence
+    (`tools:` then `  - A` lines). Unlike effort, tools is NEVER removed here: this is
+    only called to APPLY a per-invocation pin; with no pin the deployed agent keeps its
+    source frontmatter tools (copied verbatim by deploy_agents). Inserted before the
+    top-level `model:` line when absent (the create_agent order is name/…/tools/model),
+    else appended."""
+    lines = fm_raw.split("\n")
+    key_re = re.compile(r"^tools\s*:")
+    idx = next((i for i, ln in enumerate(lines) if key_re.match(ln)), None)
+    new_line = "tools: " + ", ".join(tools)
+    if idx is not None:
+        # drop the old key line + any block-sequence / indented continuation lines
+        end = idx + 1
+        while end < len(lines) and lines[end][:1] in (" ", "\t") and lines[end].strip():
+            end += 1
+        lines[idx:end] = [new_line]
+    else:
+        m_idx = next((i for i, ln in enumerate(lines) if re.match(r"^model\s*:", ln)), None)
+        if m_idx is not None:
+            lines.insert(m_idx, new_line)
         else:
             while lines and lines[-1].strip() == "":
                 lines.pop()
@@ -1643,6 +1678,14 @@ def _effort_applies(inv: dict) -> bool:
     return _pinned_tier(inv.get("effort")) and inv.get("model") not in EFFORT_UNSUPPORTED_MODELS
 
 
+def _tools_applies(inv: dict) -> bool:
+    """True when an invocation pins a tool allow-list — a non-empty `tools` list.
+    Like effort, tools is materialized into the agent frontmatter at deploy (the Task
+    tool has no tools arg); absent/empty defers to the agent's source frontmatter."""
+    t = inv.get("tools")
+    return isinstance(t, list) and len(t) > 0
+
+
 def _invocation_run_directive(inv: dict):
     """Build the ⚙️ line for an invocation.
 
@@ -1662,19 +1705,31 @@ def _invocation_run_directive(inv: dict):
     deploy, so claiming it here would be a lie."""
     model_p = _pinned_tier(inv.get("model"))
     effort_p = _effort_applies(inv)
-    if not (model_p or effort_p):
+    tools_p = _tools_applies(inv)
+    if not (model_p or effort_p or tools_p):
         return None
+    # tools, like effort, is not a Task arg — it lives in the frontmatter at deploy. When
+    # absent this clause is empty, so the model / model+effort / effort-only wording stays
+    # byte-identical to the historical output (no SKILL drift for tools-less invocations).
+    tools_clause = (
+        f" Tools `{', '.join(inv['tools'])}` are set in the agent's frontmatter at "
+        f"`deploy` (applied automatically — the `Task` tool has no tools arg)."
+        if tools_p else "")
     if model_p:
         line = (f"> ⚙️ **Run on `{inv['model']}`** — launch via the `Task` tool "
                 f"with `model: {inv['model']}` (not inherited from the session model).")
         if effort_p:
             line += (f" Effort `{inv['effort']}` is set in the agent's frontmatter at "
                      f"`deploy` (applied automatically — the `Task` tool has no effort arg).")
-        return line
-    # effort only — nothing to launch with; it lives in the agent frontmatter.
-    return (f"> ⚙️ **Effort `{inv['effort']}`** — written into the agent's frontmatter at "
-            f"`deploy` (`effort: {inv['effort']}`); the sub-agent applies it automatically, "
-            f"nothing to pass at launch.")
+        return line + tools_clause
+    if effort_p:
+        # effort (+ maybe tools) — nothing to launch with; both live in the frontmatter.
+        return (f"> ⚙️ **Effort `{inv['effort']}`** — written into the agent's frontmatter at "
+                f"`deploy` (`effort: {inv['effort']}`); the sub-agent applies it automatically, "
+                f"nothing to pass at launch.") + tools_clause
+    # tools only — nothing to launch with; the list lives in the agent frontmatter.
+    return (f"> ⚙️ **Tools `{', '.join(inv['tools'])}`** — written into the agent's frontmatter "
+            f"at `deploy`; the sub-agent uses exactly these, nothing to pass at launch.")
 
 
 def generate_skill_md(workflow_path: Path, output_path: Path,
@@ -1798,6 +1853,11 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         for phase in workflow.get("phases", [])
         for inv in (phase.get("invocations") or [])
     )
+    any_invocation_tools = any(
+        _tools_applies(inv)
+        for phase in workflow.get("phases", [])
+        for inv in (phase.get("invocations") or [])
+    )
 
     # Whether the workflow has any exploitable parallelism — gates the
     # "Execution protocol" section. True if an action lists >=2 invocations
@@ -1835,6 +1895,7 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         opportunistic_global=opportunistic_global,
         any_invocation_model=any_invocation_model,
         any_invocation_effort=any_invocation_effort,
+        any_invocation_tools=any_invocation_tools,
         any_parallelism=any_parallelism,
         orchestration_md=render_orchestration(workflow),
     )
@@ -3813,31 +3874,83 @@ def resolve_agent_efforts(workflows_dir: Path = None):
     return efforts, warnings
 
 
+def resolve_agent_tools(workflows_dir: Path = None):
+    """Decide, per agent, the `tools` list to materialize into its deployed frontmatter.
+
+    Mirrors resolve_agent_efforts: scans every workflow's phase invocations AND on-demand
+    agents, keeping only PINNED tools (a non-empty `tools` list). Returns (tools, warnings):
+      tools:    {agent_name: [tool, ...]} — only injectable ones
+      warnings: [str] — conflicts
+
+    Rules (policy 1 — same shared-frontmatter model as effort):
+      - Exactly one distinct tool set (order-insensitive) for an agent → inject it.
+      - Conflict: ≥2 distinct sets across workflows for one shared agent can't fit a
+        single frontmatter → warn, inject nothing so the agent's SOURCE frontmatter tools
+        survive (fail safe rather than break one workflow with another's narrowing).
+    Absent/empty `tools` defers to the source frontmatter (not a pin, not a conflict)."""
+    workflows_dir = workflows_dir or DEFAULT_WORKFLOWS_DIR
+    pins = {}  # agent -> list[tuple[str, ...]] (declared order preserved)
+
+    def _collect(agent, tools):
+        if agent and isinstance(tools, list) and tools:
+            pins.setdefault(agent, []).append(tuple(tools))
+
+    for _name, path in discover_workflows(workflows_dir):
+        try:
+            wf = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        for phase in wf.get("phases", []) or []:
+            for inv in phase.get("invocations", []) or []:
+                _collect(inv.get("agent"), inv.get("tools"))
+        for od in wf.get("on_demand_agents", []) or []:
+            _collect(od.get("agent"), od.get("tools"))
+    tools, warnings = {}, []
+    for agent, lst in sorted(pins.items()):
+        distinct_keys = {frozenset(t) for t in lst}  # order-insensitive conflict check
+        if len(distinct_keys) > 1:
+            warnings.append(
+                f"agent '{agent}': conflicting tool sets {sorted(list(t) for t in set(lst))} "
+                f"across invocations — a single agent frontmatter holds only one; not "
+                f"injected (source frontmatter tools kept). Align them or split the agent.")
+            continue
+        tools[agent] = list(lst[0])  # all equal as sets → inject the first, declared order
+    return tools, warnings
+
+
 def deploy_agents(agents_src: Path, workflows_dir: Path, dest_dir: Path):
     """Deploy agents_src/*.md to dest_dir, materializing each pinned per-invocation
-    `effort` into the deployed agent's frontmatter (the `Task` tool has no effort arg).
+    `effort` AND `tools` into the deployed agent's frontmatter (the `Task` tool has no
+    effort/tools arg — the only channel is the frontmatter).
 
-    The SOURCE agents stay clean (`effort` lives only in workflow.yaml) — so removing an
-    effort from the YAML and re-deploying clears it, because we always re-derive from the
-    pristine source. Returns (n_agents, warnings)."""
+    The SOURCE agents stay clean for effort (it lives only in workflow.yaml) — so removing
+    it from the YAML and re-deploying clears it, because we always re-derive from the
+    pristine source. Tools DO exist in the source frontmatter (the agent's identity): a
+    per-invocation pin overrides them at deploy, and with no pin the source tools are kept
+    verbatim. Returns (n_agents, warnings)."""
     import shutil
     efforts, warnings = resolve_agent_efforts(workflows_dir)
+    tools_map, tool_warnings = resolve_agent_tools(workflows_dir)
+    warnings = warnings + tool_warnings
     dest_dir.mkdir(parents=True, exist_ok=True)
     n = 0
     for f in sorted(agents_src.glob("*.md")):
         name = f.stem
         dest = dest_dir / f.name
         eff = efforts.get(name)
-        if eff is None:
+        tls = tools_map.get(name)
+        if eff is None and tls is None:
             shutil.copy2(f, dest)  # verbatim — also clears any stale effort from a prior deploy
         else:
             fm, body = split_agent_md(f.read_text(encoding="utf-8"))
             if fm:
-                dest.write_text(join_agent_md(_set_frontmatter_effort(fm, eff), body),
-                                encoding="utf-8")
+                fm = _set_frontmatter_effort(fm, eff)   # eff None → ensures no effort; value → set
+                if tls is not None:
+                    fm = _set_frontmatter_tools(fm, tls)  # override source tools with the pin
+                dest.write_text(join_agent_md(fm, body), encoding="utf-8")
             else:
                 warnings.append(
-                    f"agent '{name}': no frontmatter to hold effort '{eff}' — deployed as-is.")
+                    f"agent '{name}': no frontmatter to hold effort/tools — deployed as-is.")
                 shutil.copy2(f, dest)
         n += 1
     return n, warnings

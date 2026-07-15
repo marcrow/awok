@@ -223,6 +223,69 @@ phases:
     assert "Pass it explicitly to the `Task` tool (`effort" not in content
 
 
+def test_generate_skill_emits_tools_reference(bbw_module, tmp_path):
+    """A pinned per-invocation `tools` list renders a ⚙️ reference line + header note,
+    like effort (for reference — the Task tool has no tools arg). Covers tools-only and
+    the combined model+tools directive."""
+    import shutil
+    workflow_dir = tmp_path / "workflow"
+    invocations_dir = workflow_dir / "templates" / "invocations"
+    invocations_dir.mkdir(parents=True)
+    templates_dir = workflow_dir / "templates"
+    shutil.copy(SNIPPETS_DIR / "test-agent.md", invocations_dir / "test-agent.md")
+    shutil.copy(
+        REPO_ROOT / "src" / "workflow" / "templates" / "skill-skeleton.md.jinja",
+        templates_dir / "skill-skeleton.md.jinja",
+    )
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "test-agent.md").write_text("---\nname: test-agent\n---\n")
+
+    workflow_yaml = workflow_dir / "workflow.yaml"
+    workflow_yaml.write_text("""schema_version: 1
+skill:
+  name: tools-flow
+  description: Invocations pin tools
+groups:
+  g: { description: x }
+phases:
+  - id: T1
+    name: ToolsOnly
+    group: g
+    invocations:
+      - agent: test-agent
+        tools: [Read, Grep]
+  - id: T2
+    name: Both
+    group: g
+    depends_on: [T1]
+    invocations:
+      - agent: test-agent
+        model: sonnet
+        tools: [Read, Write, Bash]
+""")
+
+    output_skill = tmp_path / "SKILL.md"
+    bbw_module.generate_skill_md(
+        workflow_path=workflow_yaml,
+        output_path=output_skill,
+        templates_dir=templates_dir,
+        agents_dir=agents_dir,
+    )
+    content = output_skill.read_text()
+    # Header convention note for tools (gated on any_invocation_tools).
+    assert "Tools are set on the agent, not at launch" in content
+    # tools-only invocation: recorded as frontmatter, NOT a Task-tool argument.
+    assert "**Tools `Read, Grep`**" in content
+    assert "written into the agent's frontmatter" in content
+    # Combined: model stays a Task-tool arg; tools is frontmatter (applied automatically).
+    assert "Run on `sonnet`" in content
+    assert "Tools `Read, Write, Bash` are set in the agent's frontmatter" in content
+    # Regression: tools must NEVER be rendered as a Task-tool launch argument.
+    assert "with `tools:" not in content
+    assert "the `Task` tool has no tools arg" in content
+
+
 def test_generate_skill_omits_directive_when_inherit(bbw_module, tmp_path):
     """An invocation left at the inherit default (model/effort unset, or the literal
     'inherit') renders NO ⚙️ directive and no convention note — the session default
@@ -512,6 +575,81 @@ phases:
 """)
     bbw_module.deploy_agents(agents, workflows, dest)
     assert "effort:" not in (dest / "deep.md").read_text()
+
+
+def test_deploy_agents_materializes_tools(bbw_module, tmp_path):
+    """deploy_agents writes a pinned per-invocation `tools` list into the DEPLOYED agent
+    frontmatter — overriding the source tools whether inline OR block-sequence — while an
+    unpinned agent keeps its source tools verbatim, and a cross-workflow conflict for a
+    shared agent is dropped with a warning (source tools kept). The Task tool has no tools
+    argument, so the frontmatter is the only channel."""
+    workflows = tmp_path / "workflows"; workflows.mkdir()
+    agents = tmp_path / "agents"; agents.mkdir()
+    dest = tmp_path / "deployed"
+    # block-sequence source tools → overridden by an inline pin
+    (agents / "hunter.md").write_text(
+        "---\nname: hunter\nmodel: inherit\ntools:\n  - Read\n  - Write\n---\n\nBody.\n")
+    # inline source tools, never pinned → kept verbatim
+    (agents / "recon.md").write_text(
+        "---\nname: recon\nmodel: inherit\ntools: Read, Write, Glob\n---\n\nBody.\n")
+    # shared agent pinned differently by two workflows → conflict → source kept
+    (agents / "shared.md").write_text(
+        "---\nname: shared\nmodel: inherit\ntools: Read, Write\n---\n\nBody.\n")
+
+    (workflows / "w.yaml").write_text("""schema_version: 1
+skill: { name: w, description: d }
+groups: { g: { description: x } }
+phases:
+  - id: P1
+    name: A
+    group: g
+    invocations:
+      - { agent: hunter, tools: [Read, Grep] }
+      - { agent: recon }
+      - { agent: shared, tools: [Read] }
+""")
+    (workflows / "w2.yaml").write_text("""schema_version: 1
+skill: { name: w2, description: d }
+groups: { g: { description: x } }
+phases:
+  - id: P1
+    name: A
+    group: g
+    invocations:
+      - { agent: shared, tools: [Write] }
+""")
+
+    tools_map, warnings = bbw_module.resolve_agent_tools(workflows)
+    assert tools_map == {"hunter": ["Read", "Grep"]}                   # only the unambiguous pin
+    assert "shared" not in tools_map                                   # conflict → not injected
+    assert any("shared" in w and "conflicting" in w for w in warnings)
+
+    bbw_module.deploy_agents(agents, workflows, dest)
+    hunter_deployed = (dest / "hunter.md").read_text()
+    assert "tools: Read, Grep" in hunter_deployed                      # pin materialized, inline
+    assert "- Write" not in hunter_deployed                            # old block-sequence dropped
+    assert "tools:\n  - Read\n  - Write" in (agents / "hunter.md").read_text()  # source untouched
+    assert "tools: Read, Write, Glob" in (dest / "recon.md").read_text()        # unpinned → verbatim
+    assert "tools: Read, Write" in (dest / "shared.md").read_text()             # conflict → source kept
+
+
+def test_resolve_agent_tools_order_insensitive(bbw_module, tmp_path):
+    """Two workflows listing the same tools in a different order are NOT a conflict — the
+    conflict check is set-based; the first declared order is injected."""
+    workflows = tmp_path / "workflows"; workflows.mkdir()
+    (workflows / "a.yaml").write_text("""schema_version: 1
+skill: { name: a, description: d }
+groups: { g: { description: x } }
+phases: [ { id: P, name: A, group: g, invocations: [ { agent: x, tools: [Read, Grep] } ] } ]
+""")
+    (workflows / "b.yaml").write_text("""schema_version: 1
+skill: { name: b, description: d }
+groups: { g: { description: x } }
+phases: [ { id: P, name: A, group: g, invocations: [ { agent: x, tools: [Grep, Read] } ] } ]
+""")
+    tools_map, warnings = bbw_module.resolve_agent_tools(workflows)
+    assert tools_map.get("x") == ["Read", "Grep"]                # first declared order
+    assert not any("conflicting" in w for w in warnings)
 
 
 def test_check_effort_warnings_flags_unsupported_model(bbw_module):

@@ -184,6 +184,10 @@ export function renderSettings(root, ctx) {
       effortRow.title = "Haiku doesn't support reasoning effort — pick sonnet/opus to set it.";  // hover msg on the row (disabled select won't show its own)
     }
     b.appendChild(effortRow);
+    b.appendChild(H.fieldText("tools (comma-sep, empty = agent frontmatter)", Array.isArray(o.tools) ? o.tools.join(", ") : "", v => {
+      const arr = (v || "").split(",").map(s => s.trim()).filter(Boolean);
+      if (arr.length) o.tools = arr; else delete o.tools;   // materialized into the agent frontmatter at deploy (like effort)
+    }));
     b.appendChild(span2(fieldArea("description", o.description || "", v => { o.description = v; })));
     b.appendChild(span2(fieldArea("when (signal that triggers it)", o.when || "", v => { if (v) o.when = v; else delete o.when; }, "Plain-language trigger condition — e.g. 'an old/abandoned dependency is spotted'.")));
     b.appendChild(removeBtn(() => { m.on_demand_agents.splice(idx, 1); rerender(); }));
