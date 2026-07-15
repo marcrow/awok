@@ -220,14 +220,20 @@ export function signalsEditor(label, items, phase, onChange){
       const refreshWarn = () => { const ok = !item.name || SIGNAL_NAME_RE.test(item.name); warn.textContent = ok ? "" : "⚠ ^[a-z][a-z0-9_]*$"; };
       name.addEventListener("change", () => { item.name = name.value.trim(); refreshWarn(); emit(); });
       r.appendChild(name);
+      // exit_code maps exit 0 ⇒ true, so the type is locked to bool (schema/validate rule).
+      const typeLocked = (item.source || sources[0]) === "exit_code";
+      if (typeLocked) item.type = "bool";
       const type = document.createElement("select");
-      for (const t of SIGNAL_TYPES){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
+      for (const t of (typeLocked ? ["bool"] : SIGNAL_TYPES)){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
+      type.disabled = typeLocked;
+      if (typeLocked) type.title = "exit_code ⇒ bool (exit 0 = true)";
       type.addEventListener("change", () => { item.type = type.value; emit(); });
       r.appendChild(type);
       const source = document.createElement("select");
       for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
       source.addEventListener("change", () => {
         item.source = source.value;
+        if (item.source === "exit_code") item.type = "bool";
         if (item.source !== "field") delete item.from;
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
@@ -268,7 +274,7 @@ export function signalsEditor(label, items, phase, onChange){
     });
   }
   const add = document.createElement("button"); add.className = "signal-add"; add.textContent = "＋ add signal";
-  add.addEventListener("click", () => { list.push({ name: "", type: "string", source: sources[0] }); render(); emit(); });
+  add.addEventListener("click", () => { const s0 = sources[0]; list.push({ name: "", type: s0 === "exit_code" ? "bool" : "string", source: s0 }); render(); emit(); });
   render(); wrap.appendChild(add);
   return wrap;
 }
