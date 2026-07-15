@@ -804,7 +804,8 @@ def resolve_signal_emitter(workflow: dict, phase: dict, emit: dict) -> dict:
 def _validate_signals(workflow: dict) -> list:
     """Blocking semantic rules for declared `emits` signals.
 
-    - source: exit_code requires action nature 'script' and type 'bool'.
+    - source: exit_code requires action nature 'script' and type 'bool'
+      (0 => true shorthand) or 'number' (the raw integer exit code).
     - type: list requires source: field.
     - a field signal's `from` role must actually be produced by the action
       (delegated to resolve_signal_emitter, which returns 'unresolved')."""
@@ -820,8 +821,8 @@ def _validate_signals(workflow: dict) -> list:
             if src == "exit_code":
                 if nature != "script":
                     errors.append(f"{tag}: source 'exit_code' is only valid on a 'script' action")
-                if typ != "bool":
-                    errors.append(f"{tag}: source 'exit_code' requires type 'bool'")
+                if typ not in ("bool", "number"):
+                    errors.append(f"{tag}: source 'exit_code' requires type 'bool' (0 => true) or 'number' (raw exit code)")
             if typ == "list" and src != "field":
                 errors.append(f"{tag}: type 'list' requires source 'field'")
             em = resolve_signal_emitter(workflow, phase, emit)
@@ -855,7 +856,9 @@ def render_signal_emission(phase: dict, emit: dict) -> str:
             return f"- **Emit signal `{key}`**: your `{role}` json output MUST contain a field `{name}` of type `{emit.get('type')}`."
     if nature == "script":
         if src == "exit_code":
-            return f"- **Signal `{key}`** = this script's exit code (`0` ⇒ `true`, non-zero ⇒ `false`)."
+            if emit.get("type") == "number":
+                return f"- **Signal `{key}`** = this script's integer exit code (`$?`, per the command's documented codes — e.g. `grep`: `0` match, `1` no match, `2` error)."
+            return f"- **Signal `{key}`** = this script's exit code as a boolean (`0` ⇒ `true`, non-zero ⇒ `false`)."
         if src == "token":
             return f"- **Signal `{key}`** = the `SIGNALS {name}=…` line the script prints on stdout."
         if src == "field":

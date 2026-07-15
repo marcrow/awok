@@ -220,20 +220,20 @@ export function signalsEditor(label, items, phase, onChange){
       const refreshWarn = () => { const ok = !item.name || SIGNAL_NAME_RE.test(item.name); warn.textContent = ok ? "" : "⚠ ^[a-z][a-z0-9_]*$"; };
       name.addEventListener("change", () => { item.name = name.value.trim(); refreshWarn(); emit(); });
       r.appendChild(name);
-      // exit_code maps exit 0 ⇒ true, so the type is locked to bool (schema/validate rule).
-      const typeLocked = (item.source || sources[0]) === "exit_code";
-      if (typeLocked) item.type = "bool";
+      // exit_code accepts bool (0 ⇒ true shorthand) or number (raw exit code, e.g. grep 0/1/2).
+      const exitCode = (item.source || sources[0]) === "exit_code";
+      const typeOpts = exitCode ? ["bool", "number"] : SIGNAL_TYPES;
+      if (exitCode && !typeOpts.includes(item.type)) item.type = "bool";
       const type = document.createElement("select");
-      for (const t of (typeLocked ? ["bool"] : SIGNAL_TYPES)){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
-      type.disabled = typeLocked;
-      if (typeLocked) type.title = "exit_code ⇒ bool (exit 0 = true)";
+      for (const t of typeOpts){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
+      if (exitCode) type.title = "exit_code ⇒ bool (exit 0 = true) or number (raw exit code)";
       type.addEventListener("change", () => { item.type = type.value; emit(); });
       r.appendChild(type);
       const source = document.createElement("select");
       for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
       source.addEventListener("change", () => {
         item.source = source.value;
-        if (item.source === "exit_code") item.type = "bool";
+        if (item.source === "exit_code" && item.type !== "bool" && item.type !== "number") item.type = "bool";
         if (item.source !== "field") delete item.from;
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();

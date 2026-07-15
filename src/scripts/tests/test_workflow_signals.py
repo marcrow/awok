@@ -143,3 +143,24 @@ def test_attach_routes_script_to_phase_list(bbw_module):
     # phase-level emitter (script) -> line goes to phase["signal_emissions"]
     assert ph["_agent_emissions"] == {}
     assert any("exit" in ln.lower() and "found" in ln for ln in ph["signal_emissions"])
+
+
+def test_rule_exit_code_accepts_number(bbw_module):
+    # a script's raw exit code (e.g. grep 0/1/2) may be typed number, not only bool
+    e = _errs(bbw_module, [{"id": "S", "name": "s", "group": "g", "type": "script",
+        "emits": [{"name": "grep_rc", "type": "number", "source": "exit_code"}]}])
+    assert not any("exit_code" in m for m in e)
+
+
+def test_rule_exit_code_still_rejects_string(bbw_module):
+    e = _errs(bbw_module, [{"id": "S", "name": "s", "group": "g", "type": "script",
+        "emits": [{"name": "x", "type": "string", "source": "exit_code"}]}])
+    assert any("exit_code" in m for m in e)
+
+
+def test_render_emission_script_exit_code_number(bbw_module):
+    ph = {"id": "S", "name": "s", "group": "g", "type": "script"}
+    s = bbw_module.render_signal_emission(ph, {"name": "grep_rc", "type": "number", "source": "exit_code"})
+    # number exit_code describes the integer code, not the 0=>true boolean mapping
+    assert "grep_rc" in s and ("integer" in s.lower() or "code" in s.lower())
+    assert "true" not in s.lower()
