@@ -643,3 +643,33 @@ def test_overlay_carries_block_id_and_loop_output(bbw_module):
     ov = bbw_module.build_orchestration_overlay(wf)
     assert ov["loops"][0]["id"] == "LOOP1"
     assert ov["loops"][0]["output"] == "work:results"
+
+
+def test_list_without_of_warns(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "hits", "type": "list", "source": "field", "from": "t1.json"}])
+    warns = bbw_module.check_signal_payload_warnings(wf)
+    assert any("hits" in w and "of" in w and "string" in w for w in warns)
+
+
+def test_homonym_divergent_values_warns(bbw_module):
+    wf = _wf([{"ref": "A"}, {"ref": "B"}],
+             phases=[{"id": "A", "name": "a", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "bad"]}]},
+                     {"id": "B", "name": "b", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "worse"]}]}])
+    warns = bbw_module.check_signal_payload_warnings(wf)
+    assert any("verdict" in w and "diverg" in w.lower() for w in warns)
+
+
+def test_homonym_same_values_no_warn(bbw_module):
+    wf = _wf([{"ref": "A"}, {"ref": "B"}],
+             phases=[{"id": "A", "name": "a", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "bad"]}]},
+                     {"id": "B", "name": "b", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "bad"]}]}])
+    assert not any("diverg" in w.lower() for w in bbw_module.check_signal_payload_warnings(wf))

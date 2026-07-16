@@ -1723,6 +1723,37 @@ def check_effort_warnings(workflow: dict) -> list:
     return warnings
 
 
+def check_signal_payload_warnings(workflow: dict) -> list:
+    """Non-blocking payload-typing warnings: a list signal with no `of` (assumed
+    string), and same-named signals across actions with divergent value/of specs."""
+    warnings = []
+    by_name = {}
+    for phase in workflow.get("phases", []):
+        for emit in phase.get("emits", []) or []:
+            name = emit.get("name", "?")
+            if emit.get("type") == "list" and emit.get("of") is None:
+                warnings.append(
+                    f"signal {phase['id']}.{name}: type 'list' has no 'of' — assuming "
+                    f"'of: string' (declare it to fix the element contract)")
+            spec = (emit.get("type"), _freeze(emit.get("values")), _freeze(emit.get("of")))
+            by_name.setdefault(name, set()).add(spec)
+    for name, specs in by_name.items():
+        if len(specs) > 1:
+            warnings.append(
+                f"signal '{name}' is emitted by several actions with divergent "
+                f"type/values/of specs — the vocabulary should match")
+    return warnings
+
+
+def _freeze(v):
+    """Hashable snapshot of a values list / of map for divergence comparison."""
+    if isinstance(v, list):
+        return tuple(v)
+    if isinstance(v, dict):
+        return tuple(sorted((k, _freeze(x)) for k, x in v.items()))
+    return v
+
+
 def check_skill_name_matches_filename(workflow: dict, workflow_path) -> list:
     """Warn when the workflow filename stem differs from skill.name.
 
@@ -3035,6 +3066,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     warnings += check_skill_name_matches_filename(workflow, workflow_path)
     warnings += check_opportunistic_warnings(workflow)
     warnings += check_effort_warnings(workflow)
+    warnings += check_signal_payload_warnings(workflow)
     for e in schema_errors:
         print(f"  [{name}] SCHEMA: {e}", file=sys.stderr)
     for e in coherence_errors:
