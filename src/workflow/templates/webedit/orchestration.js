@@ -740,17 +740,17 @@ function builtinOperandControl(ctx, block, path, side, cond, commit) {
 // treated as degenerate/untyped by the design (not the mirror case), and two
 // literals obviously carry no signal type either. Returns undefined when no
 // type applies, so callers fall back to free text.
-function comparedSignalType(ctx, side, cond) {
+function comparedSignal(ctx, side, cond) {
   if (side !== "right" || !cond || typeof cond.left !== "string") return undefined;
-  const sig = signalsOf(ctx.state.model).find(s => s.key === cond.left);
-  return sig && sig.type;
+  return signalsOf(ctx.state.model).find(s => s.key === cond.left);
 }
 
 function literalOperandControl(ctx, block, path, side, cond, commit) {
   const root = block[blockConstruct(block)];
   const v = cond ? cond[side] : undefined;
   const strVal = (typeof v === "string") ? v : (v == null ? "" : String(v));
-  const sigType = comparedSignalType(ctx, side, cond);
+  const sig = comparedSignal(ctx, side, cond);
+  const sigType = sig && sig.type;
 
   if (sigType === "bool") {
     const sel = document.createElement("select");
@@ -784,10 +784,25 @@ function literalOperandControl(ctx, block, path, side, cond, commit) {
     return inp;
   }
 
-  // enum / string / unknown type / no compared signal → free text, unchanged.
-  // TODO(Task 14): when sigType === "enum", render a <select> populated from
-  // the signal's declared `values` (design §10.4, needs Task 13's schema +
-  // collect_signals plumbing for enum values) instead of falling through here.
+  if (sigType === "enum" && Array.isArray(sig.values) && sig.values.length) {
+    const sel = document.createElement("select");
+    const known = sig.values.includes(strVal);
+    if (!known) {
+      const placeholder = document.createElement("option");
+      placeholder.value = ""; placeholder.textContent = "—"; placeholder.disabled = true; placeholder.selected = true;
+      sel.appendChild(placeholder);
+    }
+    sig.values.forEach(val => {
+      const opt = document.createElement("option"); opt.value = val; opt.textContent = val;
+      if (strVal === val) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change", () => commit(setCondAt(root, path.concat([side]), sel.value)));
+    return sel;
+  }
+
+  // enum without declared values / string / unknown type / no compared signal
+  // → free text, unchanged.
   const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "literal value";
   inp.value = strVal;
   inp.addEventListener("change", () => commit(setCondAt(root, path.concat([side]), inp.value)));

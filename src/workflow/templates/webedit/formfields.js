@@ -227,7 +227,11 @@ export function signalsEditor(label, items, phase, onChange){
       const type = document.createElement("select");
       for (const t of typeOpts){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
       if (exitCode) type.title = "exit_code ⇒ bool (exit 0 = true) or number (raw exit code)";
-      type.addEventListener("change", () => { item.type = type.value; emit(); });
+      type.addEventListener("change", () => {
+        item.type = type.value;
+        if (item.type !== "enum") delete item.values;
+        emit(); render();
+      });
       r.appendChild(type);
       const source = document.createElement("select");
       for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
@@ -269,6 +273,14 @@ export function signalsEditor(label, items, phase, onChange){
         for (const a of invAgents){ const o = document.createElement("option"); o.value = a; o.textContent = a; if (a === item.by) o.selected = true; bySel.appendChild(o); }
         bySel.addEventListener("change", () => { if (bySel.value) item.by = bySel.value; else delete item.by; emit(); });
         sub.appendChild(bySel);
+        body.appendChild(sub);
+      }
+      if ((item.type || "string") === "enum") {
+        const sub = document.createElement("div"); sub.className = "signal-subrow";
+        sub.appendChild(stringListEditor("values", item.values, (vals) => {
+          if (vals.length) item.values = vals; else delete item.values;
+          emit();
+        }));
         body.appendChild(sub);
       }
     });

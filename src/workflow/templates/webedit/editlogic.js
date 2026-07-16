@@ -396,7 +396,8 @@ export function signalsOf(model) {
   for (const p of (model && model.phases) || [])
     for (const e of p.emits || [])
       out.push({ key: p.id.toLowerCase() + "." + e.name, name: e.name, type: e.type,
-                 source: e.source, phase: p.id, phaseName: p.name || p.id, group: p.group || "" });
+                 source: e.source, phase: p.id, phaseName: p.name || p.id, group: p.group || "",
+                 values: e.values || null });
   return out;
 }
 export function condOf(b) { const k = blockConstruct(b); return (k === "if" || k === "while" || k === "until") ? b[k] : null; }
