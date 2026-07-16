@@ -7,7 +7,7 @@
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
 import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues, condKind, isGroupCond,
-  getCondAt, setCondAt, toggleNotAt, toggleConnectorAt, addComparisonAt, addSubgroupAt, removeCondAt } from "./editlogic.js";
+  getCondAt, setCondAt, toggleNotAt, toggleConnectorAt, addComparisonAt, addSubgroupAt, removeCondAt, conditionSignalKeys } from "./editlogic.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
@@ -139,7 +139,7 @@ export function renderProgram(ctx) {
     if (k === "for_each") return (typeof b.for_each === "string" && b.for_each in sigPhase) ? [b.for_each] : [];
     const c = condOf(b);
     if (!c || typeof c !== "object") return [];
-    return [c.left, c.right].filter(v => typeof v === "string" && v in sigPhase);
+    return conditionSignalKeys(c).filter(v => v in sigPhase);
   };
   const gateLevel = (b) => {
     let lvl = -1;
