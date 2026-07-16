@@ -4,5 +4,8 @@
   cap: 100
   body:
     - ref: SCAN
-    - if: {op: "==", left: scan.status, right: vuln}
+    - if:
+        and:
+          - { op: "==", left: scan.status, right: vuln }
+          - { op: ">",  left: scan.risk,   right: 5 }
       then: [{ref: EXPLOIT}]

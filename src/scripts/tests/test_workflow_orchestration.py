@@ -236,6 +236,15 @@ def test_for_each_valid(bbw_module):
     assert bbw_module.validate_orchestration(wf) == []
 
 
+def test_fixture_composite_condition_renders(bbw_module):
+    wf = bbw_module.load_workflow(FIX / "orchestrated.yaml")
+    assert bbw_module.validate_orchestration(wf) == []
+    protocol = bbw_module.render_orchestration(wf)
+    assert " and " in protocol or " or " in protocol
+    overlay = bbw_module.build_orchestration_overlay(wf)
+    assert overlay  # branch labels built without error
+
+
 def test_fixture_validates_and_renders(bbw_module):
     model = bbw_module.load_workflow(FIX / "orchestrated.yaml")
     assert bbw_module.validate_schema(model) == []
