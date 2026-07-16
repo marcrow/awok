@@ -124,6 +124,26 @@ def test_parallel_block_rejected_by_schema(bbw_module):
         jsonschema.validate([{"parallel": [{"ref": "A"}]}], schema)
 
 
+def test_schema_accepts_and_or_not(bbw_module):
+    import jsonschema
+    schema = bbw_module.load_orchestration_schema()
+    block = {"if": {"or": [
+        {"and": [{"op": "==", "left": "recon.waf", "right": "true"},
+                 {"op": ">", "left": "scan.risk", "right": "7"}]},
+        {"not": {"and": [{"op": "==", "left": "scan.status", "right": "open"},
+                         {"op": "exists", "left": {"file_exists": "/etc/passwd"}}]}},
+    ]}, "then": [{"ref": "A"}]}
+    jsonschema.validate([block], schema)  # must not raise
+
+
+def test_schema_rejects_unknown_connector(bbw_module):
+    import jsonschema, pytest
+    schema = bbw_module.load_orchestration_schema()
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate([{"if": {"xor": [{"op": "exists", "left": "a.x"}]},
+                              "then": [{"ref": "A"}]}], schema)
+
+
 def test_until_missing_cap_message_names_the_loop(bbw_module):
     wf = _wf([{"until": {"op": "==", "left": "t1.v", "right": "x"}, "body": [{"ref": "T1"}]}],
              emits=[{"name": "v", "type": "string", "source": "token"}])

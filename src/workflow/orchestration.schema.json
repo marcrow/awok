@@ -15,7 +15,25 @@
             "right": {}
           }
         },
-        { "type": "string", "description": "escape-hatch predicate (standard-only)" }
+        { "type": "string", "description": "escape-hatch predicate (standard-only)" },
+        {
+          "type": "object",
+          "required": ["and"],
+          "properties": { "and": { "type": "array", "items": { "$ref": "#/definitions/condition" } } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["or"],
+          "properties": { "or": { "type": "array", "items": { "$ref": "#/definitions/condition" } } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["not"],
+          "properties": { "not": { "$ref": "#/definitions/condition" } },
+          "additionalProperties": false
+        }
       ]
     },
     "block": {
