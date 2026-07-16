@@ -317,28 +317,51 @@ export function signalsEditor(label, items, phase, onChange){
             const fname = document.createElement("input"); fname.type = "text"; fname.value = field; fname.className = "of-field-name";
             fname.addEventListener("change", () => {
               const nv = fname.value.trim();
-              if (nv && nv !== field) { obj[nv] = obj[field]; delete obj[field]; }
-              emit(); render();
+              // rename to an already-used name is a no-op (collision guard) —
+              // re-render restores the input to the old name without moving anything
+              if (nv && nv !== field && !(nv in obj)) {
+                const next = { ...item.of };
+                next[nv] = next[field];
+                delete next[field];
+                item.of = next;
+                emit();
+              }
+              render();
             });
             const ftype = document.createElement("select"); ftype.className = "of-field-type";
             const cur = (obj[field] && typeof obj[field] === "object") ? "enum" : obj[field];
             for (const t of ["string", "number", "bool", "enum"]) { const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === cur) o.selected = true; ftype.appendChild(o); }
             ftype.addEventListener("change", () => {
-              obj[field] = ftype.value === "enum" ? { enum: (obj[field] && obj[field].enum) || [] } : ftype.value;
+              const next = { ...item.of };
+              next[field] = ftype.value === "enum" ? { enum: (obj[field] && obj[field].enum) || [] } : ftype.value;
+              item.of = next;
               emit(); render();
             });
             const del = document.createElement("button"); del.className = "of-field-del"; del.textContent = "✕";
-            del.addEventListener("click", () => { delete obj[field]; render(); emit(); });
+            del.addEventListener("click", () => {
+              const next = { ...item.of };
+              delete next[field];
+              item.of = next;
+              render(); emit();
+            });
             fr.appendChild(fname); fr.appendChild(ftype); fr.appendChild(del);
             orow.appendChild(fr);
             if (obj[field] && typeof obj[field] === "object") {
               orow.appendChild(stringListEditor("values", obj[field].enum, (vals) => {
-                obj[field] = { enum: vals }; emit();
+                const next = { ...item.of };
+                next[field] = { enum: vals };
+                item.of = next;
+                emit();
               }));
             }
           });
           const addF = document.createElement("button"); addF.className = "of-field-add"; addF.textContent = "+ field";
-          addF.addEventListener("click", () => { obj["field" + (Object.keys(obj).length + 1)] = "string"; render(); emit(); });
+          addF.addEventListener("click", () => {
+            const next = { ...item.of };
+            next["field" + (Object.keys(next).length + 1)] = "string";
+            item.of = next;
+            render(); emit();
+          });
           orow.appendChild(addF);
           body.appendChild(orow);
         }

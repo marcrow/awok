@@ -167,3 +167,34 @@ test("signalsEditor emits of=object with a flat field", () => {
   const fieldName = [...r.querySelectorAll("input")].find(i => i.value === "path");
   expect(fieldName).not.toBeNull();
 });
+
+test("signalsEditor of-object field rename: collision is a no-op, no data loss", () => {
+  dom();
+  const of = { a: "string", b: { enum: ["x", "y"] } };
+  let model = [{ name: "f", type: "list", source: "field", of }];
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  const r = signalsEditor("emits", model, phase, v => { model = v; });
+  const aInput = [...r.querySelectorAll(".of-field-name")].find(i => i.value === "a");
+  aInput.value = "b";
+  aInput.dispatchEvent(ev(aInput));
+  // no-op rename: both fields still present (input snapped back to "a" on re-render),
+  // "b" keeps its enum values — not silently overwritten by "a"'s spec
+  const names = [...r.querySelectorAll(".of-field-name")].map(i => i.value);
+  expect(names).toEqual(["a", "b"]);
+  const bChips = [...r.querySelectorAll(".stringlist-row input")].map(i => i.value);
+  expect(bChips).toEqual(["x", "y"]);
+});
+
+test("signalsEditor of-object structural edits clone-then-reassign, never mutate the original object", () => {
+  dom();
+  const originalOf = { a: "string" };
+  let model = [{ name: "f", type: "list", source: "field", of: originalOf }];
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  let emitted = null;
+  const r = signalsEditor("emits", model, phase, v => { emitted = v; });
+  r.querySelector(".of-field-add").dispatchEvent(click(r));
+  // the object passed in by the caller must be untouched — the new field lives
+  // only in the emitted payload's (cloned) `of`
+  expect(Object.keys(originalOf)).toEqual(["a"]);
+  expect(Object.keys(emitted[0].of)).toEqual(["a", "field2"]);
+});

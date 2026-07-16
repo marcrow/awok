@@ -321,6 +321,15 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
   color:#cbd5e1;padding:6px 9px;font:12px/1.3 var(--mono);outline:none}
 .signal-add{margin-top:8px;background:var(--accent-soft);border:1px dashed rgba(56,189,248,0.35);color:#7dd3fc;
   border-radius:8px;padding:7px 11px;font-size:12px}
+/* list `of: object` flat field repeater — stacks its field rows vertically
+   (overrides the row-flex .signal-subrow it also carries) */
+.signal-of-object{flex-direction:column;align-items:stretch}
+.of-field-row{display:flex;gap:6px;align-items:center;margin-top:4px}
+.of-field-name{flex:1 1 auto;min-width:60px}
+.of-field-del{background:none;border:none;color:var(--dim);font-size:15px;padding:0 4px}
+.of-field-del:hover{color:#fca5a5}
+.of-field-add{margin-top:6px;align-self:flex-start;background:#1e293b;border:1px solid var(--border);
+  color:var(--muted);border-radius:6px;padding:5px 10px;font-size:11.5px}
 
 /* trigger + stringlist editors */
 .trigger-editor>label,.stringlist-editor>label{display:flex;align-items:center;gap:6px;font-size:11px;
