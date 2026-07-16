@@ -256,7 +256,7 @@ def test_escape_hatch_inside_group_rejected_in_js(bbw_module):
     assert any("escape-hatch" in e.lower() for e in errs)
 ```
 
-> Note: `validate_orchestration` folds warnings and errors into the same returned list (as the existing single-member/cap checks do). "Non-blocking" means the CLI treats it as a warning; the test asserts the message is present but is not an operand/schema hard failure.
+> Note on the single-member warning routing: `validate_orchestration`'s return list feeds **two paths** — it is **warning-only in the web-editor save path** (`save_workflow`, where a single-member group is a transient authoring state) and **blocking in `awok validate`/`generate`** (via `validate_coherence`, where a committed malformed group should fail). The single-member message rides this channel deliberately: it never blocks live editing, but a committed `{and:[X]}` fails CLI validation — which satisfies the design's "non-blocking during authoring" intent. This test calls `_validate_condition`/`validate_orchestration` directly and only asserts the message is emitted; it does not assert CLI blocking behaviour.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
