@@ -352,9 +352,10 @@ function connReadEl(word) {                 // word: "and" | "or"
 // leaf is a "cond-pill" (reuses operandEl); an and/or group at depth 0 is a
 // flat wrapping row ("cond-row" — no outer parens, it's already the block's
 // only condition); an and/or group at depth > 0 is a translucent bordered
-// box tinted by its connector ("cond-group cond-group-and|or" — the box IS
-// the parenthesis, no literal "(" "/" ")" glyphs); "not" prefixes a NOT
-// badge and recurses into the negated node at the same depth.
+// box tinted by its connector ("cond-group cond-group-and|or") that ALSO
+// carries literal colored "(" "/" ")" glyphs ("cond-paren cond-paren-and|or")
+// bracketing its members, mirroring the prototype's readNode; "not" prefixes
+// a NOT badge and recurses into the negated node at the same depth.
 function condEl(cond, sigKeys, depth = 0) {
   const kind = condKind(cond);
   if (kind === "escape") {
@@ -380,10 +381,22 @@ function condEl(cond, sigKeys, depth = 0) {
     const members = cond[kind];
     const box = document.createElement("span");
     box.className = depth === 0 ? "cond-row" : "cond-group cond-group-" + kind;
+    if (depth > 0) {
+      const open = document.createElement("span");
+      open.className = "cond-paren cond-paren-" + kind;
+      open.textContent = "(";
+      box.appendChild(open);
+    }
     members.forEach((m, i) => {
       if (i > 0) box.appendChild(connReadEl(kind));
       box.appendChild(condEl(m, sigKeys, depth + 1));
     });
+    if (depth > 0) {
+      const close = document.createElement("span");
+      close.className = "cond-paren cond-paren-" + kind;
+      close.textContent = ")";
+      box.appendChild(close);
+    }
     return box;
   }
   // leaf: {op, left, right?}. A builtin left (file_exists/dir_exists, an
