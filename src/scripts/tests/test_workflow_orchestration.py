@@ -240,9 +240,10 @@ def test_fixture_composite_condition_renders(bbw_module):
     wf = bbw_module.load_workflow(FIX / "orchestrated.yaml")
     assert bbw_module.validate_orchestration(wf) == []
     protocol = bbw_module.render_orchestration(wf)
-    assert " and " in protocol or " or " in protocol
+    assert "`scan.status` == `vuln` and `scan.risk` > `5`" in protocol
     overlay = bbw_module.build_orchestration_overlay(wf)
-    assert overlay  # branch labels built without error
+    cond = overlay["branches"][0]["cond"]
+    assert "scan.status" in cond and "scan.risk" in cond and " and " in cond
 
 
 def test_fixture_validates_and_renders(bbw_module):
