@@ -733,11 +733,63 @@ function builtinOperandControl(ctx, block, path, side, cond, commit) {
   return wrap;
 }
 
+// Type-aware literal editing (design §10.3): the literal field adapts to the
+// TYPE of the signal it is compared against. Typed ONLY when THIS operand is
+// the RIGHT side and the LEFT operand is a known signal key — a leaf's
+// left-operand-is-literal + right-operand-is-signal shape is explicitly
+// treated as degenerate/untyped by the design (not the mirror case), and two
+// literals obviously carry no signal type either. Returns undefined when no
+// type applies, so callers fall back to free text.
+function comparedSignalType(ctx, side, cond) {
+  if (side !== "right" || !cond || typeof cond.left !== "string") return undefined;
+  const sig = signalsOf(ctx.state.model).find(s => s.key === cond.left);
+  return sig && sig.type;
+}
+
 function literalOperandControl(ctx, block, path, side, cond, commit) {
   const root = block[blockConstruct(block)];
-  const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "literal value";
   const v = cond ? cond[side] : undefined;
-  inp.value = (typeof v === "string") ? v : (v == null ? "" : String(v));
+  const strVal = (typeof v === "string") ? v : (v == null ? "" : String(v));
+  const sigType = comparedSignalType(ctx, side, cond);
+
+  if (sigType === "bool") {
+    const sel = document.createElement("select");
+    const known = strVal === "true" || strVal === "false";
+    if (!known) {
+      // current value doesn't map to true/false (e.g. freshly switched from
+      // another kind) — show a neutral placeholder instead of silently
+      // implying "true" until the user actually picks one.
+      const placeholder = document.createElement("option");
+      placeholder.value = ""; placeholder.textContent = "—"; placeholder.disabled = true; placeholder.selected = true;
+      sel.appendChild(placeholder);
+    }
+    ["true", "false"].forEach(o => {
+      const opt = document.createElement("option"); opt.value = o; opt.textContent = o;
+      if (strVal === o) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change", () => commit(setCondAt(root, path.concat([side]), sel.value)));
+    return sel;
+  }
+
+  if (sigType === "number") {
+    const inp = document.createElement("input"); inp.type = "number"; inp.placeholder = "0";
+    inp.value = strVal;
+    inp.addEventListener("change", () => {
+      // basic numeric validation: reject non-numeric input rather than
+      // committing garbage — leave the field as typed, do not persist it.
+      if (inp.value === "" || Number.isNaN(Number(inp.value))) return;
+      commit(setCondAt(root, path.concat([side]), inp.value));
+    });
+    return inp;
+  }
+
+  // enum / string / unknown type / no compared signal → free text, unchanged.
+  // TODO(Task 14): when sigType === "enum", render a <select> populated from
+  // the signal's declared `values` (design §10.4, needs Task 13's schema +
+  // collect_signals plumbing for enum values) instead of falling through here.
+  const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "literal value";
+  inp.value = strVal;
   inp.addEventListener("change", () => commit(setCondAt(root, path.concat([side]), inp.value)));
   return inp;
 }
