@@ -673,3 +673,15 @@ def test_homonym_same_values_no_warn(bbw_module):
                       "emits": [{"name": "verdict", "type": "enum", "source": "token",
                                  "values": ["ok", "bad"]}]}])
     assert not any("diverg" in w.lower() for w in bbw_module.check_signal_payload_warnings(wf))
+
+
+def test_homonym_implicit_and_explicit_of_string_no_diverge(bbw_module):
+    wf = _wf([{"ref": "A"}, {"ref": "B"}],
+             phases=[{"id": "A", "name": "a", "group": "g",
+                      "emits": [{"name": "hits", "type": "list", "source": "field",
+                                 "from": "a.json"}]},
+                     {"id": "B", "name": "b", "group": "g",
+                      "emits": [{"name": "hits", "type": "list", "source": "field",
+                                 "from": "b.json", "of": "string"}]}])
+    warns = bbw_module.check_signal_payload_warnings(wf)
+    assert not any("diverg" in w.lower() for w in warns)

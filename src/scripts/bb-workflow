@@ -1731,11 +1731,13 @@ def check_signal_payload_warnings(workflow: dict) -> list:
     for phase in workflow.get("phases", []):
         for emit in phase.get("emits", []) or []:
             name = emit.get("name", "?")
-            if emit.get("type") == "list" and emit.get("of") is None:
+            of = emit.get("of")
+            if emit.get("type") == "list" and of is None:
                 warnings.append(
                     f"signal {phase['id']}.{name}: type 'list' has no 'of' — assuming "
                     f"'of: string' (declare it to fix the element contract)")
-            spec = (emit.get("type"), _freeze(emit.get("values")), _freeze(emit.get("of")))
+                of = "string"  # normalize the implicit default before divergence compare
+            spec = (emit.get("type"), _freeze(emit.get("values")), _freeze(of))
             by_name.setdefault(name, set()).add(spec)
     for name, specs in by_name.items():
         if len(specs) > 1:
