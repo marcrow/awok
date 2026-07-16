@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { parseHTML } from "linkedom";
 import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
-         ioRefEditor, triggerEditor, resolveIoPath, stringListEditor } from "../../../workflow/templates/webedit/formfields.js";
+         ioRefEditor, triggerEditor, resolveIoPath, stringListEditor, signalsEditor } from "../../../workflow/templates/webedit/formfields.js";
 
 function dom(){ const { document } = parseHTML("<!DOCTYPE html><body></body>"); globalThis.document = document; return document; }
 function ev(node){ return new node.ownerDocument.defaultView.Event("change"); }
@@ -146,4 +146,24 @@ test("stringListEditor renders, adds, deletes, drops empties", () => {
   // delete the first row
   node.querySelector(".stringlist-row .stringlist-del").dispatchEvent(click(node));
   expect(node.querySelectorAll(".stringlist-row").length).toBe(2);
+});
+
+test("signalsEditor shows an item-type dropdown for a list signal", () => {
+  dom();
+  let model = [{ name: "hits", type: "list", source: "field", of: "string" }];
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  const r = signalsEditor("emits", model, phase, v => { model = v; });
+  const ofSel = r.querySelector("select.signal-of");
+  expect(ofSel).not.toBeNull();
+  expect(ofSel.value).toBe("string");
+});
+
+test("signalsEditor emits of=object with a flat field", () => {
+  dom();
+  let model = [{ name: "f", type: "list", source: "field", of: { path: "string" } }];
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  const r = signalsEditor("emits", model, phase, v => { model = v; });
+  // the object field row exposes a field-name input pre-filled with "path"
+  const fieldName = [...r.querySelectorAll("input")].find(i => i.value === "path");
+  expect(fieldName).not.toBeNull();
 });

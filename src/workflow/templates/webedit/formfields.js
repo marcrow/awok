@@ -230,6 +230,7 @@ export function signalsEditor(label, items, phase, onChange){
       type.addEventListener("change", () => {
         item.type = type.value;
         if (item.type !== "enum") delete item.values;
+        if (item.type !== "list") delete item.of;
         emit(); render();
       });
       r.appendChild(type);
@@ -239,6 +240,7 @@ export function signalsEditor(label, items, phase, onChange){
         item.source = source.value;
         if (item.source === "exit_code" && item.type !== "bool" && item.type !== "number") item.type = "bool";
         if (item.type !== "enum") delete item.values;
+        if (item.type !== "list") delete item.of;
         if (item.source !== "field") delete item.from;
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
@@ -283,6 +285,63 @@ export function signalsEditor(label, items, phase, onChange){
           emit();
         }));
         body.appendChild(sub);
+      }
+      if ((item.type || "string") === "list") {
+        const sub = document.createElement("div"); sub.className = "signal-subrow";
+        const ofSel = document.createElement("select"); ofSel.className = "signal-of";
+        const ofOpts = ["string", "number", "bool", "enum", "object"];
+        const curOf = (item.of && typeof item.of === "object") ? "object"
+                    : (typeof item.of === "string" ? item.of : "string");
+        for (const o of ofOpts) { const opt = document.createElement("option"); opt.value = o; opt.textContent = o; if (o === curOf) opt.selected = true; ofSel.appendChild(opt); }
+        ofSel.addEventListener("change", () => {
+          const v = ofSel.value;
+          if (v === "object") item.of = (item.of && typeof item.of === "object") ? item.of : {};
+          else { item.of = v; if (v !== "enum") delete item.values; }
+          emit(); render();
+        });
+        sub.appendChild(ofSel);
+        body.appendChild(sub);
+
+        if (curOf === "enum") {
+          const vrow = document.createElement("div"); vrow.className = "signal-subrow";
+          vrow.appendChild(stringListEditor("values", item.values, (vals) => {
+            if (vals.length) item.values = vals; else delete item.values; emit();
+          }));
+          body.appendChild(vrow);
+        }
+        if (curOf === "object") {
+          const orow = document.createElement("div"); orow.className = "signal-subrow signal-of-object";
+          const obj = item.of;
+          Object.keys(obj).forEach((field) => {
+            const fr = document.createElement("div"); fr.className = "of-field-row";
+            const fname = document.createElement("input"); fname.type = "text"; fname.value = field; fname.className = "of-field-name";
+            fname.addEventListener("change", () => {
+              const nv = fname.value.trim();
+              if (nv && nv !== field) { obj[nv] = obj[field]; delete obj[field]; }
+              emit(); render();
+            });
+            const ftype = document.createElement("select"); ftype.className = "of-field-type";
+            const cur = (obj[field] && typeof obj[field] === "object") ? "enum" : obj[field];
+            for (const t of ["string", "number", "bool", "enum"]) { const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === cur) o.selected = true; ftype.appendChild(o); }
+            ftype.addEventListener("change", () => {
+              obj[field] = ftype.value === "enum" ? { enum: (obj[field] && obj[field].enum) || [] } : ftype.value;
+              emit(); render();
+            });
+            const del = document.createElement("button"); del.className = "of-field-del"; del.textContent = "✕";
+            del.addEventListener("click", () => { delete obj[field]; render(); emit(); });
+            fr.appendChild(fname); fr.appendChild(ftype); fr.appendChild(del);
+            orow.appendChild(fr);
+            if (obj[field] && typeof obj[field] === "object") {
+              orow.appendChild(stringListEditor("values", obj[field].enum, (vals) => {
+                obj[field] = { enum: vals }; emit();
+              }));
+            }
+          });
+          const addF = document.createElement("button"); addF.className = "of-field-add"; addF.textContent = "+ field";
+          addF.addEventListener("click", () => { obj["field" + (Object.keys(obj).length + 1)] = "string"; render(); emit(); });
+          orow.appendChild(addF);
+          body.appendChild(orow);
+        }
       }
     });
   }
