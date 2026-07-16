@@ -162,6 +162,10 @@ l'éditeur est le même fichier (`workflow.schema.json`) — pas de duplication.
   (« declare the closed vocabulary: values: [...] »).
 - Le défaut `of: string` garantit que les workflows standard existants sans `of` continuent
   de générer (avec un warning doux).
+- *Note (voir §10)* : `orchestrated.yaml` n'a pas d'`invocations:` — il exerce la couche
+  orchestration, pas la couche agents — donc `awok validate` y rapporte 3 erreurs
+  `COHERENCE` pré-existantes, sans lien avec ce durcissement. « Fixture enrichie et valide »
+  signifie valide schéma + orchestration, pas cohérence producteur/consommateur complète.
 
 ## 9. Tests
 
@@ -190,16 +194,48 @@ literal dans le builder de conditions (fallback texte libre si pas de `values`).
 est **enum strict** (§2.2 — `values` requis, erreur bloquante). Le plan d'implémentation
 devra inverser ce test et durcir la validation.
 
-**Reste à faire (delta de ce design)** : enum strict (ci-dessus) ; validation de forme de
-`values` (doublons/vide/mauvais type porteur) ; extension du check literal à `contains` ;
-`_value_spec`/`render_signal_emission` qui rendent le vocabulaire (`<ok|degraded|failed>` —
-toujours `<one of the allowed values>` aujourd'hui) ; **tout le volet list `of`** (schéma,
-validation, défaut string + warning, UI item-type + repeater objet) ; contrat d'item injecté
-au body du `for_each` ; warning « vocabulaires homonymes divergents » ; exigence `of` en
-cible js.
+**[MISE À JOUR 2026-07-16, fin d'implémentation] Le delta du design est implémenté.** Les
+10 tâches du plan d'implémentation ont atterri sur `feat/conditions-and-or-not` (commits
+`74e211e` → `669fb3d`) :
 
-**Coordination** : ne pas lancer l'implémentation de ce spec tant que l'agent en cours
-travaille sur les mêmes fichiers (`bb-workflow`, `formfields.js`, `orchestration.js`).
+- **enum-strict** (§2.2) : `values` requis, erreur bloquante ; `test_enum_values_optional`
+  inversé en son contraire.
+- **Validation de forme** : `values` (doublons/vide/mauvais type porteur, factorisée en
+  `_check_values_form` puis réutilisée par `of`) et `of` (défaut `string` + warning doux,
+  forme `enum`/objet plat).
+- **Checks de condition étendus** : literal ∉ `values` couvre maintenant `contains` en plus
+  de `==`/`!=` ; garde « pas de plongée dans les champs d'un item de list d'objets hors
+  `exists` ».
+- **Exigence cible js** : `of` explicite obligatoire en cible `js` (le défaut implicite
+  `string` ne suffit plus).
+- **Warnings** : list sans `of` (défaut doux, hors js) ; vocabulaires homonymes divergents
+  entre deux émissions du même nom de signal.
+- **Rendu standard** (§5) : `_value_spec`/`render_signal_emission` rendent le vocabulaire
+  réel (`<open|vuln|clean>`, arrays typés) au lieu du texte générique « one of the allowed
+  values » ; contrat d'item du `for_each` body déclaré (scalaire, enum, objet plat).
+- **Fixture** : `orchestrated.yaml` enrichie (`SCAN.status` a ses `values`, `RECON.endpoints`
+  a son `of: string`) — voir la note fixture ci-dessous.
+- **Web UI** : éditeur de type d'élément `of` (scalaire / enum / objet plat en repeater) dans
+  le Wiring, sur le modèle des widgets `values` déjà en place ; un fix de suivi
+  (`669fb3d`) a corrigé une collision de renommage de champ, un bug clone-puis-réassigne et
+  l'empilement visuel des lignes de champ du repeater.
+
+**Note fixture (découverte pendant la Tâche 8)** : `orchestrated.yaml` (le fixture partagé
+d'orchestration) n'a **aucune `invocations:`** — il n'exerce que la couche orchestration
+(gates, boucles, signaux), pas la couche agents. `awok validate` sur ce fixture rapporte donc
+3 erreurs `COHERENCE` pré-existantes et non liées à ce travail (`role not produced by this
+action`, `multi-agent token needs by` ×2) — attendues et hors périmètre, puisqu'un fixture
+sans invocation ne peut pas satisfaire les checks de cohérence producteur/consommateur.
+« Fixture valide » dans ce document et dans le plan d'implémentation signifie donc *valide
+schéma + orchestration* (ce que la Tâche 8 vérifie et que le fixture est censé exercer), pas
+*cohérence complète* — ce n'est pas une régression de ce travail.
+
+**Reste à faire — hors périmètre de ce delta, ouvert par §6 (S4/B1)** : la dérivation
+`emits` → JSON Schema elle-même (table de correspondance figée au §6) et le compilateur JS
+(consommation dynamic-target). Rien d'autre du §4/§5 n'est en suspens.
+
+**Coordination** : terminée — aucun travail concurrent restant sur `bb-workflow` /
+`formfields.js` / `orchestration.js` pour ce périmètre.
 
 ## 11. Hors périmètre (YAGNI)
 
