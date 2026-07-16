@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  html,body{margin:0;background:#0b1120;}
+  *{box-sizing:border-box}
+  input,select,button,textarea{font-family:inherit}
+  select{appearance:none;-webkit-appearance:none}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#243049;border-radius:5px;border:2px solid #0b1120}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:40px 44px 90px;background:radial-gradient(circle at 1px 1px,#16223c 1px,transparent 0) 0 0/24px 24px,#0b1120;color:#e2e8f0;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:720px;margin:0 auto;">
+    <div style="font:12px/1 ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:#7dd3fc;font-weight:700;">awok · bloc logique</div>
+    <h1 style="font-size:24px;font-weight:800;margin:11px 0 8px;letter-spacing:-.01em;">Condition AND / OR / NOT — expression inline</h1>
+    <p style="font-size:14px;color:#94a3b8;margin:0 0 30px;text-wrap:pretty;">Builder final retenu. Les connecteurs <strong style="color:#93c5fd;">AND</strong> / <strong style="color:#fda4af;">OR</strong> sont des pastilles cliquables, les groupes sont des parenthèses translucides, <strong style="color:#fca5a5;">NOT</strong> se pose sur n’importe quelle condition ou groupe. Modifie ci-dessous, la vignette de grille suit en direct.</p>
+    {{ app }}
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;800px&quot;,&quot;height&quot;:&quot;760px&quot;}}">
+class Component extends DCLogic {
+  SIGNALS = [
+    {key:'recon.waf', type:'bool'},
+    {key:'scan.risk', type:'number'},
+    {key:'scan.status', type:'enum'},
+    {key:'recon.endpoints', type:'list'},
+    {key:'exploit.ok', type:'bool'},
+  ];
+  OPS = ['==','!=','<','>','<=','>=','contains','matches','exists'];
+  BOOL = {
+    and:{word:'AND', c:'#93c5fd', bg:'rgba(96,165,250,0.14)', br:'rgba(96,165,250,0.45)'},
+    or: {word:'OR',  c:'#fda4af', bg:'rgba(251,113,133,0.14)', br:'rgba(251,113,133,0.45)'},
+  };
+  KM = { signal:{glyph:'◈',label:'signal',c:'#7dd3fc',bg:'rgba(56,189,248,0.14)'}, literal:{glyph:'“”',label:'littéral',c:'#fcd34d',bg:'rgba(251,191,36,0.14)'}, builtin:{glyph:'ƒ',label:'built-in',c:'#c4b5fd',bg:'rgba(167,139,250,0.14)'} };
+  BUILTINS = ['file_exists','dir_exists'];
+  seed(){ return { id:'r', t:'grp', bool:'or', kids:[
+    { id:'g1', t:'grp', bool:'and', kids:[
+      { id:'c1', t:'cmp', left:{k:'signal',v:'recon.waf'}, op:'==', right:{k:'literal',v:'true'} },
+      { id:'c2', t:'cmp', left:{k:'signal',v:'scan.risk'}, op:'>', right:{k:'literal',v:'7'} },
+    ]},
+    { id:'g2', t:'grp', bool:'and', neg:true, kids:[
+      { id:'c3', t:'cmp', left:{k:'signal',v:'scan.status'}, op:'==', right:{k:'literal',v:'open'} },
+      { id:'c4', t:'cmp', left:{k:'builtin',fn:'file_exists',arg:'/etc/passwd'} },
+    ]},
+  ]}; }
+  state = { tree:this.seed() };
+
+  uid(){ return 'n'+Math.random().toString(36).slice(2,7); }
+  find(root,id){ let r=null; const rec=(n,parent,i)=>{ if(n.id===id){ r={node:n,parent,index:i}; return; } if(n.kids) n.kids.forEach((k,j)=>rec(k,n,j)); }; rec(root,null,-1); return r; }
+  edit(fn){ const tree=JSON.parse(JSON.stringify(this.state.tree)); fn(tree); this.setState({tree}); }
+
+  toggleBool = (id)=> this.edit(t=>{ const f=this.find(t,id); if(f) f.node.bool = f.node.bool==='and'?'or':'and'; });
+  toggleNeg = (id)=> this.edit(t=>{ const f=this.find(t,id); if(f) f.node.neg=!f.node.neg; });
+  remove = (id)=> this.edit(t=>{ const f=this.find(t,id); if(f&&f.parent) f.parent.kids.splice(f.index,1); });
+  addCmp = (gid)=> this.edit(t=>{ const f=this.find(t,gid); if(f) f.node.kids.push({id:this.uid(),t:'cmp',left:{k:'signal',v:'scan.risk'},op:'>',right:{k:'literal',v:''}}); });
+  addGrp = (gid)=> this.edit(t=>{ const f=this.find(t,gid); if(f) f.node.kids.push({id:this.uid(),t:'grp',bool:'or',kids:[{id:this.uid(),t:'cmp',left:{k:'signal',v:'scan.status'},op:'==',right:{k:'literal',v:''}}]}); });
+  setLeaf = (id,patch)=> this.edit(t=>{ const f=this.find(t,id); if(f) Object.assign(f.node,patch); });
+  setOperand = (id,side,patch)=> this.edit(t=>{ const f=this.find(t,id); if(f) f.node[side]={...f.node[side],...patch}; });
+  changeKind = (id,side,k)=> this.edit(t=>{ const f=this.find(t,id); if(!f) return; f.node[side] = k==='signal'?{k:'signal',v:this.SIGNALS[0].key} : k==='builtin'?{k:'builtin',fn:this.BUILTINS[0],arg:''} : {k:'literal',v:''}; });
+  reset = ()=> this.setState({tree:this.seed()});
+
+  notBadge(active,onClick,ro){ const h=React.createElement; return h('span',{onClick:ro?undefined:onClick, title:'NOT — nier ce bloc', style:{display:'inline-flex',alignItems:'center',justifyContent:'center',height:ro?18:24,padding:ro?'0 6px':'0 8px',borderRadius:6,cursor:ro?'default':'pointer',flex:'0 0 auto',font:(ro?'9px':'10px')+'/1 ui-monospace,monospace',fontWeight:800,letterSpacing:'.06em',color:active?'#fca5a5':'#64748b',background:active?'rgba(248,113,113,0.16)':'transparent',border:'1px solid '+(active?'rgba(248,113,113,0.5)':'#243049'),transition:'all .12s'}},'NOT'); }
+
+  // ---- read view (grille) ----
+  opndRead(o){ const h=React.createElement; if(o&&o.k==='builtin') return h('span',{style:{color:'#c4b5fd'}}, 'ƒ '+o.fn+'('+(o.arg?('"'+o.arg+'"'):'…')+')'); if(!o||o.v==='') return h('span',{style:{color:'#64748b'}},'…'); if(o.k==='signal') return h('span',{style:{color:'#7dd3fc'}},'◈ '+o.v); return h('span',{style:{color:'#fcd34d'}}, o.v); }
+  leafRead(n){ const h=React.createElement; const isB=n.left.k==='builtin'; return h('span',{style:{display:'inline-flex',alignItems:'center',gap:6,font:'10.5px/1 ui-monospace,monospace',background:'#0b1120',border:'1px solid #243049',borderRadius:7,padding:'4px 7px',whiteSpace:'nowrap'}}, n.neg?this.notBadge(true,null,true):null, this.opndRead(n.left), isB?null:h('span',{style:{color:'#64748b'}},n.op), (isB||n.op==='exists')?null:this.opndRead(n.right)); }
+  connRead(bool){ const h=React.createElement; const b=this.BOOL[bool]; return h('span',{style:{font:'9px/1 ui-monospace,monospace',fontWeight:800,letterSpacing:'.08em',color:b.c,background:b.bg,border:'1px solid '+b.br,borderRadius:5,padding:'3px 6px',flex:'0 0 auto'}}, b.word); }
+  readNode(n,depth){ const h=React.createElement; if(n.t==='cmp') return this.leafRead(n);
+    const inner=[]; n.kids.forEach((k,i)=>{ if(i>0) inner.push(h('span',{key:'cc'+i},this.connRead(n.bool))); inner.push(h('span',{key:'k'+i,style:{display:'inline-flex',alignItems:'center'}},this.readNode(k,depth+1))); });
+    if(depth===0) return h('span',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}, ...inner);
+    const b=this.BOOL[n.bool];
+    return h('span',{style:{display:'inline-flex',alignItems:'center',gap:6,flexWrap:'wrap',padding:'3px 7px 3px 5px',borderRadius:9,background:b.bg,border:'1px dashed '+b.br}}, n.neg?this.notBadge(true,null,true):h('span',{style:{color:b.c,fontWeight:800,font:'11px/1 ui-monospace,monospace'}},'('), ...inner, n.neg?null:h('span',{style:{color:b.c,fontWeight:800,font:'11px/1 ui-monospace,monospace'}},')'));
+  }
+
+  gateCard(){ const h=React.createElement;
+    return h('div',{style:{border:'1.5px solid rgba(167,139,250,0.55)',borderLeft:'3px solid #a78bfa',borderRadius:13,background:'rgba(167,139,250,0.055)'}},
+      h('div',{style:{padding:'11px 13px',borderBottom:'1px solid rgba(167,139,250,0.22)'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:9}},
+          h('span',{style:{width:16,height:16,background:'#a78bfa',transform:'rotate(45deg)',borderRadius:3,flex:'0 0 auto'}}),
+          h('span',{style:{font:'11px/1 ui-monospace,monospace',fontWeight:800,letterSpacing:'.12em',color:'#c4b5fd'}},'IF')),
+        h('div',{style:{minWidth:0}}, this.readNode(this.state.tree,0))
+      ),
+      h('div',{style:{padding:'11px 13px',display:'flex',gap:10}},
+        h('div',{style:{flex:1,background:'#0b1120',border:'1px solid rgba(134,239,172,0.3)',borderRadius:10,padding:9}}, h('div',{style:{font:'9px/1 ui-monospace,monospace',fontWeight:700,letterSpacing:'.1em',color:'#86efac',marginBottom:7}},'THEN'), h('div',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 10px',borderRadius:8,background:'#0f172a',border:'1px solid #243049',borderLeft:'3px solid #4ade80'}}, h('span',{style:{font:'11px/1 ui-monospace,monospace',fontWeight:700}},'EXPLOIT'))),
+        h('div',{style:{flex:1,background:'#0b1120',border:'1px solid #243049',borderRadius:10,padding:9}}, h('div',{style:{font:'9px/1 ui-monospace,monospace',fontWeight:700,letterSpacing:'.1em',color:'#94a3b8',marginBottom:7}},'ELSE'), h('div',{style:{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 10px',borderRadius:8,background:'#0f172a',border:'1px solid #243049',borderLeft:'3px solid #60a5fa'}}, h('span',{style:{font:'11px/1 ui-monospace,monospace',fontWeight:700}},'SCAN'))))
+    );
+  }
+
+  // ---- inline editor controls ----
+  kindSelect(n,side){ const h=React.createElement; const o=n[side]; const kinds=side==='left'?['signal','literal','builtin']:['signal','literal']; return h('span',{style:{display:'inline-flex',gap:2,padding:2,background:'#0b1120',border:'1px solid #243049',borderRadius:7,flex:'0 0 auto'}}, ...kinds.map(k=>{ const m=this.KM[k]; const on=o.k===k; return h('span',{key:k, onClick:()=>this.changeKind(n.id,side,k), title:m.label, style:{display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:20,padding:'0 6px',borderRadius:5,cursor:'pointer',font:'10px/1 ui-monospace,monospace',fontWeight:800,color:on?m.c:'#475569',background:on?m.bg:'transparent',transition:'all .12s'}}, m.glyph); })); }
+  sigSelect(n,side){ const h=React.createElement; const o=n[side]; return h('select',{ref:(el)=>{if(el)el.value=o.v;}, value:o.v, onChange:(e)=>this.setOperand(n.id,side,{v:e.target.value}), style:{background:'#0b1120',border:'1px solid rgba(56,189,248,0.35)',borderRadius:6,padding:'5px 8px',color:'#7dd3fc',font:'11px/1 ui-monospace,monospace',fontWeight:600,cursor:'pointer'}}, ...this.SIGNALS.map(s=>h('option',{key:s.key,value:s.key},'◈ '+s.key))); }
+  opValue(n,side){ const h=React.createElement; const o=n[side];
+    if(o.k==='signal') return this.sigSelect(n,side);
+    if(o.k==='builtin') return h('span',{style:{display:'inline-flex',alignItems:'center',gap:4}},
+      h('select',{ref:(el)=>{if(el)el.value=o.fn;}, value:o.fn, title:'fonction built-in', onChange:(e)=>this.setOperand(n.id,side,{fn:e.target.value}), style:{background:'#0b1120',border:'1px solid rgba(167,139,250,0.4)',borderRadius:6,padding:'5px 8px',color:'#c4b5fd',font:'11px/1 ui-monospace,monospace',fontWeight:600,cursor:'pointer'}}, ...this.BUILTINS.map(b=>h('option',{key:b,value:b},'ƒ '+b))),
+      h('input',{value:o.arg||'', placeholder:'"path"', onChange:(e)=>this.setOperand(n.id,side,{arg:e.target.value}), style:{width:118,background:'#0b1120',border:'1px solid rgba(167,139,250,0.25)',borderRadius:6,padding:'5px 8px',color:'#c4b5fd',font:'11px/1 ui-monospace,monospace'}}));
+    return h('input',{value:o.v, placeholder:'valeur', onChange:(e)=>this.setOperand(n.id,side,{v:e.target.value}), style:{width:66,background:'#0b1120',border:'1px solid rgba(251,191,36,0.35)',borderRadius:6,padding:'5px 8px',color:'#fcd34d',font:'11px/1 ui-monospace,monospace',fontWeight:600}}); }
+  operandCtrl(n,side){ const h=React.createElement; return h('span',{style:{display:'inline-flex',alignItems:'center',gap:4}}, this.kindSelect(n,side), this.opValue(n,side)); }
+  opSelect(n){ const h=React.createElement; return h('select',{ref:(el)=>{if(el)el.value=n.op;}, value:n.op, onChange:(e)=>this.setLeaf(n.id,{op:e.target.value}), style:{background:'#0b1120',border:'1px solid #243049',borderRadius:6,padding:'5px 7px',color:'#e2e8f0',font:'12px/1 ui-monospace,monospace',fontWeight:700,cursor:'pointer'}}, ...this.OPS.map(o=>h('option',{key:o,value:o},o))); }
+  xBtn(id){ const h=React.createElement; return h('span',{onClick:()=>this.remove(id), title:'supprimer', style:{color:'#475569',cursor:'pointer',fontSize:13,padding:'0 2px',flex:'0 0 auto'}},'✕'); }
+
+  build(n,depth){ const h=React.createElement;
+    if(n.t==='cmp'){ const isB=n.left.k==='builtin';
+      return h('span',{key:n.id, style:{display:'inline-flex',alignItems:'center',gap:6,flexWrap:'wrap',padding:'5px 7px',borderRadius:8,background:'#0b1120',border:'1px solid #243049'}},
+        this.notBadge(n.neg,()=>this.toggleNeg(n.id)), this.operandCtrl(n,'left'), isB?null:this.opSelect(n), (isB||n.op==='exists')?null:this.operandCtrl(n,'right'), this.xBtn(n.id));
+    }
+    const b=this.BOOL[n.bool];
+    const inner=[]; n.kids.forEach((k,i)=>{ if(i>0) inner.push(h('span',{key:'c'+i, onClick:()=>this.toggleBool(n.id), title:'cliquer pour basculer AND / OR', style:{font:'10px/1 ui-monospace,monospace',fontWeight:800,letterSpacing:'.06em',color:b.c,background:b.bg,border:'1px solid '+b.br,borderRadius:6,padding:'4px 8px',cursor:'pointer',flex:'0 0 auto'}}, b.word)); inner.push(h('span',{key:k.id,style:{display:'inline-flex',alignItems:'center'}},this.build(k,depth+1))); });
+    const controls = h('span',{style:{display:'inline-flex',alignItems:'center',gap:5,flex:'0 0 auto'}},
+      h('span',{onClick:()=>this.addCmp(n.id), title:'ajouter une condition', style:{width:22,height:22,display:'inline-flex',alignItems:'center',justifyContent:'center',borderRadius:6,cursor:'pointer',color:'#7dd3fc',background:'rgba(56,189,248,0.1)',border:'1px solid rgba(56,189,248,0.3)',font:'13px/1 monospace'}},'＋'),
+      depth<2? h('span',{onClick:()=>this.addGrp(n.id), title:'ajouter un groupe ( )', style:{width:22,height:22,display:'inline-flex',alignItems:'center',justifyContent:'center',borderRadius:6,cursor:'pointer',color:'#c4b5fd',background:'rgba(167,139,250,0.1)',border:'1px dashed rgba(167,139,250,0.4)',font:'11px/1 monospace',fontWeight:700}},'()'):null);
+    if(depth===0) return h('span',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}, ...inner, controls);
+    return h('span',{style:{display:'inline-flex',alignItems:'center',gap:7,flexWrap:'wrap',padding:'6px 9px',borderRadius:11,background:b.bg,border:'1px dashed '+b.br}},
+      this.notBadge(n.neg,()=>this.toggleNeg(n.id)),
+      h('span',{style:{color:b.c,fontWeight:800,font:'13px/1 ui-monospace,monospace'}},'('), ...inner, h('span',{style:{color:b.c,fontWeight:800,font:'13px/1 ui-monospace,monospace'}},')'),
+      controls, this.xBtn(n.id));
+  }
+
+  section(label, right, body){ const h=React.createElement; return h('div',null,
+    h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+      h('div',{style:{fontSize:9.5,textTransform:'uppercase',letterSpacing:'.08em',color:'#475569',fontWeight:700}}, label), right||null),
+    body); }
+
+  app(){ const h=React.createElement;
+    const items=[['◈','signal — valeur émise par une phase','#7dd3fc'],['“”','littéral — valeur fixe que tu saisis','#fcd34d'],['ƒ','built-in — file_exists / dir_exists (prédicat autonome)','#c4b5fd'],['AND / OR','connecteur — clic pour basculer','#93c5fd'],['( )','groupe / parenthèse','#c4b5fd'],['NOT','négation','#fca5a5']];
+    const legend = h('div',{style:{marginTop:16}},
+      h('div',{style:{fontSize:9.5,textTransform:'uppercase',letterSpacing:'.08em',color:'#475569',fontWeight:700,marginBottom:8}},'Aide · types d’opérande & symboles'),
+      h('div',{style:{display:'flex',flexDirection:'column',gap:8,padding:'12px 14px',borderRadius:10,background:'rgba(15,23,42,0.6)',border:'1px solid #1a2438'}}, ...items.map((it,i)=>h('div',{key:i,style:{display:'flex',alignItems:'center',gap:10,fontSize:11.5,color:'#94a3b8'}}, h('span',{style:{display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:28,padding:'3px 6px',borderRadius:5,font:'10px/1 ui-monospace,monospace',fontWeight:800,color:it[2],background:'rgba(148,163,184,0.06)',border:'1px solid #243049',flex:'0 0 auto'}},it[0]), it[1]))),
+      h('div',{style:{fontSize:10.5,color:'#475569',marginTop:7}},'Survolez une icône du sélecteur pour afficher son libellé.'));
+    return h('div',{style:{display:'flex',flexDirection:'column',gap:26}},
+      this.section('Sur la grille', null, this.gateCard()),
+      this.section('Dans le volet (au clic sur le bloc)', h('span',{onClick:this.reset, style:{fontSize:10.5,color:'#64748b',cursor:'pointer'}},'↺ reset'),
+        h('div',{style:{background:'#0f172a',border:'1px solid #243049',borderRadius:12,padding:'16px 16px 18px'}},
+          h('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'.07em',color:'#64748b',marginBottom:9}},'Condition'),
+          this.build(this.state.tree,0),
+          legend))
+    );
+  }
+
+  renderVals(){ return { app: this.app() }; }
+}
+</script>
+</body>
+</html>
