@@ -457,10 +457,10 @@ export function getCondAt(root, path) {
 }
 export function setCondAt(root, path, value) {
   const next = _clone(root);
-  if (path.length === 0) return value;
+  if (path.length === 0) return _clone(value);
   let cur = next;
   for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
-  cur[path[path.length - 1]] = value;
+  cur[path[path.length - 1]] = _clone(value);
   return next;
 }
 export function toggleNotAt(root, path) {
@@ -478,6 +478,7 @@ export function toggleConnectorAt(root, path) {
 export function addComparisonAt(root, groupPath, leaf) {
   const g = _clone(getCondAt(root, groupPath));
   const k = condKind(g);
+  if (k !== "and" && k !== "or") throw new Error("addComparisonAt: path is not a group");
   g[k] = g[k].concat([leaf]);
   return setCondAt(root, groupPath, g);
 }
@@ -492,5 +493,5 @@ export function removeCondAt(root, path) {
     const arr = parent.slice(); arr.splice(key, 1);
     return setCondAt(root, parentPath, arr);
   }
-  return root;
+  return _clone(root);
 }
