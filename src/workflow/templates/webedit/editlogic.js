@@ -471,7 +471,7 @@ export function toggleNotAt(root, path) {
 export function toggleConnectorAt(root, path) {
   const g = getCondAt(root, path);
   const k = condKind(g);
-  if (k !== "and" && k !== "or") return root;
+  if (k !== "and" && k !== "or") return _clone(root);
   const other = k === "and" ? "or" : "and";
   return setCondAt(root, path, { [other]: g[k] });
 }

@@ -128,3 +128,16 @@ test("removeCondAt no-op branch still returns a fresh clone, not the same root",
   expect(result).not.toBe(SAMPLE);
   expect(result).toEqual(SAMPLE);
 });
+
+test("toggleConnectorAt no-op branch still returns a fresh clone, not the same root", () => {
+  // path points at a LEAF, not a group -> no-op branch; must still honor "always a new root".
+  const snapshotLeft = SAMPLE.or[0].and[0].left;
+
+  const result = toggleConnectorAt(SAMPLE, ["or", 0, "and", 0]);
+  expect(result).not.toBe(SAMPLE);
+  expect(result).toEqual(SAMPLE);
+
+  // Mutating a nested field of the result must not touch SAMPLE.
+  result.or[0].and[0].left = "mutated";
+  expect(SAMPLE.or[0].and[0].left).toBe(snapshotLeft);
+});
