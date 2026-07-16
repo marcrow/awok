@@ -105,6 +105,31 @@ def test_numeric_operator_on_string_signal(bbw_module):
     assert any("t1.v" in e and "number" in e for e in errs)
 
 
+def test_emits_enum_values_carried_by_collect_signals(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["open", "vuln", "clean"]}])
+    sigs = bbw_module.collect_signals(wf)
+    assert sigs["t1.status"]["values"] == ["open", "vuln", "clean"]
+
+
+def test_literal_not_in_enum_values_warns(bbw_module):
+    wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "ghost"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["open", "vuln"]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("status" in e and "ghost" in e for e in errs)
+
+
+def test_enum_values_optional(bbw_module):
+    # enum signal with no declared values → no crash, no enum warning
+    wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "whatever"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token"}])
+    assert bbw_module.validate_orchestration(wf) == []
+
+
 def test_file_exists_rejected_in_js_target(bbw_module):
     wf = _wf([{"if": {"op": "exists", "left": {"file_exists": "x.txt"}}, "then": [{"ref": "T1"}]}])
     errs = bbw_module.validate_orchestration(wf, target="js")

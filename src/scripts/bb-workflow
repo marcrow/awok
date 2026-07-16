@@ -788,6 +788,7 @@ def collect_signals(workflow: dict) -> dict:
                 "type": emit.get("type"),
                 "source": emit.get("source"),
                 "phase": pid,
+                "values": emit.get("values"),
             }
     return signals
 
@@ -1200,6 +1201,24 @@ def _validate_condition(cond, signals, caps, target):
             t = _operand_type(operand, signals)
             if t is not None and t not in ("number", "builtin"):
                 errors.append(f"orchestration: operator '{op}' needs number operands, got '{operand}' (type {t})")
+
+    # enum-literal check: a '=='/'!=' comparison of an enum signal against a
+    # literal not in its declared `values` (non-blocking — the signal may not
+    # have declared `values`, in which case there is nothing to check against).
+    if op in ("==", "!="):
+        for sig_operand, lit_operand in ((left, right), (right, left)):
+            if not isinstance(sig_operand, str) or sig_operand not in signals:
+                continue
+            sig_meta = signals[sig_operand]
+            values = sig_meta.get("values")
+            if sig_meta.get("type") != "enum" or not values:
+                continue
+            if not isinstance(lit_operand, str) or lit_operand in signals:
+                continue
+            if lit_operand not in values:
+                errors.append(
+                    f"orchestration: literal '{lit_operand}' is not one of enum "
+                    f"signal '{sig_operand}' values {values}")
     return errors
 
 
