@@ -1141,6 +1141,13 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
     signals = collect_signals(workflow)
     known_pids = {p["id"] for p in workflow.get("phases", [])}
     errors = []
+    if target == "js":
+        for phase in workflow.get("phases", []):
+            for emit in phase.get("emits", []) or []:
+                if emit.get("type") == "list" and emit.get("of") is None:
+                    errors.append(
+                        f"signal {phase['id']}.{emit.get('name', '?')}: type 'list' "
+                        f"requires an explicit 'of' element type in a js target")
     errors.extend(_validate_block_ids(workflow["orchestration"], known_pids))
     errors.extend(_validate_dependencies(workflow))
 

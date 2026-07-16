@@ -279,6 +279,21 @@ def test_escape_hatch_ok_in_standard(bbw_module):
     assert errs == []
 
 
+def test_list_without_of_rejected_in_js_target(bbw_module):
+    wf = _wf([{"for_each": "t1.hits", "as": "h", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "hits", "type": "list", "source": "field", "from": "t1.json"}])
+    errs = bbw_module.validate_orchestration(wf, target="js")
+    assert any("hits" in e and "of" in e and "js" in e.lower() for e in errs)
+
+
+def test_list_without_of_ok_in_standard_target(bbw_module):
+    wf = _wf([{"for_each": "t1.hits", "as": "h", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "hits", "type": "list", "source": "field", "from": "t1.json"}])
+    # standard target: missing `of` is a warning (Task 5), NOT an orchestration error
+    assert not any("of" in e and "js" in e.lower()
+                   for e in bbw_module.validate_orchestration(wf, target="standard"))
+
+
 def test_and_or_not_valid_condition(bbw_module):
     wf = _wf(
         [{"if": {"or": [
