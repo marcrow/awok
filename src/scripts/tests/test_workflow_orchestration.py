@@ -117,6 +117,63 @@ def test_escape_hatch_ok_in_standard(bbw_module):
     assert errs == []
 
 
+def test_and_or_not_valid_condition(bbw_module):
+    wf = _wf(
+        [{"if": {"or": [
+            {"and": [{"op": "==", "left": "t1.waf", "right": "true"},
+                     {"op": ">", "left": "t1.risk", "right": 7}]},
+            {"not": {"op": "==", "left": "t1.status", "right": "open"}},
+        ]}, "then": [{"ref": "T1"}]}],
+        emits=[{"name": "waf", "type": "bool", "source": "token"},
+               {"name": "risk", "type": "number", "source": "token"},
+               {"name": "status", "type": "string", "source": "token"}],
+    )
+    assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_nested_unknown_signal_is_caught(bbw_module):
+    wf = _wf([{"if": {"and": [{"op": "==", "left": "t1.v", "right": "x"},
+                              {"op": "==", "left": "ghost.v", "right": "y"}]},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("ghost.v" in e for e in errs)
+
+
+def test_incomplete_leaf_missing_right_is_error(bbw_module):
+    wf = _wf([{"if": {"op": "==", "left": "t1.v", "right": ""},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("incomplete" in e.lower() or "missing" in e.lower() for e in errs)
+
+
+def test_builtin_missing_argument_is_error(bbw_module):
+    wf = _wf([{"if": {"op": "exists", "left": {"file_exists": ""}},
+               "then": [{"ref": "T1"}]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("argument" in e.lower() and "file_exists" in e for e in errs)
+
+
+def test_group_with_single_member_warns_not_blocks(bbw_module):
+    wf = _wf([{"if": {"and": [{"op": "==", "left": "t1.v", "right": "x"}]},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    # non-blocking: no ERROR, but a warning string is present
+    assert any("at least 2" in e.lower() or "single member" in e.lower() for e in errs)
+    assert all(e.lower().startswith("orchestration:") for e in errs)
+
+
+def test_escape_hatch_inside_group_rejected_in_js(bbw_module):
+    wf = _wf([{"if": {"or": [{"op": "exists", "left": "t1.v"},
+                             "some free predicate"]},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "bool", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf, target="js")
+    assert any("escape-hatch" in e.lower() for e in errs)
+
+
 def test_parallel_block_rejected_by_schema(bbw_module):
     import jsonschema, pytest
     schema = bbw_module.load_orchestration_schema()

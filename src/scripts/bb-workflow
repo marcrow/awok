@@ -1128,6 +1128,35 @@ def _validate_condition(cond, signals, caps, target):
     if not isinstance(cond, dict):
         return errors
 
+    # --- boolean connectors: and / or / not (recursive) ---
+    conn = next((k for k in ("and", "or", "not") if k in cond), None)
+    if conn is not None:
+        cmeta = caps.get("connectors", {}).get(conn)
+        if cmeta is None:
+            errors.append(f"orchestration: unknown connector '{conn}'")
+            return errors
+        if target == "js" and not cmeta.get("js_safe", False):
+            errors.append(f"orchestration: connector '{conn}' is standard-only in a js target")
+        if conn == "not":
+            inner = cond["not"]
+            if isinstance(inner, list):
+                errors.append("orchestration: 'not' takes a single condition, not a list")
+            else:
+                errors.extend(_validate_condition(inner, signals, caps, target))
+        else:
+            members = cond[conn]
+            if not isinstance(members, list):
+                errors.append(f"orchestration: '{conn}' must be a list of conditions")
+            else:
+                if len(members) < 2:
+                    errors.append(
+                        f"orchestration: group '{conn}' should have at least 2 members "
+                        f"(has {len(members)})")
+                for m in members:
+                    errors.extend(_validate_condition(m, signals, caps, target))
+        return errors
+
+    # --- leaf comparison ---
     op = cond.get("op")
     op_meta = caps["operators"].get(op)
     if op_meta is None:
@@ -1138,20 +1167,30 @@ def _validate_condition(cond, signals, caps, target):
 
     left, right = cond.get("left"), cond.get("right")
 
-    # builtin operand (file_exists/dir_exists) js-safety
+    # leaf completeness (mini-spec §7)
+    def _empty(v):
+        return v is None or (isinstance(v, str) and v.strip() == "")
+    if _empty(left):
+        errors.append("orchestration: incomplete comparison — missing left operand")
+    if op != "exists" and _empty(right):
+        errors.append("orchestration: incomplete comparison — missing right operand")
+
+    # builtin operand (file_exists/dir_exists) js-safety + argument presence
     for operand in (left, right):
         if isinstance(operand, dict):
-            for bname in operand:
+            for bname, barg in operand.items():
                 bmeta = caps["builtins"].get(bname)
                 if bmeta is None:
                     errors.append(f"orchestration: unknown builtin '{bname}'")
-                elif target == "js" and not bmeta.get("js_safe", False):
+                    continue
+                if target == "js" and not bmeta.get("js_safe", False):
                     errors.append(f"orchestration: builtin '{bname}' is standard-only in a js target")
+                if _empty(barg):
+                    errors.append(f"orchestration: builtin '{bname}' is missing its argument")
 
     # signal existence: a dotted string operand that looks like a ref must resolve
     for operand in (left, right):
         if isinstance(operand, str) and "." in operand and _SIGNAL_PREFIX_RE.match(operand.split(".")[0]):
-            # heuristic: treat 'a.b' as a signal ref
             if operand not in signals and not _looks_like_literal(operand):
                 errors.append(f"orchestration: condition references unknown signal '{operand}'")
 
