@@ -175,7 +175,33 @@ l'éditeur est le même fichier (`workflow.schema.json`) — pas de duplication.
 - **Web UI** : tests bun des nouveaux inputs (chips, repeater) sur le modèle des tests
   éditeur existants.
 
-## 10. Hors périmètre (YAGNI)
+## 10. État d'implémentation au 2026-07-16 (travail concurrent sur la branche)
+
+Pendant ce brainstorm, la branche `feat/conditions-and-or-not` a reçu une première tranche
+du périmètre enum (commits `b58f5a5`, `18393d7`, agent en cours de travail) :
+
+**Déjà fait** : champ `values` dans `workflow.schema.json` (optionnel) ; `collect_signals`
+transporte `values` ; check « literal ∉ values » pour `==`/`!=` (avec tests) ; web UI —
+éditeur de `values` (stringListEditor) dans le Wiring + dropdown des valeurs d'enum pour le
+literal dans le builder de conditions (fallback texte libre si pas de `values`).
+
+**Divergence à résorber** : l'implémentation actuelle traite `values` comme **optionnel**
+(le test `test_enum_values_optional` verrouille ce comportement) ; la décision de ce design
+est **enum strict** (§2.2 — `values` requis, erreur bloquante). Le plan d'implémentation
+devra inverser ce test et durcir la validation.
+
+**Reste à faire (delta de ce design)** : enum strict (ci-dessus) ; validation de forme de
+`values` (doublons/vide/mauvais type porteur) ; extension du check literal à `contains` ;
+`_value_spec`/`render_signal_emission` qui rendent le vocabulaire (`<ok|degraded|failed>` —
+toujours `<one of the allowed values>` aujourd'hui) ; **tout le volet list `of`** (schéma,
+validation, défaut string + warning, UI item-type + repeater objet) ; contrat d'item injecté
+au body du `for_each` ; warning « vocabulaires homonymes divergents » ; exigence `of` en
+cible js.
+
+**Coordination** : ne pas lancer l'implémentation de ce spec tant que l'agent en cours
+travaille sur les mêmes fichiers (`bb-workflow`, `formfields.js`, `orchestration.js`).
+
+## 11. Hors périmètre (YAGNI)
 
 - Section `types:` partagée / `values_ref` (réutilisation de vocabulaires) — plus tard,
   compatible avec l'inline.
