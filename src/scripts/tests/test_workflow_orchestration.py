@@ -122,12 +122,54 @@ def test_literal_not_in_enum_values_warns(bbw_module):
     assert any("status" in e and "ghost" in e for e in errs)
 
 
-def test_enum_values_optional(bbw_module):
-    # enum signal with no declared values → no crash, no enum warning
+def test_condition_literal_check_skipped_without_values(bbw_module):
+    # No declared `values` → the ==/contains literal check has no vocabulary to
+    # check against, so validate_orchestration stays silent. (The missing-values
+    # blocking error is raised by _validate_signals, see enum-strict tests.)
     wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "whatever"},
                "then": [{"ref": "T1"}]}],
              emits=[{"name": "status", "type": "enum", "source": "token"}])
     assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_enum_without_values_is_blocking(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("status" in e and "values" in e for e in errs)
+
+
+def test_enum_with_values_ok(bbw_module):
+    # single invocation so the token signal's emitter resolves cleanly —
+    # isolates the assertion to the enum/values form checks.
+    wf = _wf([{"ref": "T1"}],
+             phases=[{"id": "T1", "name": "a", "group": "g",
+                      "invocations": [{"agent": "test-agent"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["ok", "degraded", "failed"]}])
+    assert bbw_module._validate_signals(wf) == []
+
+
+def test_enum_values_must_be_nonempty(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token", "values": []}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("status" in e and "values" in e for e in errs)
+
+
+def test_enum_values_must_be_unique_strings(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["ok", "ok"]}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("status" in e and "duplicate" in e.lower() for e in errs)
+
+
+def test_values_rejected_on_non_enum(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "n", "type": "number", "source": "token", "values": ["1"]}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("n" in e and "values" in e for e in errs)
 
 
 def test_file_exists_rejected_in_js_target(bbw_module):

@@ -837,12 +837,29 @@ def resolve_signal_emitter(workflow: dict, phase: dict, emit: dict) -> dict:
     return {"kind": "unresolved", "reason": "multi-agent token needs `by`"}
 
 
+def _check_values_form(values, tag):
+    """Form errors for a declared enum `values` list: must be a non-empty list
+    of unique strings. Returns a list of error strings (empty if well-formed)."""
+    errs = []
+    if not isinstance(values, list) or not values:
+        errs.append(f"{tag}: 'values' must be a non-empty list of strings")
+        return errs
+    if any(not isinstance(v, str) for v in values):
+        errs.append(f"{tag}: 'values' entries must all be strings")
+    if len(set(values)) != len(values):
+        errs.append(f"{tag}: 'values' contains duplicate entries")
+    return errs
+
+
 def _validate_signals(workflow: dict) -> list:
     """Blocking semantic rules for declared `emits` signals.
 
     - source: exit_code requires action nature 'script' and type 'bool'
       (0 => true shorthand) or 'number' (the raw integer exit code).
     - type: list requires source: field.
+    - type: enum requires a well-formed `values` vocabulary (non-empty,
+      unique strings); `values` is rejected on any other type (except a
+      list-of-enum, handled elsewhere).
     - a field signal's `from` role must actually be produced by the action
       (delegated to resolve_signal_emitter, which returns 'unresolved')."""
     errors = []
@@ -861,6 +878,16 @@ def _validate_signals(workflow: dict) -> list:
                     errors.append(f"{tag}: source 'exit_code' requires type 'bool' (0 => true) or 'number' (raw exit code)")
             if typ == "list" and src != "field":
                 errors.append(f"{tag}: type 'list' requires source 'field'")
+            values = emit.get("values")
+            if typ == "enum":
+                if values is None:
+                    errors.append(f"{tag}: type 'enum' requires a non-empty 'values' list (the closed vocabulary)")
+                else:
+                    errors.extend(_check_values_form(values, tag))
+            elif values is not None and not (typ == "list" and emit.get("of") == "enum"):
+                # values is only meaningful for an enum, or for a list whose
+                # elements are enums (Task 2 handles the list case).
+                errors.append(f"{tag}: 'values' is only valid for type 'enum' (or a list of enums)")
             em = resolve_signal_emitter(workflow, phase, emit)
             if em["kind"] == "unresolved":
                 errors.append(f"{tag}: {em['reason']}")
