@@ -132,6 +132,39 @@ def test_condition_literal_check_skipped_without_values(bbw_module):
     assert bbw_module.validate_orchestration(wf) == []
 
 
+def test_contains_literal_not_in_enum_list_values(bbw_module):
+    wf = _wf([{"if": {"op": "contains", "left": "t1.tags", "right": "ghost"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "tags", "type": "list", "source": "field", "from": "t1.json",
+                     "of": "enum", "values": ["a", "b"]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("tags" in e and "ghost" in e for e in errs)
+
+
+def test_contains_literal_in_enum_list_values_ok(bbw_module):
+    wf = _wf([{"if": {"op": "contains", "left": "t1.tags", "right": "a"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "tags", "type": "list", "source": "field", "from": "t1.json",
+                     "of": "enum", "values": ["a", "b"]}])
+    assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_non_exists_op_on_object_list_is_error(bbw_module):
+    wf = _wf([{"if": {"op": "contains", "left": "t1.findings", "right": "x"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "findings", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string"}}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("findings" in e and "object" in e.lower() for e in errs)
+
+
+def test_exists_on_object_list_ok(bbw_module):
+    wf = _wf([{"if": {"op": "exists", "left": "t1.findings"}, "then": [{"ref": "T1"}]}],
+             emits=[{"name": "findings", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string"}}])
+    assert bbw_module.validate_orchestration(wf) == []
+
+
 def test_enum_without_values_is_blocking(bbw_module):
     wf = _wf([{"ref": "T1"}],
              emits=[{"name": "status", "type": "enum", "source": "token"}])

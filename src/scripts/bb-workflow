@@ -1270,16 +1270,24 @@ def _validate_condition(cond, signals, caps, target):
             if t is not None and t not in ("number", "builtin"):
                 errors.append(f"orchestration: operator '{op}' needs number operands, got '{operand}' (type {t})")
 
-    # enum-literal check: a '=='/'!=' comparison of an enum signal against a
-    # literal not in its declared `values` (non-blocking — the signal may not
-    # have declared `values`, in which case there is nothing to check against).
-    if op in ("==", "!="):
+    # enum-vocabulary check: a literal compared to (==/!=) an enum signal, or
+    # `contains`-ed into a list of enums, must belong to the declared vocabulary.
+    if op in ("==", "!=", "contains"):
         for sig_operand, lit_operand in ((left, right), (right, left)):
             if not isinstance(sig_operand, str) or sig_operand not in signals:
                 continue
             sig_meta = signals[sig_operand]
+            typ = sig_meta.get("type")
             values = sig_meta.get("values")
-            if sig_meta.get("type") != "enum" or not values:
+            is_enum = typ == "enum"
+            is_enum_list = typ == "list" and sig_meta.get("of") == "enum"
+            if not (is_enum or is_enum_list) or not values:
+                continue
+            # `contains` only carries a vocabulary meaning for an enum LIST;
+            # ==/!= only for a scalar enum.
+            if op == "contains" and not is_enum_list:
+                continue
+            if op in ("==", "!=") and not is_enum:
                 continue
             if not isinstance(lit_operand, str) or lit_operand in signals:
                 continue
@@ -1287,6 +1295,18 @@ def _validate_condition(cond, signals, caps, target):
                 errors.append(
                     f"orchestration: literal '{lit_operand}' is not one of enum "
                     f"signal '{sig_operand}' values {values}")
+
+    # object-list guard: a list whose elements are objects has no scalar to
+    # compare — only `exists` is meaningful.
+    if op != "exists":
+        for operand in (left, right):
+            if isinstance(operand, str) and operand in signals:
+                m = signals[operand]
+                if m.get("type") == "list" and isinstance(m.get("of"), dict):
+                    errors.append(
+                        f"orchestration: operator '{op}' cannot compare object-list "
+                        f"signal '{operand}' — only 'exists' is valid (compare a scalar "
+                        f"field via a field signal instead)")
     return errors
 
 
