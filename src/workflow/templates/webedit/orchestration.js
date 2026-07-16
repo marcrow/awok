@@ -6,7 +6,7 @@
 // (construct name is the key: {if:{cond},then,else} / {while:{cond},cap,body} /
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
-import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues } from "./editlogic.js";
+import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues, condKind, isGroupCond } from "./editlogic.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
@@ -312,10 +312,11 @@ function dropSlot(ctx, containerId, slot) {
 }
 
 // --- condition rendering -----------------------------------------------------
-// Engine cond shape: {op, left, right} (left/right untyped) or an escape-hatch
-// string. Operand kind is inferred (no {kind,value} tagging in the engine):
-// object -> builtin ({name: arg}); string matching a known signal key -> signal;
-// anything else -> literal. Mirrors _operand_type()/orchestrationIssues().
+// On-disk cond shape (see editlogic.js condKind): string (escape-hatch) |
+// {op, left, right?} (leaf) | {and:[…]} | {or:[…]} | {not:cond}. Operand kind
+// is inferred (no {kind,value} tagging in the engine): object -> builtin
+// ({name: arg}); string matching a known signal key -> signal; anything else
+// -> literal. Mirrors _operand_type()/orchestrationIssues().
 function operandEl(op, sigKeys) {
   const span = document.createElement("span");
   if (op && typeof op === "object" && !Array.isArray(op)) {
@@ -332,20 +333,73 @@ function operandEl(op, sigKeys) {
   return span;
 }
 
-function condEl(cond, sigKeys) {
-  const pill = document.createElement("span"); pill.className = "cond-pill";
-  if (typeof cond === "string") {
+// notBadgeRead/connReadEl mirror the prototype's notBadge(active=true, ro=true)
+// and connRead(bool) — read-only, no click handler, colors/radii copied verbatim.
+function notBadgeRead() {
+  const b = document.createElement("span");
+  b.className = "cond-not";
+  b.textContent = "NOT";
+  return b;
+}
+function connReadEl(word) {                 // word: "and" | "or"
+  const s = document.createElement("span");
+  s.className = "cond-conn cond-conn-" + word;
+  s.textContent = word.toUpperCase();
+  return s;
+}
+
+// condEl recurses over the condition tree (readNode in the prototype). A
+// leaf is a "cond-pill" (reuses operandEl); an and/or group at depth 0 is a
+// flat wrapping row ("cond-row" — no outer parens, it's already the block's
+// only condition); an and/or group at depth > 0 is a translucent bordered
+// box tinted by its connector ("cond-group cond-group-and|or" — the box IS
+// the parenthesis, no literal "(" "/" ")" glyphs); "not" prefixes a NOT
+// badge and recurses into the negated node at the same depth.
+function condEl(cond, sigKeys, depth = 0) {
+  const kind = condKind(cond);
+  if (kind === "escape") {
+    const pill = document.createElement("span"); pill.className = "cond-pill";
     const bolt = document.createElement("span"); bolt.className = "cond-lit"; bolt.textContent = "⚡";
     const txt = document.createElement("span"); txt.style.fontStyle = "italic";
     txt.textContent = cond || "free predicate";
     pill.appendChild(bolt); pill.appendChild(txt);
     return pill;
   }
-  if (!cond || typeof cond !== "object") return pill;
+  if (kind === "empty") {
+    const pill = document.createElement("span"); pill.className = "cond-pill";
+    return pill;
+  }
+  if (kind === "not") {
+    const wrap = document.createElement("span");
+    wrap.style.display = "inline-flex"; wrap.style.alignItems = "center"; wrap.style.gap = "6px";
+    wrap.appendChild(notBadgeRead());
+    wrap.appendChild(condEl(cond.not, sigKeys, depth));
+    return wrap;
+  }
+  if (isGroupCond(cond)) {
+    const members = cond[kind];
+    const box = document.createElement("span");
+    box.className = depth === 0 ? "cond-row" : "cond-group cond-group-" + kind;
+    members.forEach((m, i) => {
+      if (i > 0) box.appendChild(connReadEl(kind));
+      box.appendChild(condEl(m, sigKeys, depth + 1));
+    });
+    return box;
+  }
+  // leaf: {op, left, right?}. A builtin left (file_exists/dir_exists, an
+  // object) is a self-contained predicate — no op/right rendered at all,
+  // even though it is stored as op:"exists" on disk. A non-builtin
+  // op:"exists" (e.g. a signal existence check) still shows the "exists"
+  // word, just no right operand. Mirrors leafRead()'s isB handling and the
+  // python _render_condition().
+  const pill = document.createElement("span"); pill.className = "cond-pill";
+  const isBuiltin = cond.left && typeof cond.left === "object";
   pill.appendChild(operandEl(cond.left, sigKeys));
-  const op = document.createElement("span"); op.className = "cond-op"; op.textContent = cond.op || "";
-  pill.appendChild(op);
-  if (cond.op !== "exists") pill.appendChild(operandEl(cond.right, sigKeys));
+  if (!isBuiltin) {
+    const op = document.createElement("span"); op.className = "cond-op"; op.textContent = cond.op || "";
+    pill.appendChild(op);
+    if (cond.op !== "exists") pill.appendChild(operandEl(cond.right, sigKeys));
+  }
   return pill;
 }
 
