@@ -198,3 +198,33 @@ test("signalsEditor of-object structural edits clone-then-reassign, never mutate
   expect(Object.keys(originalOf)).toEqual(["a"]);
   expect(Object.keys(emitted[0].of)).toEqual(["a", "field2"]);
 });
+
+test("signalsEditor of-select enum-to-object switch clears stale values", () => {
+  dom();
+  let model = [{ name: "hits", type: "list", source: "field", of: "enum", values: ["a", "b"] }];
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  let emitted = null;
+  const r = signalsEditor("emits", model, phase, v => { emitted = v; });
+  const ofSel = r.querySelector("select.signal-of");
+  // linkedom: select.value is readonly; simulate selection via option.selected (see fieldSelect test)
+  [...ofSel.querySelectorAll("option")].forEach(o => o.selected = o.value === "object");
+  ofSel.dispatchEvent(ev(ofSel));
+  // the stale enum `values` must not survive the switch to `of: object` — it is
+  // invisible (chips only render for curOf === "enum") and blocks save-time validation
+  expect(emitted[0].of).toEqual({});
+  expect("values" in emitted[0]).toBe(false);
+});
+
+test("signalsEditor render-time exit_code coercion clears stale of/values", () => {
+  dom();
+  let model = [{ name: "e", type: "list", source: "exit_code", of: "string" }];
+  const phase = { id: "S1", type: "script" };
+  let emitted = null;
+  const r = signalsEditor("emits", model, phase, v => { emitted = v; });
+  // render already forced type -> "bool" (exit_code only accepts bool|number); fire a
+  // benign change to force an emit and read back the coerced, cleaned-up item
+  const nameInput = r.querySelector(".signal-name");
+  nameInput.dispatchEvent(ev(nameInput));
+  expect(emitted[0].type).toBe("bool");
+  expect("of" in emitted[0]).toBe(false);
+});

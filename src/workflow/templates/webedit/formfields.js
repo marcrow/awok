@@ -223,7 +223,11 @@ export function signalsEditor(label, items, phase, onChange){
       // exit_code accepts bool (0 ⇒ true shorthand) or number (raw exit code, e.g. grep 0/1/2).
       const exitCode = (item.source || sources[0]) === "exit_code";
       const typeOpts = exitCode ? ["bool", "number"] : SIGNAL_TYPES;
-      if (exitCode && !typeOpts.includes(item.type)) item.type = "bool";
+      if (exitCode && !typeOpts.includes(item.type)) {
+        item.type = "bool";
+        if (item.type !== "enum") delete item.values;
+        if (item.type !== "list") delete item.of;
+      }
       const type = document.createElement("select");
       for (const t of typeOpts){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
       if (exitCode) type.title = "exit_code ⇒ bool (exit 0 = true) or number (raw exit code)";
@@ -295,7 +299,7 @@ export function signalsEditor(label, items, phase, onChange){
         for (const o of ofOpts) { const opt = document.createElement("option"); opt.value = o; opt.textContent = o; if (o === curOf) opt.selected = true; ofSel.appendChild(opt); }
         ofSel.addEventListener("change", () => {
           const v = ofSel.value;
-          if (v === "object") item.of = (item.of && typeof item.of === "object") ? item.of : {};
+          if (v === "object") { item.of = (item.of && typeof item.of === "object") ? item.of : {}; delete item.values; }
           else { item.of = v; if (v !== "enum") delete item.values; }
           emit(); render();
         });
