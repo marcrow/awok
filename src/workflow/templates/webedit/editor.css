@@ -741,3 +741,49 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .standard-only-tag{margin-left:auto;font:8.5px/1 var(--mono);color:var(--warn-2);
   background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:2px 6px}
 .cap-invalid{border-color:var(--bad)!important}
+
+/* ---- recursive condition builder (Task 8) ----
+   Interactive twins of the read-only .cond-pill/.cond-not/.cond-conn/.cond-group/
+   .cond-paren above (same colors/radii, verbatim from the prototype's
+   notBadge/connRead/build()), plus the add/remove controls. The expression
+   wraps — never overflows the panel (mini-spec §4). */
+.cond-build-root{display:flex;flex-direction:column;gap:14px}
+.cond-build-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cond-build-leaf{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 8px;
+  border-radius:9px;background:var(--well);border:1px solid var(--border)}
+.cond-build-group{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;border-radius:11px;
+  padding:7px 9px}
+.cond-build-group-and{background:rgba(96,165,250,0.1);border:1px dashed rgba(96,165,250,0.4)}
+.cond-build-group-or{background:rgba(251,113,133,0.1);border:1px dashed rgba(251,113,133,0.4)}
+.cond-not-btn{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 8px;
+  border-radius:6px;flex:0 0 auto;font:10px/1 var(--mono);font-weight:800;letter-spacing:.06em;
+  cursor:pointer;color:var(--dim);background:transparent;border:1px solid var(--border);
+  transition:all .12s;user-select:none}
+.cond-not-btn:hover{border-color:rgba(248,113,113,0.5);color:#fca5a5}
+.cond-not-btn.active{color:#fca5a5;background:rgba(248,113,113,0.16);border-color:rgba(248,113,113,0.5)}
+.cond-conn-btn{display:inline-flex;flex:0 0 auto;font:10px/1 var(--mono);font-weight:800;
+  letter-spacing:.06em;border-radius:6px;padding:4px 8px;cursor:pointer;user-select:none}
+.cond-conn-btn.cond-conn-and{color:#93c5fd;background:rgba(96,165,250,0.14);border:1px solid rgba(96,165,250,0.45)}
+.cond-conn-btn.cond-conn-or{color:#fda4af;background:rgba(251,113,133,0.14);border:1px solid rgba(251,113,133,0.45)}
+.cond-conn-btn:hover{filter:brightness(1.2)}
+.cond-add-btn,.cond-addgrp-btn,.cond-remove-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:6px;cursor:pointer;flex:0 0 auto;font:12px/1 var(--mono);user-select:none}
+.cond-add-btn{color:var(--accent);background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3)}
+.cond-add-btn:hover{background:rgba(56,189,248,0.2)}
+.cond-addgrp-btn{color:var(--violet-2);background:rgba(167,139,250,0.1);border:1px dashed rgba(167,139,250,0.4);
+  font-weight:700;font-size:10.5px}
+.cond-addgrp-btn:hover{background:rgba(167,139,250,0.2)}
+.cond-remove-btn{color:var(--dim);background:transparent;border:1px solid transparent;font-size:13px}
+.cond-remove-btn:hover{color:var(--bad);border-color:rgba(248,113,113,0.4)}
+.cond-build-op{width:auto!important;flex:0 0 auto;padding:6px 7px!important}
+.cond-build-root-controls{display:flex;gap:6px}
+/* the operand kind segment shows an icon only, per mini-spec §3 — the label
+   is a tooltip, never inline text, so keep the button narrow */
+.op-kind-btn{min-width:24px}
+.cond-help-panel{display:flex;flex-direction:column;gap:7px;padding:11px 13px;border-radius:10px;
+  background:rgba(15,23,42,0.6);border:1px solid var(--border)}
+.cond-help-head{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+.cond-help-item{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--muted)}
+.cond-help-glyph{display:inline-flex;align-items:center;justify-content:center;min-width:30px;
+  padding:2px 6px;border-radius:5px;font:10px/1 var(--mono);font-weight:800;
+  background:rgba(148,163,184,0.06);border:1px solid var(--border);flex:0 0 auto}

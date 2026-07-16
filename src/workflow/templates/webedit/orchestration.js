@@ -6,7 +6,8 @@
 // (construct name is the key: {if:{cond},then,else} / {while:{cond},cap,body} /
 // {for_each:"sig",as,cap,body} / {ref:"PHASE"}) — no {type:'if',cond} mapping.
 import { makeCard } from "./render-helpers.js";
-import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues, condKind, isGroupCond } from "./editlogic.js";
+import { iterBlocks, isLoopBlock, blockConstruct, condOf, signalsOf, findBlock, containerArray, laneEntryDeps, orchestrationIssues, condKind, isGroupCond,
+  getCondAt, setCondAt, toggleNotAt, toggleConnectorAt, addComparisonAt, addSubgroupAt, removeCondAt } from "./editlogic.js";
 
 let CTX = null;   // set each render so drag/drop handlers can reach state + callbacks
 
@@ -598,25 +599,26 @@ function applyGateEdit(ctx) {
   ctx.redraw();
 }
 
-// --- operand kind (transient, UI-only — NOT serialized; stripped in
-// editor.js's modelForSave alongside `_id`) -----------------------------------
-function operandKindKey(side) { return side === "left" ? "_leftKind" : "_rightKind"; }
+// --- operand kind (transient, UI-only — NOT serialized) ---------------------
+// Recursive nesting (Task 8) means an operand lives at a PATH inside the
+// condition tree, not at a fixed `block[side]` slot — so the kind selection
+// can no longer be cached on the block itself (`_leftKind`/`_rightKind`, one
+// slot per block). Instead each gatePanel() call owns one `opKinds` Map, keyed
+// by "path:side", threaded through every builder function below. Never
+// touches the model, so there is nothing to strip at save time.
 function deriveOperandKind(value, sigKeys) {
   if (value && typeof value === "object" && !Array.isArray(value)) return "builtin";
   if (typeof value === "string" && sigKeys.has(value)) return "signal";
   return "literal";
 }
-// Derived once (on first render) from the operand's current value, then
-// cached on the block so flipping through kinds in the UI doesn't re-derive
-// from a value the user is actively editing away from.
-function operandKind(block, side, sigKeys) {
-  const key = operandKindKey(side);
-  if (!block[key]) {
-    const cond = block[blockConstruct(block)];
-    const value = (cond && typeof cond === "object") ? cond[side] : undefined;
-    block[key] = deriveOperandKind(value, sigKeys);
-  }
-  return block[key];
+function opKindMapKey(path, side) { return path.join(",") + ":" + side; }
+// Read the cached kind for (path, side), deriving + caching it on first use
+// so flipping through kinds in the UI doesn't re-derive from a value the user
+// is actively editing away from (e.g. picking "signal" before choosing one).
+function operandKindAt(opKinds, path, side, cond, sigKeys) {
+  const key = opKindMapKey(path, side);
+  if (!opKinds.has(key)) opKinds.set(key, deriveOperandKind(cond ? cond[side] : undefined, sigKeys));
+  return opKinds.get(key);
 }
 
 // --- signal picker popover (grouped by emitting phase). Selection-only —
@@ -636,10 +638,12 @@ function onSigPopKeydown(e) {
   if (e.key === "Escape") closeSigPopover();
 }
 
-// Signal list grouped by phase — the picker's default view.
-function renderSignalList(pop, ctx, block, side) {
+// Signal list grouped by phase — the picker's default view. `path` addresses
+// the LEAF (its condition lives at getCondAt(root, path)); `side` is left/right.
+function renderSignalList(pop, ctx, block, path, side, commit) {
   pop.replaceChildren();
-  const cond = block[blockConstruct(block)];
+  const root = block[blockConstruct(block)];
+  const cond = getCondAt(root, path);
   const sigs = signalsOf(ctx.state.model);
   const groups = {};
   sigs.forEach(s => { (groups[s.phase] = groups[s.phase] || []).push(s); });
@@ -661,9 +665,8 @@ function renderSignalList(pop, ctx, block, side) {
       item.textContent = `${s.name} · ${s.type}` + (s.source ? ` · ${s.source}` : "");  // + how it's produced
       item.addEventListener("click", e => {
         e.stopPropagation();
-        setOperand(block, side, s.key);
         closeSigPopover();
-        applyGateEdit(ctx);
+        commit(setCondAt(root, path.concat([side]), s.key));
       });
       pop.appendChild(item);
     });
@@ -671,10 +674,10 @@ function renderSignalList(pop, ctx, block, side) {
   // NO "＋ Declare a new signal" — declaration lives on the producing action's Wiring.
 }
 
-function openSignalPicker(ctx, block, side, buttonEl) {
+function openSignalPicker(ctx, block, path, side, commit, buttonEl) {
   closeSigPopover();
   const pop = document.createElement("div"); pop.className = "sig-popover";
-  renderSignalList(pop, ctx, block, side);
+  renderSignalList(pop, ctx, block, path, side, commit);
   document.body.appendChild(pop);
   const rect = buttonEl.getBoundingClientRect();
   pop.style.top = (rect.bottom + 6) + "px";
@@ -690,49 +693,68 @@ function openSignalPicker(ctx, block, side, buttonEl) {
 // Grouped-by-phase signal picker: a button showing the current operand (or
 // a placeholder) opens a popover listing signalsOf(model) grouped by their
 // emitting phase (each headed by phase name+id) for selection only. Signal
-// declaration happens in the producing action's Wiring tab. Replaces the
-// Task 10 INTERIM flat <select> — signature/seam unchanged (called at the
-// `kind === "signal"` branch of operandCtrl below).
-function signalOperandControl(ctx, block, side, cond) {
+// declaration happens in the producing action's Wiring tab. Path-aware
+// (Task 8) so it addresses a leaf at ANY depth, not just the block's own
+// top-level condition — the signal-selection UX itself is unchanged.
+function signalOperandControl(ctx, block, path, side, cond, commit) {
   const wrap = document.createElement("div"); wrap.className = "sig-picker";
   const btn = document.createElement("button"); btn.type = "button"; btn.className = "sig-picker-btn";
   const cur = cond ? cond[side] : "";
   btn.textContent = cur ? "◈ " + cur : "◈ pick a signal…";
-  btn.addEventListener("click", e => { e.stopPropagation(); openSignalPicker(ctx, block, side, btn); });
+  btn.addEventListener("click", e => { e.stopPropagation(); openSignalPicker(ctx, block, path, side, commit, btn); });
   wrap.appendChild(btn);
   return wrap;
 }
 
-function builtinOperandControl(ctx, block, side, cond) {
+function builtinOperandControl(ctx, block, path, side, cond, commit) {
   const wrap = document.createElement("div"); wrap.className = "op-builtin-row";
+  const root = block[blockConstruct(block)];
   const cur = (cond && cond[side] && typeof cond[side] === "object") ? cond[side] : {};
   const entry = Object.entries(cur)[0] || [BUILTINS[0], ""];
   const sel = document.createElement("select");
   BUILTINS.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; if (n === entry[0]) o.selected = true; sel.appendChild(o); });
   const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "path"; inp.value = entry[1] || "";
-  const commit = () => { setOperand(block, side, { [sel.value]: inp.value }); applyGateEdit(ctx); };
-  sel.addEventListener("change", commit);
-  inp.addEventListener("change", commit);
+  // A builtin left is a self-contained predicate: op is forced to "exists" and
+  // the right operand is dropped (mini-spec §2/§4, brief Step 2).
+  const apply = () => {
+    let next = setCondAt(root, path.concat([side]), { [sel.value]: inp.value });
+    if (side === "left") next = setCondAt(next, path.concat(["op"]), "exists");
+    commit(next);
+  };
+  sel.addEventListener("change", apply);
+  inp.addEventListener("change", apply);
   wrap.appendChild(sel); wrap.appendChild(inp);
   return wrap;
 }
 
-function literalOperandControl(ctx, block, side, cond) {
+function literalOperandControl(ctx, block, path, side, cond, commit) {
+  const root = block[blockConstruct(block)];
   const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "literal value";
   const v = cond ? cond[side] : undefined;
   inp.value = (typeof v === "string") ? v : (v == null ? "" : String(v));
-  inp.addEventListener("change", () => { setOperand(block, side, inp.value); applyGateEdit(ctx); });
+  inp.addEventListener("change", () => commit(setCondAt(root, path.concat([side]), inp.value)));
   return inp;
 }
 
-// One operand (left/right) of a structured condition: a kind segmented
-// control (◈ signal / literal / builtin — the right side has no builtin
-// option, per the brief) + the operand's own control, tinted by kind via the
-// wrapping .op-box.<kind> (CSS in editor.css).
-function operandCtrl(ctx, block, side) {
-  const cond = block[blockConstruct(block)];
+// Icon + tooltip label for each operand kind (mini-spec §3 — icons always
+// visible, label on hover, no hidden menu).
+const KIND_META = {
+  signal: { glyph: "◈", label: "signal — value emitted by an action" },
+  literal: { glyph: "“”", label: "literal — a fixed value you type" },
+  builtin: { glyph: "ƒ", label: "built-in — file_exists / dir_exists (self-contained predicate)" },
+};
+
+// One operand (left/right) of a structured condition leaf living at `path`: a
+// kind segmented control (◈ signal / "" literal / ƒ builtin — the right side
+// has no builtin option, per the brief) + the operand's own control, tinted
+// by kind via the wrapping .op-box.<kind> (CSS in editor.css). Generalized
+// (Task 8) to be PATH-aware so it can address a leaf at any nesting depth,
+// not just the block's own flat condition — `commit(newRoot)` persists.
+function operandCtrl(ctx, block, path, side, opKinds, commit) {
+  const root = block[blockConstruct(block)];
+  const cond = getCondAt(root, path);
   const sigKeys = new Set(signalsOf(ctx.state.model).map(s => s.key));
-  const kind = operandKind(block, side, sigKeys);
+  const kind = operandKindAt(opKinds, path, side, cond, sigKeys);
   const box = document.createElement("div"); box.className = "op-box " + kind;
 
   const label = document.createElement("div"); label.className = "op-box-label"; label.textContent = side + " operand";
@@ -743,21 +765,220 @@ function operandCtrl(ctx, block, side) {
   kinds.forEach(k => {
     const btn = document.createElement("button"); btn.type = "button";
     btn.className = "op-kind-btn" + (k === kind ? " active" : "");
-    btn.textContent = k === "signal" ? "◈ signal" : k;
-    btn.addEventListener("click", () => {
+    btn.title = KIND_META[k].label;
+    btn.textContent = KIND_META[k].glyph;
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
       if (k === kind) return;
-      block[operandKindKey(side)] = k;
-      setOperand(block, side, k === "builtin" ? { [BUILTINS[0]]: "" } : "");
-      applyGateEdit(ctx);
+      opKinds.set(opKindMapKey(path, side), k);
+      let next;
+      if (k === "builtin") {                     // left-only: forces op:"exists" too
+        next = setCondAt(root, path.concat(["left"]), { [BUILTINS[0]]: "" });
+        next = setCondAt(next, path.concat(["op"]), "exists");
+      } else {
+        next = setCondAt(root, path.concat([side]), "");
+      }
+      commit(next);
     });
     seg.appendChild(btn);
   });
   box.appendChild(seg);
 
-  if (kind === "signal") box.appendChild(signalOperandControl(ctx, block, side, cond));
-  else if (kind === "builtin") box.appendChild(builtinOperandControl(ctx, block, side, cond));
-  else box.appendChild(literalOperandControl(ctx, block, side, cond));
+  if (kind === "signal") box.appendChild(signalOperandControl(ctx, block, path, side, cond, commit));
+  else if (kind === "builtin") box.appendChild(builtinOperandControl(ctx, block, path, side, cond, commit));
+  else box.appendChild(literalOperandControl(ctx, block, path, side, cond, commit));
   return box;
+}
+
+// ============================================================================
+// Recursive condition builder (Task 8) — replaces the flat single-leaf editor
+// with an inline builder for composite and/or/not conditions, ported from
+// condition-builder-prototype.dc.html's build()/kindSelect()/operandCtrl()
+// (docs/superpowers/specs/2026-07-16-conditions-and-or-not-refs/) onto the
+// awok on-disk shape + the Task-6 immutable mutators (editlogic.js):
+// string (escape-hatch) | {op,left,right?} (leaf) | {and:[…]} | {or:[…]} |
+// {not: …}. `not` is a WRAPPING NODE on disk (unlike the prototype's flat
+// `neg` flag on the same node) — see buildCond below for how that's resolved
+// so the NOT badge renders exactly once per node, active or not, at every
+// depth including the root (mini-spec §2/§4).
+//
+// Every control commits through `commitCond`, per the brief's contract: it
+// never mutates the block in place directly, only via a Task-6 mutator's
+// returned (new) root.
+// ============================================================================
+const MAX_GROUP_DEPTH = 2;   // authoring cap (engine imposes none); mini-spec §2 "ajustable"
+
+// Writes the (possibly nested) condition root back into `block` under its
+// construct key (if/while/until) and runs the panel's standard aftermath.
+// The one and only persist path for every control below — no other setter
+// touches block[kind] for a structured condition.
+function commitCond(block, newRoot, ctx) {
+  block[blockConstruct(block)] = newRoot;
+  applyGateEdit(ctx);
+}
+
+function firstSignalKey(ctx) {
+  const sigs = signalsOf(ctx.state.model);
+  return sigs.length ? sigs[0].key : "";
+}
+function defaultLeaf(ctx) { return { op: "==", left: firstSignalKey(ctx), right: "" }; }
+function defaultSubgroup(ctx) { return { or: [defaultLeaf(ctx)] }; }
+
+// Clickable NOT badge — the interactive twin of notBadgeRead() above. Always
+// rendered (active or not) so negation can be toggled on ANY node.
+function notToggleBtn(active, onClick) {
+  const b = document.createElement("span");
+  b.className = "cond-not-btn" + (active ? " active" : "");
+  b.textContent = "NOT";
+  b.title = "NOT — negate this block";
+  b.addEventListener("click", e => { e.stopPropagation(); onClick(); });
+  return b;
+}
+// Clickable connector pill — the interactive twin of connReadEl() above;
+// flips the WHOLE group's and<->or.
+function connToggleBtn(word, onClick) {
+  const s = document.createElement("span");
+  s.className = "cond-conn-btn cond-conn-" + word;
+  s.textContent = word.toUpperCase();
+  s.title = "click to toggle AND / OR";
+  s.addEventListener("click", e => { e.stopPropagation(); onClick(); });
+  return s;
+}
+function parenGlyph(word, ch) {
+  const s = document.createElement("span");
+  s.className = "cond-paren cond-paren-" + word;
+  s.textContent = ch;
+  return s;
+}
+function addComparisonBtn(onClick) {
+  const b = document.createElement("span"); b.className = "cond-add-btn";
+  b.textContent = "＋"; b.title = "add a comparison";
+  b.addEventListener("click", e => { e.stopPropagation(); onClick(); });
+  return b;
+}
+function addSubgroupBtn(onClick) {
+  const b = document.createElement("span"); b.className = "cond-addgrp-btn";
+  b.textContent = "()"; b.title = "add a sub-group";
+  b.addEventListener("click", e => { e.stopPropagation(); onClick(); });
+  return b;
+}
+function removeCondBtn(onClick) {
+  const b = document.createElement("span"); b.className = "cond-remove-btn";
+  b.textContent = "✕"; b.title = "remove";
+  b.addEventListener("click", e => { e.stopPropagation(); onClick(); });
+  return b;
+}
+
+// buildCond recurses over the condition tree, rendering an editable node at
+// `path` (root = []). A `not` wrapper is transparent to depth (it is a flag
+// envelope, not a nesting level): this call resolves it ONCE — computing a
+// single notToggle for `path`'s own slot (toggling wraps/unwraps whatever is
+// there) — then dispatches to the group/leaf renderer for the (unwrapped)
+// body, so the badge never renders twice for the same logical node.
+function buildCond(ctx, block, path, depth, opKinds) {
+  const root = block[blockConstruct(block)];
+  const node = getCondAt(root, path);
+  const negated = condKind(node) === "not";
+  const bodyPath = negated ? path.concat(["not"]) : path;
+  const bodyNode = negated ? node.not : node;
+  const kind = condKind(bodyNode);
+  const commit = (newRoot) => commitCond(block, newRoot, ctx);
+  const notBtn = notToggleBtn(negated, () => commit(toggleNotAt(root, path)));
+
+  if (kind === "and" || kind === "or") {
+    return buildGroupCond(ctx, block, root, bodyPath, bodyNode, kind, depth, notBtn, commit, opKinds);
+  }
+  return buildLeafCond(ctx, block, bodyPath, bodyNode, depth, notBtn, commit, opKinds);
+}
+
+function buildGroupCond(ctx, block, root, path, node, kind, depth, notBtn, commit, opKinds) {
+  const members = node[kind];
+  const box = document.createElement("span");
+  box.className = depth === 0 ? "cond-build-row" : "cond-build-group cond-build-group-" + kind;
+  box.appendChild(notBtn);
+  if (depth > 0) box.appendChild(parenGlyph(kind, "("));
+  members.forEach((m, i) => {
+    if (i > 0) box.appendChild(connToggleBtn(kind, () => commit(toggleConnectorAt(root, path))));
+    box.appendChild(buildCond(ctx, block, path.concat([kind, i]), depth + 1, opKinds));
+  });
+  if (depth > 0) box.appendChild(parenGlyph(kind, ")"));
+  box.appendChild(addComparisonBtn(() => commit(addComparisonAt(root, path, defaultLeaf(ctx)))));
+  if (depth < MAX_GROUP_DEPTH) box.appendChild(addSubgroupBtn(() => commit(addSubgroupAt(root, path, defaultSubgroup(ctx)))));
+  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, path))));
+  return box;
+}
+
+// A leaf: NOT badge + left operand + op (unless builtin left) + right operand
+// (unless builtin left or op:"exists") + ✕ (nested leaves only — a leaf that
+// IS the whole root has nothing to remove into).
+function buildLeafCond(ctx, block, path, node, depth, notBtn, commit, opKinds) {
+  const cond = (node && typeof node === "object") ? node : { op: "==", left: "", right: "" };
+  const root = block[blockConstruct(block)];
+  const isBuiltin = cond.left && typeof cond.left === "object";
+  const box = document.createElement("span"); box.className = "cond-build-leaf";
+  box.appendChild(notBtn);
+  box.appendChild(operandCtrl(ctx, block, path, "left", opKinds, commit));
+  if (!isBuiltin) {
+    const opSel = document.createElement("select"); opSel.className = "cond-build-op";
+    OPS.forEach(op => { const o = document.createElement("option"); o.value = op; o.textContent = op; if (op === cond.op) o.selected = true; opSel.appendChild(o); });
+    opSel.addEventListener("change", () => commit(setCondAt(root, path.concat(["op"]), opSel.value)));
+    box.appendChild(opSel);
+    if (cond.op !== "exists") box.appendChild(operandCtrl(ctx, block, path, "right", opKinds, commit));
+  }
+  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, path))));
+  return box;
+}
+
+// Help legend (mini-spec §3) — added once, at the bottom of the builder.
+const COND_HELP_ITEMS = [
+  ["◈", "signal — value emitted by an action", "var(--accent)"],
+  ["“”", "literal — a fixed value you type", "var(--warn-2)"],
+  ["ƒ", "built-in — file_exists / dir_exists (self-contained predicate)", "var(--violet-2)"],
+  ["AND / OR", "connector — click a pill to toggle", "#93c5fd"],
+  ["( )", "group / parenthesis", "var(--violet-2)"],
+  ["NOT", "negation — click the badge to toggle", "#fca5a5"],
+];
+function condHelpPanel() {
+  const box = document.createElement("div"); box.className = "cond-help-panel";
+  const head = document.createElement("div"); head.className = "cond-help-head";
+  head.textContent = "Help · operand types & symbols";
+  box.appendChild(head);
+  COND_HELP_ITEMS.forEach(([glyph, label, color]) => {
+    const row = document.createElement("div"); row.className = "cond-help-item";
+    const g = document.createElement("span"); g.className = "cond-help-glyph"; g.style.color = color; g.textContent = glyph;
+    const l = document.createElement("span"); l.textContent = label;
+    row.appendChild(g); row.appendChild(l);
+    box.appendChild(row);
+  });
+  return box;
+}
+
+// Entry point called from the gate panel: renders the recursive builder for
+// the block's WHOLE structured condition, plus (once) the help legend.
+//
+// awok's on-disk root may be a bare LEAF (defaultCond() — no group at all),
+// unlike the prototype whose root is always a group (its seed() starts from
+// {t:'grp', ...}). A bare leaf root has no enclosing group box to hang
+// "＋"/"()" off of, which would make it a dead end for ever building a
+// composite condition — so when the (unwrapped) root is not itself a group,
+// this also offers a "start a group" affordance that wraps the current root
+// (negation included) together with a fresh comparison/sub-group.
+function buildCondRoot(ctx, block, opKinds) {
+  const wrap = document.createElement("div"); wrap.className = "cond-build-root";
+  const root = block[blockConstruct(block)];
+  const commit = (newRoot) => commitCond(block, newRoot, ctx);
+  wrap.appendChild(buildCond(ctx, block, [], 0, opKinds));
+
+  const bodyKind = condKind(root) === "not" ? condKind(root.not) : condKind(root);
+  if (bodyKind !== "and" && bodyKind !== "or") {
+    const controls = document.createElement("div"); controls.className = "cond-build-root-controls";
+    controls.appendChild(addComparisonBtn(() => commit({ and: [root, defaultLeaf(ctx)] })));
+    controls.appendChild(addSubgroupBtn(() => commit({ and: [root, defaultSubgroup(ctx)] })));
+    wrap.appendChild(controls);
+  }
+
+  wrap.appendChild(condHelpPanel());
+  return wrap;
 }
 
 // --- the panel itself --------------------------------------------------------
@@ -768,6 +989,10 @@ function operandCtrl(ctx, block, side) {
 export function gatePanel(ctx, block) {
   const panel = document.createElement("div");
   panel.style.cssText = "display:flex;flex-direction:column;min-height:0;flex:1 1 auto;height:100%";
+  // Operand-kind UI cache for the recursive condition builder (Task 8) — one
+  // Map per gate-editing session (survives redraws, reset when a different
+  // gate is selected / this panel is rebuilt). See operandKindAt above.
+  const opKinds = new Map();
 
   function draw() {
     panel.replaceChildren();
@@ -876,18 +1101,10 @@ export function gatePanel(ctx, block) {
         ta.addEventListener("change", () => { block[kind] = ta.value; applyGateEdit(ctx); });
         body.appendChild(ta);
       } else {
-        body.appendChild(operandCtrl(ctx, block, "left"));
-        const opRow = document.createElement("div"); opRow.style.cssText = "display:flex;align-items:center;gap:8px;margin:2px 0 8px";
-        const opLbl = document.createElement("span");
-        opLbl.style.cssText = "font:9px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700";
-        opLbl.textContent = "op";
-        opRow.appendChild(opLbl);
-        const opSel = document.createElement("select"); opSel.style.width = "auto";
-        OPS.forEach(op => { const o = document.createElement("option"); o.value = op; o.textContent = op; if (op === cond.op) o.selected = true; opSel.appendChild(o); });
-        opSel.addEventListener("change", () => { setOp(block, opSel.value); applyGateEdit(ctx); });
-        opRow.appendChild(opSel);
-        body.appendChild(opRow);
-        if (cond.op !== "exists") body.appendChild(operandCtrl(ctx, block, "right"));
+        // Recursive inline builder (Task 8) — and/or/not, unbounded nesting
+        // (authoring cap MAX_GROUP_DEPTH), operand kinds, NOT at any depth
+        // incl. the root. Replaces the old flat single-leaf editor.
+        body.appendChild(buildCondRoot(ctx, block, opKinds));
       }
 
       const esc = document.createElement("div"); esc.className = "escape-toggle";
