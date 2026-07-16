@@ -11,6 +11,12 @@ operators:
   contains:  { js_safe: true,  standard: true,  types: [string, list] }
   matches:   { js_safe: true,  standard: true,  types: [string] }
   exists:    { js_safe: true,  standard: true }
+# Boolean connectors compose sub-conditions (recursive). They take sub-conditions,
+# not left/right operands, so they live in their own section (not `operators`).
+connectors:
+  and: { js_safe: true,  standard: true }
+  or:  { js_safe: true,  standard: true }
+  not: { js_safe: true,  standard: true }
 builtins:
   file_exists: { js_safe: false, standard: true }   # pas de filesystem en JS
   dir_exists:  { js_safe: false, standard: true }
