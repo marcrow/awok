@@ -413,6 +413,15 @@ def test_for_each_valid(bbw_module):
     assert bbw_module.validate_orchestration(wf) == []
 
 
+def test_for_each_body_states_item_shape(bbw_module):
+    wf = _wf([{"for_each": "t1.findings", "as": "f", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "findings", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string", "severity": {"enum": ["low", "high"]}}}])
+    text = bbw_module.render_orchestration(wf)
+    assert "each `f`" in text
+    assert "path" in text and "severity" in text
+
+
 def test_fixture_composite_condition_renders(bbw_module):
     wf = bbw_module.load_workflow(FIX / "orchestrated.yaml")
     assert bbw_module.validate_orchestration(wf) == []

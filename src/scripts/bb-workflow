@@ -2246,7 +2246,7 @@ def _render_condition_member(m):
     return _render_condition(m)
 
 
-def _render_blocks(blocks, depth=0):
+def _render_blocks(blocks, depth=0, signals=None):
     lines = []
     pad = "  " * depth
     for b in blocks or []:
@@ -2255,19 +2255,23 @@ def _render_blocks(blocks, depth=0):
         elif "if" in b:
             gid = f" [{b['id']}]" if b.get("id") else ""
             lines.append(f"{pad}- **If**{gid} {_render_condition(b['if'])}:")
-            lines += _render_blocks(b.get("then"), depth + 1)
+            lines += _render_blocks(b.get("then"), depth + 1, signals)
             if b.get("else"):
                 lines.append(f"{pad}- **Else**:")
-                lines += _render_blocks(b["else"], depth + 1)
+                lines += _render_blocks(b["else"], depth + 1, signals)
         elif "for_each" in b:
             var = b.get("as", "item")
             gid = f" [{b['id']}]" if b.get("id") else ""
             out_note = (f" Aggregated output → `{b['output']['role']}`."
                         if b.get("output") else "")
+            shape_note = ""
+            sig = (signals or {}).get(b["for_each"])
+            if sig and sig.get("type") == "list" and sig.get("of") is not None:
+                shape_note = f"; each `{var}` is {_of_spec(sig)}"
             lines.append(f"{pad}- **For each**{gid} `{var}` in signal `{b['for_each']}` "
                          f"(cap {b.get('cap')}): run the body once per `{var}`; independent "
-                         f"iterations launch together in one message.{out_note}")
-            lines += _render_blocks(b.get("body"), depth + 1)
+                         f"iterations launch together in one message{shape_note}.{out_note}")
+            lines += _render_blocks(b.get("body"), depth + 1, signals)
         elif "while" in b or "until" in b:
             kw = "While" if "while" in b else "Until"
             cond = b.get("while") or b.get("until")
@@ -2277,7 +2281,7 @@ def _render_blocks(blocks, depth=0):
             lines.append(f"{pad}- **{kw}**{gid} {_render_condition(cond)} "
                          f"(max {b.get('cap')} iterations): re-run the body and re-check "
                          f"the condition after each pass.{out_note}")
-            lines += _render_blocks(b.get("body"), depth + 1)
+            lines += _render_blocks(b.get("body"), depth + 1, signals)
     return lines
 
 
@@ -2304,7 +2308,7 @@ def render_orchestration(workflow: dict) -> str:
         "",
         "### Control flow", "",
     ]
-    out += _render_blocks(workflow["orchestration"])
+    out += _render_blocks(workflow["orchestration"], signals=signals)
     if signals:
         out += ["", "**Signals** (how to read each condition operand):", ""]
         for key, meta in signals.items():
