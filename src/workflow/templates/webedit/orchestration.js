@@ -715,11 +715,17 @@ function builtinOperandControl(ctx, block, path, side, cond, commit) {
   BUILTINS.forEach(n => { const o = document.createElement("option"); o.value = n; o.textContent = n; if (n === entry[0]) o.selected = true; sel.appendChild(o); });
   const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "path"; inp.value = entry[1] || "";
   // A builtin left is a self-contained predicate: op is forced to "exists" and
-  // the right operand is dropped (mini-spec §2/§4, brief Step 2).
+  // the right operand is dropped (mini-spec §2/§4, brief Step 2). Built as one
+  // new leaf object (immutable) so a stray `right` never survives — `path`
+  // here addresses the leaf itself (see operandCtrl's doc comment above).
   const apply = () => {
-    let next = setCondAt(root, path.concat([side]), { [sel.value]: inp.value });
-    if (side === "left") next = setCondAt(next, path.concat(["op"]), "exists");
-    commit(next);
+    if (side === "left") {
+      const leaf = { ...(cond || {}), left: { [sel.value]: inp.value }, op: "exists" };
+      delete leaf.right;
+      commit(setCondAt(root, path, leaf));
+      return;
+    }
+    commit(setCondAt(root, path.concat([side]), { [sel.value]: inp.value }));
   };
   sel.addEventListener("change", apply);
   inp.addEventListener("change", apply);
@@ -772,11 +778,21 @@ function operandCtrl(ctx, block, path, side, opKinds, commit) {
       if (k === kind) return;
       opKinds.set(opKindMapKey(path, side), k);
       let next;
-      if (k === "builtin") {                     // left-only: forces op:"exists" too
-        next = setCondAt(root, path.concat(["left"]), { [BUILTINS[0]]: "" });
-        next = setCondAt(next, path.concat(["op"]), "exists");
+      if (k === "builtin") {
+        // left-only: forces op:"exists" too, and drops any stray `right` so
+        // the persisted leaf is exactly {op:"exists", left:{<fn>:"arg"}} —
+        // built as one new leaf object (immutable), not two field patches.
+        const leaf = { ...(cond || {}), left: { [BUILTINS[0]]: "" }, op: "exists" };
+        delete leaf.right;
+        next = setCondAt(root, path, leaf);
       } else {
         next = setCondAt(root, path.concat([side]), "");
+        // Leaving builtin on the LEFT: "exists" only made sense while the
+        // right operand was hidden by a builtin left. Reset op so the right
+        // operand re-appears instead of persisting a hidden, incoherent leaf.
+        if (side === "left" && cond && cond.op === "exists") {
+          next = setCondAt(next, path.concat(["op"]), "==");
+        }
       }
       commit(next);
     });
@@ -885,13 +901,19 @@ function buildCond(ctx, block, path, depth, opKinds) {
   const commit = (newRoot) => commitCond(block, newRoot, ctx);
   const notBtn = notToggleBtn(negated, () => commit(toggleNotAt(root, path)));
 
+  // `path` (pre-unwrap) is the ONLY address that points at this node's actual
+  // slot in its parent array — for a negated node, bodyPath points INSIDE the
+  // `{not:…}` wrapper instead, whose parent is the wrapper object, not an
+  // array (removeCondAt's no-op branch). So `path` is threaded through
+  // separately, used ONLY by the ✕ button; every other control below keeps
+  // addressing the unwrapped `bodyPath`.
   if (kind === "and" || kind === "or") {
-    return buildGroupCond(ctx, block, root, bodyPath, bodyNode, kind, depth, notBtn, commit, opKinds);
+    return buildGroupCond(ctx, block, root, bodyPath, bodyNode, kind, depth, notBtn, commit, opKinds, path);
   }
-  return buildLeafCond(ctx, block, bodyPath, bodyNode, depth, notBtn, commit, opKinds);
+  return buildLeafCond(ctx, block, bodyPath, bodyNode, depth, notBtn, commit, opKinds, path);
 }
 
-function buildGroupCond(ctx, block, root, path, node, kind, depth, notBtn, commit, opKinds) {
+function buildGroupCond(ctx, block, root, path, node, kind, depth, notBtn, commit, opKinds, removePath) {
   const members = node[kind];
   const box = document.createElement("span");
   box.className = depth === 0 ? "cond-build-row" : "cond-build-group cond-build-group-" + kind;
@@ -904,14 +926,16 @@ function buildGroupCond(ctx, block, root, path, node, kind, depth, notBtn, commi
   if (depth > 0) box.appendChild(parenGlyph(kind, ")"));
   box.appendChild(addComparisonBtn(() => commit(addComparisonAt(root, path, defaultLeaf(ctx)))));
   if (depth < MAX_GROUP_DEPTH) box.appendChild(addSubgroupBtn(() => commit(addSubgroupAt(root, path, defaultSubgroup(ctx)))));
-  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, path))));
+  // ✕ removes THIS node from its parent array — must use removePath (the
+  // pre-unwrap address), not `path` (unwrapped — see buildCond's comment).
+  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, removePath))));
   return box;
 }
 
 // A leaf: NOT badge + left operand + op (unless builtin left) + right operand
 // (unless builtin left or op:"exists") + ✕ (nested leaves only — a leaf that
 // IS the whole root has nothing to remove into).
-function buildLeafCond(ctx, block, path, node, depth, notBtn, commit, opKinds) {
+function buildLeafCond(ctx, block, path, node, depth, notBtn, commit, opKinds, removePath) {
   const cond = (node && typeof node === "object") ? node : { op: "==", left: "", right: "" };
   const root = block[blockConstruct(block)];
   const isBuiltin = cond.left && typeof cond.left === "object";
@@ -925,7 +949,9 @@ function buildLeafCond(ctx, block, path, node, depth, notBtn, commit, opKinds) {
     box.appendChild(opSel);
     if (cond.op !== "exists") box.appendChild(operandCtrl(ctx, block, path, "right", opKinds, commit));
   }
-  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, path))));
+  // ✕ removes THIS leaf from its parent array — must use removePath (the
+  // pre-unwrap address), not `path` (unwrapped — see buildCond's comment).
+  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, removePath))));
   return box;
 }
 
