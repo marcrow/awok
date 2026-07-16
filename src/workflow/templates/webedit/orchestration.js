@@ -790,7 +790,11 @@ function operandCtrl(ctx, block, path, side, opKinds, commit) {
         // Leaving builtin on the LEFT: "exists" only made sense while the
         // right operand was hidden by a builtin left. Reset op so the right
         // operand re-appears instead of persisting a hidden, incoherent leaf.
-        if (side === "left" && cond && cond.op === "exists") {
+        // Gated on the PREVIOUS kind being "builtin" (not just cond.op ===
+        // "exists") so a manually-set signal-exists leaf (a legitimate
+        // "signal exists" check, e.g. {op:"exists", left:"phase.sig"})
+        // survives a signal<->literal switch untouched.
+        if (side === "left" && kind === "builtin" && cond && cond.op === "exists") {
           next = setCondAt(next, path.concat(["op"]), "==");
         }
       }
