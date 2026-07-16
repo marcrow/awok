@@ -2038,15 +2038,35 @@ def _fmt_operand(v):
 def _render_condition(cond):
     if isinstance(cond, str):
         return f"_{cond}_"  # escape-hatch: natural-language predicate
+    if not isinstance(cond, dict):
+        return str(cond)
+
+    # boolean connectors
+    for conn, word in (("and", "and"), ("or", "or")):
+        if conn in cond:
+            parts = [_render_condition_member(m) for m in cond[conn]]
+            return f" {word} ".join(parts)
+    if "not" in cond:
+        return f"not ({_render_condition(cond['not'])})"
+
+    # leaf
     op, left, right = cond.get("op"), cond.get("left"), cond.get("right")
     if isinstance(left, dict):
-        left = " ".join(f"{k}({v})" for k, v in left.items())
-    else:
-        left = _fmt_operand(left)
+        # builtin operand: autonomous predicate, e.g. file_exists("/etc/passwd")
+        return " ".join(f'{k}("{v}")' for k, v in left.items())
+    left = _fmt_operand(left)
     right = _fmt_operand(right)
     if op == "exists":
         return f"`{left}` exists"
     return f"`{left}` {op} `{right}`"
+
+
+def _render_condition_member(m):
+    """A group/negation member is parenthesized so precedence reads correctly;
+    a bare leaf is rendered inline."""
+    if isinstance(m, dict) and ("and" in m or "or" in m):
+        return f"({_render_condition(m)})"
+    return _render_condition(m)
 
 
 def _render_blocks(blocks, depth=0):

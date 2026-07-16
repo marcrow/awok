@@ -304,6 +304,26 @@ def test_render_condition_renders_bool_literal_lowercase(bbw_module):
     assert "`true`" in rendered and "True" not in rendered
 
 
+def test_render_condition_composite(bbw_module):
+    cond = {"or": [
+        {"and": [{"op": "==", "left": "recon.waf", "right": "true"},
+                 {"op": ">", "left": "scan.risk", "right": 7}]},
+        {"not": {"and": [{"op": "==", "left": "scan.status", "right": "open"},
+                         {"op": "exists", "left": {"file_exists": "/etc/passwd"}}]}},
+    ]}
+    r = bbw_module._render_condition(cond)
+    assert "and" in r and "or" in r and "not (" in r
+    assert 'file_exists("/etc/passwd")' in r
+    assert "exists`" not in r          # builtin leaf renders without the redundant `exists` keyword
+    # the two AND groups are parenthesized inside the OR
+    assert r.count("(") >= 2 and r.count(")") >= 2
+
+
+def test_render_condition_not_leaf(bbw_module):
+    r = bbw_module._render_condition({"not": {"op": "==", "left": "a.x", "right": "1"}})
+    assert r.startswith("not (") and r.rstrip().endswith(")")
+
+
 def _wf_dep(phases, orchestration):
     return {"phases": phases, "orchestration": orchestration}
 
