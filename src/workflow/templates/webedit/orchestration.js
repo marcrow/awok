@@ -828,6 +828,17 @@ function operandCtrl(ctx, block, path, side, opKinds, commit) {
 // ============================================================================
 const MAX_GROUP_DEPTH = 2;   // authoring cap (engine imposes none); mini-spec §2 "ajustable"
 
+// Per-nesting-depth hues for a group's box border + "(" "/" ")" glyphs in the
+// EDIT builder (design §10.2). Deterministic by `depth % length` — NOT
+// randomized (Math.random would flicker across re-renders, and is unavailable
+// in this sandbox anyway) — so a given nesting level always reads the same
+// color. Kept distinct from the AND/OR semantic tint (still applied via the
+// cond-build-group-and/or background) — depth and connector-kind are two
+// independent signals layered on the same box. The read-only grid vignette
+// (condEl/.cond-group/.cond-paren) is untouched — it stays kind-colored only.
+const GROUP_PALETTE = ["#93c5fd", "#fda4af", "#86efac", "#fcd34d", "#c4b5fd", "#67e8f9"];
+function groupDepthColor(depth) { return GROUP_PALETTE[depth % GROUP_PALETTE.length]; }
+
 // Writes the (possibly nested) condition root back into `block` under its
 // construct key (if/while/until) and runs the panel's standard aftermath.
 // The one and only persist path for every control below — no other setter
@@ -917,22 +928,54 @@ function buildCond(ctx, block, path, depth, opKinds) {
   return buildLeafCond(ctx, block, bodyPath, bodyNode, depth, notBtn, commit, opKinds, path);
 }
 
+// Members render as a VERTICAL STACK (one row per member, design §10.1) —
+// SQL-style: the AND/OR connector sits at the START of each row FROM THE 2ND
+// MEMBER ON (the first row has no connector, only a same-width blank slot so
+// every row's member content lines up under the same left edge). The
+// connector pill is still the same `connToggleBtn` used before — only its
+// position moved (row-start instead of between-members) — so it keeps
+// toggling the WHOLE group's connector via the existing
+// `commit(toggleConnectorAt(root, path))` handler.
 function buildGroupCond(ctx, block, root, path, node, kind, depth, notBtn, commit, opKinds, removePath) {
   const members = node[kind];
+  const color = groupDepthColor(depth);
   const box = document.createElement("span");
   box.className = depth === 0 ? "cond-build-row" : "cond-build-group cond-build-group-" + kind;
-  box.appendChild(notBtn);
-  if (depth > 0) box.appendChild(parenGlyph(kind, "("));
+  box.dataset.depth = String(depth);
+  if (depth > 0) box.style.borderColor = color;   // depth-colored box border (§10.2); read vignette untouched
+
+  const head = document.createElement("span"); head.className = "cond-build-group-head";
+  head.appendChild(notBtn);
+  if (depth > 0) {
+    const open = parenGlyph(kind, "(");
+    open.style.color = color;                     // depth-colored "(" glyph (§10.2)
+    head.appendChild(open);
+  }
+  box.appendChild(head);
+
+  const stack = document.createElement("span"); stack.className = "cond-build-stack";
   members.forEach((m, i) => {
-    if (i > 0) box.appendChild(connToggleBtn(kind, () => commit(toggleConnectorAt(root, path))));
-    box.appendChild(buildCond(ctx, block, path.concat([kind, i]), depth + 1, opKinds));
+    const row = document.createElement("span"); row.className = "cond-build-mrow";
+    const slot = document.createElement("span"); slot.className = "cond-build-connslot";
+    if (i > 0) slot.appendChild(connToggleBtn(kind, () => commit(toggleConnectorAt(root, path))));
+    row.appendChild(slot);
+    row.appendChild(buildCond(ctx, block, path.concat([kind, i]), depth + 1, opKinds));
+    stack.appendChild(row);
   });
-  if (depth > 0) box.appendChild(parenGlyph(kind, ")"));
-  box.appendChild(addComparisonBtn(() => commit(addComparisonAt(root, path, defaultLeaf(ctx)))));
-  if (depth < MAX_GROUP_DEPTH) box.appendChild(addSubgroupBtn(() => commit(addSubgroupAt(root, path, defaultSubgroup(ctx)))));
+  box.appendChild(stack);
+
+  const foot = document.createElement("span"); foot.className = "cond-build-group-foot";
+  if (depth > 0) {
+    const close = parenGlyph(kind, ")");
+    close.style.color = color;                    // depth-colored ")" glyph (§10.2)
+    foot.appendChild(close);
+  }
+  foot.appendChild(addComparisonBtn(() => commit(addComparisonAt(root, path, defaultLeaf(ctx)))));
+  if (depth < MAX_GROUP_DEPTH) foot.appendChild(addSubgroupBtn(() => commit(addSubgroupAt(root, path, defaultSubgroup(ctx)))));
   // ✕ removes THIS node from its parent array — must use removePath (the
   // pre-unwrap address), not `path` (unwrapped — see buildCond's comment).
-  if (depth > 0) box.appendChild(removeCondBtn(() => commit(removeCondAt(root, removePath))));
+  if (depth > 0) foot.appendChild(removeCondBtn(() => commit(removeCondAt(root, removePath))));
+  box.appendChild(foot);
   return box;
 }
 

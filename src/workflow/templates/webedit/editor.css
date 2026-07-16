@@ -748,13 +748,24 @@ select:disabled{opacity:.42;cursor:not-allowed}
    notBadge/connRead/build()), plus the add/remove controls. The expression
    wraps — never overflows the panel (mini-spec §4). */
 .cond-build-root{display:flex;flex-direction:column;gap:14px}
-.cond-build-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cond-build-row{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .cond-build-leaf{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 8px;
   border-radius:9px;background:var(--well);border:1px solid var(--border)}
-.cond-build-group{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;border-radius:11px;
-  padding:7px 9px}
-.cond-build-group-and{background:rgba(96,165,250,0.1);border:1px dashed rgba(96,165,250,0.4)}
-.cond-build-group-or{background:rgba(251,113,133,0.1);border:1px dashed rgba(251,113,133,0.4)}
+/* group box — vertical stack of member rows (design §10.1); border-color is
+   overridden inline per-depth (groupDepthColor()) so the dashed rule below is
+   only the fallback/background tint, kept keyed to AND/OR (semantic), while
+   the visible border color comes from nesting depth (§10.2). */
+.cond-build-group{display:inline-flex;flex-direction:column;align-items:flex-start;gap:6px;
+  border-radius:11px;border:1px dashed var(--border);padding:7px 9px}
+.cond-build-group-and{background:rgba(96,165,250,0.1)}
+.cond-build-group-or{background:rgba(251,113,133,0.1)}
+.cond-build-group-head,.cond-build-group-foot{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+/* member stack: one row per member; the connector slot is a fixed-width
+   column so row 1 (no connector) still lines up its content under row 2+'s
+   content, which starts with an AND/OR pill in the same slot (SQL style). */
+.cond-build-stack{display:flex;flex-direction:column;gap:6px;margin-left:4px}
+.cond-build-mrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cond-build-connslot{display:inline-flex;flex:0 0 auto;min-width:34px;justify-content:flex-start}
 .cond-not-btn{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 8px;
   border-radius:6px;flex:0 0 auto;font:10px/1 var(--mono);font-weight:800;letter-spacing:.06em;
   cursor:pointer;color:var(--dim);background:transparent;border:1px solid var(--border);
