@@ -422,3 +422,75 @@ export function orchestrationIssues(model) {
       if (topOf[p.id] && topOf[d] && topOf[p.id] !== topOf[d]) out.push({ id: topOf[p.id], kind: "dep", msg: p.id + " depends on " + d + " across a gate boundary (expressed action→block)" });
   return out;
 }
+
+// --- condition tree (and/or/not) helpers -----------------------------------
+// On-disk condition shape: string (escape-hatch) | {op,left,right?} (leaf) |
+// {and:[…]} | {or:[…]} | {not:cond}. All helpers are pure; mutators return a
+// deep-cloned new root (never mutate the argument).
+export function condKind(c) {
+  if (typeof c === "string") return "escape";
+  if (!c || typeof c !== "object") return "empty";
+  if (Array.isArray(c.and)) return "and";
+  if (Array.isArray(c.or)) return "or";
+  if ("not" in c) return "not";
+  return "leaf";
+}
+export function isGroupCond(c) { const k = condKind(c); return k === "and" || k === "or"; }
+
+export function conditionSignalKeys(c) {
+  const out = [];
+  const walk = (n) => {
+    const k = condKind(n);
+    if (k === "and" || k === "or") { n[k].forEach(walk); return; }
+    if (k === "not") { walk(n.not); return; }
+    if (k === "leaf") {
+      [n.left, n.right].forEach(v => { if (typeof v === "string") out.push(v); });
+    }
+  };
+  walk(c);
+  return out;
+}
+
+function _clone(c) { return JSON.parse(JSON.stringify(c)); }
+export function getCondAt(root, path) {
+  return path.reduce((acc, step) => (acc == null ? acc : acc[step]), root);
+}
+export function setCondAt(root, path, value) {
+  const next = _clone(root);
+  if (path.length === 0) return value;
+  let cur = next;
+  for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+  cur[path[path.length - 1]] = value;
+  return next;
+}
+export function toggleNotAt(root, path) {
+  const node = getCondAt(root, path);
+  const replacement = condKind(node) === "not" ? node.not : { not: node };
+  return setCondAt(root, path, replacement);
+}
+export function toggleConnectorAt(root, path) {
+  const g = getCondAt(root, path);
+  const k = condKind(g);
+  if (k !== "and" && k !== "or") return root;
+  const other = k === "and" ? "or" : "and";
+  return setCondAt(root, path, { [other]: g[k] });
+}
+export function addComparisonAt(root, groupPath, leaf) {
+  const g = _clone(getCondAt(root, groupPath));
+  const k = condKind(g);
+  g[k] = g[k].concat([leaf]);
+  return setCondAt(root, groupPath, g);
+}
+export function addSubgroupAt(root, groupPath, subgroup) {
+  return addComparisonAt(root, groupPath, subgroup);
+}
+export function removeCondAt(root, path) {
+  const parentPath = path.slice(0, -1);
+  const key = path[path.length - 1];
+  const parent = getCondAt(root, parentPath);
+  if (Array.isArray(parent)) {
+    const arr = parent.slice(); arr.splice(key, 1);
+    return setCondAt(root, parentPath, arr);
+  }
+  return root;
+}
