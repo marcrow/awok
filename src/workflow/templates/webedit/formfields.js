@@ -238,6 +238,7 @@ export function signalsEditor(label, items, phase, onChange){
       source.addEventListener("change", () => {
         item.source = source.value;
         if (item.source === "exit_code" && item.type !== "bool" && item.type !== "number") item.type = "bool";
+        if (item.type !== "enum") delete item.values;
         if (item.source !== "field") delete item.from;
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
