@@ -172,6 +172,68 @@ def test_values_rejected_on_non_enum(bbw_module):
     assert any("n" in e and "values" in e for e in errs)
 
 
+def test_collect_signals_carries_of(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "hits", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "string"}])
+    sigs = bbw_module.collect_signals(wf)
+    assert sigs["t1.hits"]["of"] == "string"
+
+
+def test_of_on_non_list_is_error(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "n", "type": "number", "source": "token", "of": "string"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("n" in e and "'of'" in e for e in errs)
+
+
+def test_of_unknown_scalar_keyword_is_error(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "hits", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "widget"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("hits" in e and "widget" in e for e in errs)
+
+
+def test_of_enum_requires_values(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "v", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "enum"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("v" in e and "values" in e for e in errs)
+
+
+def test_of_enum_with_values_ok(bbw_module):
+    # single invocation with a matching output role so the field signal's
+    # emitter resolves cleanly — isolates the assertion to the of/values form
+    # checks (see resolve_signal_emitter, source=field).
+    wf = _wf([{"ref": "T1"}],
+             phases=[{"id": "T1", "name": "a", "group": "g",
+                      "invocations": [{"agent": "test-agent",
+                                       "outputs": [{"role": "t1", "kind": "json"}]}]}],
+             emits=[{"name": "v", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "enum", "values": ["a", "b"]}])
+    assert bbw_module._validate_signals(wf) == []
+
+
+def test_of_object_flat_ok(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             phases=[{"id": "T1", "name": "a", "group": "g",
+                      "invocations": [{"agent": "test-agent",
+                                       "outputs": [{"role": "t1", "kind": "json"}]}]}],
+             emits=[{"name": "f", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string", "severity": {"enum": ["low", "high"]}}}])
+    assert bbw_module._validate_signals(wf) == []
+
+
+def test_of_object_nested_is_error(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "f", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"bad": {"nested": "string"}}}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("f" in e and "bad" in e for e in errs)
+
+
 def test_file_exists_rejected_in_js_target(bbw_module):
     wf = _wf([{"if": {"op": "exists", "left": {"file_exists": "x.txt"}}, "then": [{"ref": "T1"}]}])
     errs = bbw_module.validate_orchestration(wf, target="js")

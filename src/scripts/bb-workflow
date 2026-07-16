@@ -789,6 +789,7 @@ def collect_signals(workflow: dict) -> dict:
                 "source": emit.get("source"),
                 "phase": pid,
                 "values": emit.get("values"),
+                "of": emit.get("of"),
             }
     return signals
 
@@ -851,6 +852,40 @@ def _check_values_form(values, tag):
     return errs
 
 
+_OF_SCALARS = ("string", "number", "bool", "enum")
+
+
+def _check_of_form(of, values, tag):
+    """Form errors for a list's `of` element type. `of` is a scalar keyword or a
+    flat object map. `values` is the emit's top-level values (element vocab when
+    of == 'enum'). Returns a list of error strings."""
+    errs = []
+    if isinstance(of, str):
+        if of not in _OF_SCALARS:
+            errs.append(f"{tag}: 'of' must be one of {list(_OF_SCALARS)}, got '{of}'")
+        elif of == "enum":
+            if values is None:
+                errs.append(f"{tag}: 'of: enum' requires a non-empty 'values' list (the element vocabulary)")
+            else:
+                errs.extend(_check_values_form(values, tag))
+        return errs
+    if isinstance(of, dict):
+        if not of:
+            errs.append(f"{tag}: 'of' object must declare at least one field")
+        for field, spec in of.items():
+            ftag = f"{tag}: field '{field}'"
+            if isinstance(spec, str):
+                if spec not in ("string", "number", "bool"):
+                    errs.append(f"{ftag}: type must be one of ['string', 'number', 'bool'] or {{enum: [...]}}, got '{spec}'")
+            elif isinstance(spec, dict) and set(spec.keys()) == {"enum"}:
+                errs.extend(_check_values_form(spec["enum"], ftag))
+            else:
+                errs.append(f"{ftag}: must be a scalar type or {{enum: [...]}} (no nesting)")
+        return errs
+    errs.append(f"{tag}: 'of' must be a scalar keyword or a flat object map")
+    return errs
+
+
 def _validate_signals(workflow: dict) -> list:
     """Blocking semantic rules for declared `emits` signals.
 
@@ -888,6 +923,12 @@ def _validate_signals(workflow: dict) -> list:
                 # values is only meaningful for an enum, or for a list whose
                 # elements are enums (Task 2 handles the list case).
                 errors.append(f"{tag}: 'values' is only valid for type 'enum' (or a list of enums)")
+            of = emit.get("of")
+            if typ == "list":
+                if of is not None:
+                    errors.extend(_check_of_form(of, values, tag))
+            elif of is not None:
+                errors.append(f"{tag}: 'of' is only valid for type 'list'")
             em = resolve_signal_emitter(workflow, phase, emit)
             if em["kind"] == "unresolved":
                 errors.append(f"{tag}: {em['reason']}")

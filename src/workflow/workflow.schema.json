@@ -96,7 +96,24 @@
               "source": { "enum": ["field", "token", "exit_code"] },
               "from": { "type": "string", "description": "For source=field: 'role' or 'role.field' of an existing json output." },
               "by": { "type": "string", "description": "For source token/exit_code on a multi-agent block: the agent whose output carries the signal. Omit for single-producer actions and for source=field." },
-              "values": { "type": "array", "items": { "type": "string" }, "description": "For type=enum: the allowed values." }
+              "values": { "type": "array", "items": { "type": "string" }, "description": "For type=enum: the allowed values." },
+              "of": {
+                "description": "For type=list: the element type — a scalar keyword ('string'|'number'|'bool'|'enum') or a flat object map field->spec. No nesting.",
+                "oneOf": [
+                  { "enum": ["string", "number", "bool", "enum"] },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "oneOf": [
+                        { "enum": ["string", "number", "bool"] },
+                        { "type": "object", "required": ["enum"],
+                          "properties": { "enum": { "type": "array", "items": { "type": "string" } } },
+                          "additionalProperties": false }
+                      ]
+                    }
+                  }
+                ]
+              }
             }
           }
         }
