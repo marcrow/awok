@@ -728,8 +728,9 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .op-box.signal .op-kind-btn.active{background:rgba(56,189,248,0.16);color:var(--accent);border-color:rgba(56,189,248,0.4)}
 .op-box.literal .op-kind-btn.active{background:rgba(251,191,36,0.16);color:var(--warn-2);border-color:rgba(251,191,36,0.4)}
 .op-box.builtin .op-kind-btn.active{background:rgba(167,139,250,0.16);color:var(--violet-2);border-color:rgba(167,139,250,0.4)}
-.op-box select,.op-box input[type=text]{width:100%;background:var(--well);border:1px solid var(--border);
+.op-box select,.op-box input[type=text],.op-box input[type=number]{width:100%;background:var(--well);border:1px solid var(--border);
   border-radius:8px;padding:8px 10px;color:var(--text);font:12px/1 var(--mono)}
+.op-box input[type=number]{accent-color:var(--accent)}
 .op-box.signal select{color:var(--accent)}
 .op-box.literal input{color:var(--warn-2);font-weight:600}
 .op-box.builtin select,.op-box.builtin input{color:var(--violet-2)}
