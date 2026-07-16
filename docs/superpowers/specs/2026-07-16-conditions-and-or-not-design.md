@@ -260,3 +260,58 @@ et les helpers de mutation d'arbre (toggle connector/not, add/remove, cap depth<
    récursives, sélecteur d'opérande, connecteurs, NOT (racine comprise), cap depth<2,
    récursion du placement de gate + tests JS.
 3. **Docs & ripple** : synchro docs, régénération, redéploiement, trailer.
+
+## 10. Lot 2 — raffinements du volet d'édition + valeurs enum
+
+Retours de la passe navigateur (feedback mainteneur). Portée : le **volet d'édition**
+uniquement pour le visuel (la vignette grille reste la maquette), plus une addition
+**moteur** pour l'enum. Décisions verrouillées :
+
+### 10.1 Layout du constructeur : connecteurs en début de ligne
+
+Un groupe se rend en **empilement vertical** (une ligne par membre), le connecteur
+`AND`/`OR` en **tête de ligne à partir du 2e membre** (style SQL) plutôt qu'inline entre
+membres. Le connecteur reste cliquable pour basculer AND↔OR du groupe entier. Plus lisible
+sur les groupes à plusieurs membres. La **vignette grille (lecture) ne change pas** (inline,
+conforme à la maquette).
+
+### 10.2 Couleurs de groupe par profondeur d'imbrication
+
+Les parenthèses + le liseré de la boîte d'un groupe prennent une **couleur distincte selon
+la profondeur d'imbrication**, pour distinguer les niveaux d'un coup d'œil. La couleur est
+**déterministe par profondeur** (niveau N → teinte N en cyclant une palette variée) —
+**stable** d'un rendu à l'autre (pas d'aléatoire re-tiré, qui clignoterait). Volet d'édition
+(et, si trivial, la vignette).
+
+### 10.3 Littéral typé par le signal comparé
+
+Quand une feuille compare un **signal** (à gauche) à un **littéral** (à droite), le champ
+littéral s'adapte au **type du signal** (lu dans `collect_signals`) :
+- `bool` → menu déroulant `true` / `false` ;
+- `number` → champ numérique validé + spinner (boutons +/−) ;
+- `enum` avec valeurs déclarées (§10.4) → menu déroulant de ces valeurs ;
+- `string` / type inconnu / **pas de signal en face** (deux littéraux, ou littéral à gauche)
+  → champ texte libre (inchangé). Le cas littéral-gauche + signal-droite n'est pas typé
+  (dégénéré assumé).
+
+### 10.4 Valeurs enum sur un signal (moteur)
+
+Aujourd'hui un signal déclare `type: enum` mais **pas la liste de ses valeurs**. On comble
+le manque :
+- **Schéma** (`workflow.schema.json`, item `emits`) : ajouter `values: { type: array, items:
+  { type: string } }` **optionnel**, pertinent seulement quand `type: enum`.
+- **`collect_signals`** : porter `values` dans la métadonnée du signal (à côté de `type`).
+- **Validation** (optionnelle, non-bloquante) : si un littéral est comparé (`==`/`!=`) à un
+  signal enum qui déclare des `values`, et que le littéral n'est pas dans la liste →
+  **avertissement**.
+- **UI de câblage** (`formfields.js`/Wiring, là où on déclare `emits`) : quand `type: enum`,
+  offrir un champ pour saisir les valeurs (liste). La YAML/UI reste la source de vérité.
+- **Constructeur** : le littéral comparé à un signal enum avec `values` offre le dropdown
+  (§10.3).
+
+### 10.5 Découpage Lot 2
+
+- **T11** (éditeur, visuel) : §10.1 + §10.2.
+- **T12** (éditeur) : §10.3 pour `bool` + `number` (dropdown/spinner) — indépendant de l'enum.
+- **T13** (moteur) : §10.4 schéma + `collect_signals` + avertissement + tests. Indépendant du visuel.
+- **T14** (éditeur) : §10.4 UI de câblage des valeurs + dropdown enum du littéral (dépend de T12 et T13).

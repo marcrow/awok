@@ -979,3 +979,111 @@ EOF
   - §6 tests → per-task (pytest + bun). §7 docs & ripple → Task 10. §8 out-of-scope (no JS runtime) honored (connectors only flagged js_safe).
 - **Placeholder scan:** engine tasks carry complete code; editor DOM tasks reference the in-repo prototype for exact inline styles (a real source file, not a placeholder) and give complete structural code + Task-6 mutators. Task 5 Step 1 is an inspection step because the fixture's already-emitted signals must be read before choosing operands.
 - **Type consistency:** `conditionSignalKeys`, `condKind`, `getCondAt`/`setCondAt`, `toggleNotAt`, `toggleConnectorAt`, `addComparisonAt`, `addSubgroupAt`, `removeCondAt` are defined in Task 6 and consumed with the same names in Tasks 7–9. `_render_condition_member` is introduced and used within Task 4. `_validate_condition` signature unchanged.
+
+---
+
+## Lot 2 — edit-panel refinements + enum signal values
+
+Source: design §10 (browser-pass feedback). Scope: the **edit panel** for visuals (the grid vignette is unchanged), plus one **engine** addition for enum values. Tasks 11–12 (editor visual/UX) and Task 13 (engine) are independent (different files); Task 14 depends on 12 + 13.
+
+### Task 11: Edit builder — connectors at line start + per-depth group colors
+
+**Files:**
+- Modify: `src/workflow/templates/webedit/orchestration.js` (the recursive builder `buildCond`/`buildGroupCond` from Task 8)
+- Modify: `src/workflow/templates/webedit/editor.css`
+
+**Interfaces:** consumes the Task-8 builder + Task-6 mutators. No new exports.
+
+- [ ] **Step 1: Vertical layout with leading connector.** In the EDIT builder's group branch (`buildGroupCond`), lay members out as a **vertical stack** (one row per member) instead of an inline row. Render the connector label (`AND`/`OR`) at the **start of each member row from the 2nd member on** (the first member has no leading connector; align it with the others). The connector stays clickable → `commit(toggleConnectorAt(root, path))` (toggles the whole group). Do NOT change the read-only grid vignette (`condEl`) — it stays inline.
+- [ ] **Step 2: Per-depth group color.** Give each nested group's parentheses/box border a color chosen **deterministically from `depth`** (e.g. `GROUP_PALETTE[depth % GROUP_PALETTE.length]`), so nesting levels are visually distinct and STABLE across re-renders (no randomness that would flicker). Add a `GROUP_PALETTE` const (4–6 distinct hues) and a CSS mechanism (e.g. an inline `style.borderColor`/`color` set from the palette, or `data-depth` + CSS rules). Apply to the box border and the `(`/`)` glyphs in the edit builder.
+- [ ] **Step 3: Static checks.** `node --check src/workflow/templates/webedit/orchestration.js`; `cd src/scripts/tests/webedit && bun test` (stays green).
+- [ ] **Step 4: Self-review** the vertical layout + palette against design §10.1–§10.2; confirm the read vignette is untouched.
+- [ ] **Step 5: Commit** `feat(webedit): vertical connectors-at-line-start + per-depth group colors in the builder`.
+
+> Browser-verify pending (user): readability of the vertical layout, distinctness of the depth colors.
+
+### Task 12: Edit builder — type-aware literal editor (bool / number)
+
+**Files:**
+- Modify: `src/workflow/templates/webedit/orchestration.js` (the literal operand control in the builder)
+
+**Interfaces:** consumes the declared-signals metadata already available to the builder (the `SIGNALS`/`sigPhase` map carries each signal's `type`). No new exports.
+
+- [ ] **Step 1: Infer the compared signal's type.** For a leaf where THIS operand is a **literal** and the OTHER operand is a **signal**, look up that signal's `type` from the declared-signals metadata. (If the other operand is not a signal — two literals, or literal-left + signal-right — no type; fall through to free text.)
+- [ ] **Step 2: Render the typed control:**
+  - `type === "bool"` → a `<select>` with options `true` / `false`; commit sets the literal to the chosen string (`"true"`/`"false"`, consistent with how bool literals are stored/rendered — see `_fmt_operand`).
+  - `type === "number"` → `<input type="number">` (spinner) with numeric validation (reject non-numeric); commit the string value.
+  - anything else (string / unknown / no signal) → the existing free-text input (unchanged).
+  Commit via the existing builder commit path (`setCondAt` → `commitCond` → `applyGateEdit`).
+- [ ] **Step 3: Static checks** (`node --check`, `bun test` green). Optionally a throwaway linkedom harness to confirm bool→select and number→spinner render for the right signal type (delete after).
+- [ ] **Step 4: Self-review** against design §10.3; confirm the signal picker (◈) and builtin control are untouched.
+- [ ] **Step 5: Commit** `feat(webedit): type-aware literal editor (bool dropdown, number spinner)`.
+
+> Note: the enum dropdown case is Task 14 (needs Task 13's declared values). Leave a clear seam (e.g. a `default:` branch) where Task 14 plugs in enum.
+
+### Task 13: Engine — enum signal `values`
+
+**Files:**
+- Modify: `src/workflow/workflow.schema.json` (the `emits` item)
+- Modify: `src/scripts/bb-workflow` (`collect_signals`, and the enum-literal warning in `_validate_condition` or `validate_orchestration`)
+- Test: `src/scripts/tests/test_workflow_orchestration.py` (and/or a signals test file)
+
+**Interfaces:**
+- Produces: `collect_signals(wf)[key]` carries `"values"` (list or None) alongside `"type"`.
+
+- [ ] **Step 1: Write the failing tests.**
+
+```python
+def test_emits_enum_values_carried_by_collect_signals(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["open", "vuln", "clean"]}])
+    sigs = bbw_module.collect_signals(wf)
+    assert sigs["t1.status"]["values"] == ["open", "vuln", "clean"]
+
+
+def test_literal_not_in_enum_values_warns(bbw_module):
+    wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "ghost"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["open", "vuln"]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("status" in e and "ghost" in e for e in errs)
+
+
+def test_enum_values_optional(bbw_module):
+    # enum signal with no declared values → no crash, no enum warning
+    wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "whatever"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token"}])
+    assert bbw_module.validate_orchestration(wf) == []
+```
+
+- [ ] **Step 2: Run tests → FAIL** (`values` not carried; no warning).
+- [ ] **Step 3: Schema.** In `workflow.schema.json`, add to the `emits` item properties:
+  ```json
+  "values": { "type": "array", "items": { "type": "string" }, "description": "For type=enum: the allowed values." }
+  ```
+- [ ] **Step 4: `collect_signals`.** Carry `values`: in the metadata dict add `"values": emit.get("values")`.
+- [ ] **Step 5: Enum-literal warning.** In `_validate_condition`'s leaf path (for `op in ("==","!=")`), if one operand is a signal whose metadata `type == "enum"` and has non-empty `values`, and the other operand is a plain string literal NOT in `values`, append a NON-blocking warning `orchestration: literal '<v>' is not one of enum signal '<sig>' values <values>`. (Reuse the `signals` map already passed in.)
+- [ ] **Step 6: Run tests → PASS**, then the whole file + no regression. Commit `feat(orchestration): enum signal values (schema + collect_signals + literal check)`.
+
+### Task 14: Wiring UI for enum values + literal enum dropdown
+
+**Files:**
+- Modify: `src/workflow/templates/webedit/formfields.js` (or wherever `emits` signals are declared in the Wiring editor)
+- Modify: `src/workflow/templates/webedit/orchestration.js` (the Task-12 literal control: add the enum case)
+
+**Interfaces:** consumes Task-13's `values` in the signals metadata; extends Task-12's literal control.
+
+- [ ] **Step 1: Wiring input.** Where a signal's `emits` entry is edited, when `type === "enum"` show an input to enter the allowed `values` (e.g. a comma-separated field or a small add/remove list), persisting `values: [...]` on the emits entry. Hide it for non-enum types.
+- [ ] **Step 2: Literal enum dropdown.** In the builder's literal control (Task 12), add the `type === "enum"` case: if the compared enum signal has declared `values`, render a `<select>` of those values; if it has none, fall back to free text.
+- [ ] **Step 3: Static checks** (`node --check`, `bun test` green).
+- [ ] **Step 4: Self-review** against design §10.4; confirm non-enum signal declaration is unchanged.
+- [ ] **Step 5: Commit** `feat(webedit): enum values in Wiring + enum literal dropdown in the builder`.
+
+> Browser-verify pending (user): declaring enum values on a signal, then the literal dropdown offering them.
+
+### Lot 2 ripple
+
+After Tasks 11–14, fold into Task 10's ripple (or a second ripple): `awok generate`, `awok check` green, `./install.sh`, `Regen:` trailer. Schema/engine change in Task 13 does not alter existing SKILL.md output (no shipped workflow declares enum values), so no artifact churn expected — confirm with `awok check`.
