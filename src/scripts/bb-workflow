@@ -940,8 +940,29 @@ def _value_spec(emit):
     if t == "bool":
         return "<true|false>"
     if t == "enum":
+        vals = emit.get("values")
+        if vals:
+            return "<" + "|".join(vals) + ">"
         return "<one of the allowed values>"
     return f"<{t}>"
+
+
+def _of_spec(emit):
+    """Human-readable element contract for a list emit's `of` (default: string)."""
+    of = emit.get("of") or "string"
+    if isinstance(of, str):
+        if of == "enum":
+            vals = emit.get("values")
+            return "one of " + "|".join(vals) if vals else "an enum value"
+        return of
+    # flat object map
+    parts = []
+    for field, spec in of.items():
+        if isinstance(spec, dict) and "enum" in spec:
+            parts.append(f"{field}: {'|'.join(spec['enum'])}")
+        else:
+            parts.append(f"{field}: {spec}")
+    return "objects {" + ", ".join(parts) + "}"
 
 
 def render_signal_emission(phase: dict, emit: dict) -> str:
@@ -957,7 +978,10 @@ def render_signal_emission(phase: dict, emit: dict) -> str:
         if src == "token":
             return f"- **Emit signal `{key}`**: end your output with a compact line `SIGNALS {name}={_value_spec(emit)}`."
         if src == "field":
-            return f"- **Emit signal `{key}`**: your `{role}` json output MUST contain a field `{name}` of type `{emit.get('type')}`."
+            base = f"- **Emit signal `{key}`**: your `{role}` json output MUST contain a field `{name}` of type `{emit.get('type')}`"
+            if emit.get("type") == "list":
+                return base + f" — a json array of {_of_spec(emit)}."
+            return base + "."
     if nature == "script":
         if src == "exit_code":
             if emit.get("type") == "number":
@@ -966,12 +990,18 @@ def render_signal_emission(phase: dict, emit: dict) -> str:
         if src == "token":
             return f"- **Signal `{key}`** = the `SIGNALS {name}=…` line the script prints on stdout."
         if src == "field":
-            return f"- **Signal `{key}`** = the field `{name}` of the script's `{role}` json output."
+            base = f"- **Signal `{key}`** = the field `{name}` of the script's `{role}` json output"
+            if emit.get("type") == "list":
+                return base + f" — a json array of {_of_spec(emit)}."
+            return base + "."
     if nature == "main_agent":
         if src == "token":
             return f"- **Produce signal `{key}`** as you do this step: state a line `SIGNALS {name}={_value_spec(emit)}`."
         if src == "field":
-            return f"- **Produce signal `{key}`**: write a field `{name}` ({emit.get('type')}) into `{role}`."
+            base = f"- **Produce signal `{key}`**: write a field `{name}` ({emit.get('type')}) into `{role}`"
+            if emit.get("type") == "list":
+                return base + f" — a json array of {_of_spec(emit)}."
+            return base + "."
     return ""
 
 

@@ -685,3 +685,33 @@ def test_homonym_implicit_and_explicit_of_string_no_diverge(bbw_module):
                                  "from": "b.json", "of": "string"}]}])
     warns = bbw_module.check_signal_payload_warnings(wf)
     assert not any("diverg" in w.lower() for w in warns)
+
+
+def test_value_spec_renders_enum_vocabulary(bbw_module):
+    emit = {"name": "status", "type": "enum", "source": "token",
+            "values": ["ok", "degraded", "failed"]}
+    assert bbw_module._value_spec(emit) == "<ok|degraded|failed>"
+
+
+def test_emission_line_lists_enum_values(bbw_module):
+    phase = {"id": "SCAN", "type": "agent"}
+    emit = {"name": "status", "type": "enum", "source": "token",
+            "values": ["ok", "failed"]}
+    line = bbw_module.render_signal_emission(phase, emit)
+    assert "ok|failed" in line
+
+
+def test_emission_line_describes_scalar_list(bbw_module):
+    phase = {"id": "SCAN", "type": "agent"}
+    emit = {"name": "hits", "type": "list", "source": "field",
+            "from": "report.hits", "of": "string"}
+    line = bbw_module.render_signal_emission(phase, emit)
+    assert "array" in line.lower() and "string" in line
+
+
+def test_emission_line_describes_object_list(bbw_module):
+    phase = {"id": "SCAN", "type": "agent"}
+    emit = {"name": "findings", "type": "list", "source": "field", "from": "report.findings",
+            "of": {"path": "string", "severity": {"enum": ["low", "high"]}}}
+    line = bbw_module.render_signal_emission(phase, emit)
+    assert "path" in line and "severity" in line and "low|high" in line
