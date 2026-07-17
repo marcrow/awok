@@ -306,8 +306,11 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
 /* signals (emits) editor */
 .signals-editor>label{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;
   letter-spacing:.05em;color:var(--dim);margin-bottom:8px}
-.signal-row{display:flex;gap:6px;align-items:center;background:var(--well);border:1px solid var(--border);
-  border-radius:8px;padding:9px 10px;margin-top:8px;flex-wrap:wrap}
+/* one framed block per signal — holds the main row AND its sub-rows so the
+   border wraps the whole unit (the sub-rows used to fall outside it) */
+.signal-block{background:var(--well);border:1px solid var(--border);border-radius:8px;
+  padding:9px 10px;margin-top:8px}
+.signal-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .signal-row input,.signal-row select{background:var(--panel);border:1px solid var(--border);border-radius:6px;
   color:#cbd5e1;padding:6px 9px;font:12px/1.3 var(--mono);outline:none}
 .signal-row input.signal-name{flex:1 1 auto;min-width:80px;color:#7dd3fc}
@@ -326,7 +329,7 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
 .signal-row>button.signal-del,.signal-row>.signal-warn{margin-bottom:6px}
 .signals-intro{margin:4px 0 2px}
 
-.signal-subrow{display:flex;gap:6px;align-items:center;margin:6px 0 0 10px}
+.signal-subrow{display:flex;gap:6px;align-items:flex-end;margin:6px 0 0 0}
 .signal-subrow select,.signal-subrow input{background:var(--panel);border:1px solid var(--border);border-radius:6px;
   color:#cbd5e1;padding:6px 9px;font:12px/1.3 var(--mono);outline:none}
 .signal-add{margin-top:8px;background:var(--accent-soft);border:1px dashed rgba(56,189,248,0.35);color:#7dd3fc;
@@ -404,6 +407,12 @@ select:disabled{opacity:.42;cursor:not-allowed}
 /* In Settings the cards sit in a scroll area — show the popover BELOW the icon so
    a top-row card's tooltip isn't clipped by the scroll container's top edge. */
 #settings .help-pop{bottom:auto;top:135%}
+/* Signals live in the drawer's vertical-scroll body, which clips a centered
+   popover at the left/right edges. Anchor the popover to the icon edge so it
+   opens inward: left-column labels open rightward (default), and the type/
+   source selects at the right edge open leftward (help-align-right). */
+.mini-label .help-pop{left:0;right:auto;transform:none}
+.mini-label.help-align-right .help-pop{left:auto;right:0;transform:none}
 .help-note{font-size:10.5px;color:var(--faint);line-height:1.5;margin:6px 0}
 
 /* ---- notice / prompt overlay ---- */

@@ -300,3 +300,41 @@ test("object repeater labels field name and type", () => {
   expect(labels).toContain("field");
   expect(labels).toContain("type");
 });
+
+test("each signal and its sub-rows share one framed .signal-block", () => {
+  dom();
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  const r = signalsEditor("emits", [{ name: "hits", type: "list", source: "field", from: "work:t1", of: "string" }], phase, () => {});
+  const blocks = r.querySelectorAll(".signal-block");
+  expect(blocks.length).toBe(1);
+  const b = blocks[0];
+  expect(b.querySelector(".signal-row")).not.toBeNull();
+  // the `from` sub-row AND the `of` sub-row live inside the SAME block
+  expect(b.querySelectorAll(".signal-subrow").length).toBeGreaterThanOrEqual(2);
+  // no sub-row escaped the block (all subrows are inside a block)
+  expect([...r.querySelectorAll(".signal-subrow")].every(s => s.closest(".signal-block"))).toBe(true);
+});
+
+test("two signals render two separate blocks", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [
+    { name: "a", type: "string", source: "token" },
+    { name: "b", type: "string", source: "token" },
+  ], phase, () => {});
+  expect(r.querySelectorAll(".signal-block").length).toBe(2);
+});
+
+test("type and source labels anchor their popover to the right edge", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [{ name: "s", type: "string", source: "token" }], phase, () => {});
+  const rightLabels = [...r.querySelectorAll(".signal-row .mini-label.help-align-right")]
+    .map(l => l.childNodes[0].textContent);
+  expect(rightLabels).toContain("type");
+  expect(rightLabels).toContain("source");
+  // the name label keeps the default (left-anchored) popover
+  const nameLabel = [...r.querySelectorAll(".signal-row .mini-label")]
+    .find(l => l.childNodes[0].textContent === "name");
+  expect(nameLabel.classList.contains("help-align-right")).toBe(false);
+});

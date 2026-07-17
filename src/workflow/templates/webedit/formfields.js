@@ -210,9 +210,14 @@ const SIGNAL_HELP = {
   of_field_type: "Field type: a scalar, or enum with its own closed vocabulary.",
 };
 
-function labeled(labelText, helpText, controlEl){
+// `helpAlign` steers the hover popover so it never spills past the drawer's
+// scroll edges (which clip it): "left" (default) opens rightward — right for a
+// control near the panel's left edge; "right" opens leftward — for the type/
+// source selects that sit against the right edge.
+function labeled(labelText, helpText, controlEl, helpAlign){
   const w = document.createElement("div"); w.className = "labeled-ctl";
   const l = document.createElement("span"); l.className = "mini-label";
+  if (helpAlign === "right") l.classList.add("help-align-right");
   l.appendChild(document.createTextNode(labelText));
   if (helpText) l.appendChild(helpIcon(helpText));
   w.appendChild(l); w.appendChild(controlEl);
@@ -244,6 +249,10 @@ export function signalsEditor(label, items, phase, onChange){
   function render(){
     body.replaceChildren();
     list.forEach((item, idx) => {
+      // One framed block per signal groups the main row with its sub-rows
+      // (from/by/values/of) so they read as a single unit inside the border.
+      const block = document.createElement("div"); block.className = "signal-block";
+      body.appendChild(block);
       const r = document.createElement("div"); r.className = "signal-row";
       const name = document.createElement("input"); name.type = "text"; name.className = "signal-name";
       name.placeholder = "name"; name.value = item.name || "";
@@ -269,7 +278,7 @@ export function signalsEditor(label, items, phase, onChange){
         if (item.type !== "list") delete item.of;
         emit(); render();
       });
-      r.appendChild(labeled("type", SIGNAL_HELP.type, type));
+      r.appendChild(labeled("type", SIGNAL_HELP.type, type, "right"));
       const source = document.createElement("select");
       for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
       source.addEventListener("change", () => {
@@ -281,13 +290,13 @@ export function signalsEditor(label, items, phase, onChange){
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
       });
-      r.appendChild(labeled("source", SIGNAL_HELP.source, source));
+      r.appendChild(labeled("source", SIGNAL_HELP.source, source, "right"));
       const del = document.createElement("button"); del.className = "signal-del"; del.textContent = "✕";
       del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
       r.appendChild(del);
       r.appendChild(warn);
       refreshWarn();
-      body.appendChild(r);
+      block.appendChild(r);
 
       const curSource = item.source || sources[0];
       if (curSource === "field") {
@@ -306,7 +315,7 @@ export function signalsEditor(label, items, phase, onChange){
         const fw = labeled("field", SIGNAL_HELP.from_field, fieldInput);
         fw.classList.add("grow");
         sub.appendChild(fw);
-        body.appendChild(sub);
+        block.appendChild(sub);
       }
       if ((curSource === "token" || curSource === "exit_code") && invAgents.length >= 2) {
         const sub = document.createElement("div"); sub.className = "signal-subrow";
@@ -315,7 +324,7 @@ export function signalsEditor(label, items, phase, onChange){
         for (const a of invAgents){ const o = document.createElement("option"); o.value = a; o.textContent = a; if (a === item.by) o.selected = true; bySel.appendChild(o); }
         bySel.addEventListener("change", () => { if (bySel.value) item.by = bySel.value; else delete item.by; emit(); });
         sub.appendChild(labeled("by", SIGNAL_HELP.by, bySel));
-        body.appendChild(sub);
+        block.appendChild(sub);
       }
       if ((item.type || "string") === "enum") {
         const sub = document.createElement("div"); sub.className = "signal-subrow";
@@ -325,7 +334,7 @@ export function signalsEditor(label, items, phase, onChange){
         });
         sle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
         sub.appendChild(sle);
-        body.appendChild(sub);
+        block.appendChild(sub);
       }
       if ((item.type || "string") === "list") {
         const sub = document.createElement("div"); sub.className = "signal-subrow";
@@ -341,7 +350,7 @@ export function signalsEditor(label, items, phase, onChange){
           emit(); render();
         });
         sub.appendChild(labeled("of", SIGNAL_HELP.of, ofSel));
-        body.appendChild(sub);
+        block.appendChild(sub);
 
         if (curOf === "enum") {
           const vrow = document.createElement("div"); vrow.className = "signal-subrow";
@@ -350,7 +359,7 @@ export function signalsEditor(label, items, phase, onChange){
           });
           vsle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
           vrow.appendChild(vsle);
-          body.appendChild(vrow);
+          block.appendChild(vrow);
         }
         if (curOf === "object") {
           const orow = document.createElement("div"); orow.className = "signal-subrow signal-of-object";
@@ -412,7 +421,7 @@ export function signalsEditor(label, items, phase, onChange){
             render(); emit();
           });
           orow.appendChild(addF);
-          body.appendChild(orow);
+          block.appendChild(orow);
         }
       }
     });
