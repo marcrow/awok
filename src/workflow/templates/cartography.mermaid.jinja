@@ -67,7 +67,9 @@ end
     classDef {{ gname }} fill:{{ group_colors[gname] }},stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
 {% endfor -%}
     classDef workflow_call fill:#312e81,stroke:#a78bfa,stroke-width:2px,color:#ede9fe
+{%- if definition_phase %}
 classDef definition fill:#0b2a1e,stroke:#4ade80,stroke-width:2px,color:#dcfce7
+{%- endif %}
 classDef opportunistic stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5 4
 classDef opp_locked stroke:#6b7280,stroke-width:1px,color:#9ca3af
 ```
