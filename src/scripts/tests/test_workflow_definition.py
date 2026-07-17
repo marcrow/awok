@@ -35,3 +35,18 @@ def test_schema_accepts_workflow_call_args():
                       "type": "workflow_call", "workflow": "other",
                       "args": {"question": "hello", "mode": "signal:p0.status"}}])
     assert bbw.validate_schema(wf) == []
+
+def test_params_rules():
+    wf = _wf(definition={"params": [
+        {"name": "ok", "type": "enum", "values": ["a"], "default": "a"},
+        {"name": "bad_enum", "type": "enum", "values": []},
+        {"name": "req_def", "type": "string", "required": True, "default": "x"},
+        {"name": "dup", "type": "string"}, {"name": "dup", "type": "string"},
+        {"name": "listp", "type": "list"},
+    ]})
+    errs = bbw.validate_definition(wf)
+    assert any("bad_enum" in e and "values" in e for e in errs)
+    assert any("req_def" in e and "default" in e for e in errs)
+    assert any("duplicate" in e and "dup" in e for e in errs)
+    assert any("listp" in e and "of" in e for e in errs)
+    assert not any("'ok'" in e for e in errs)

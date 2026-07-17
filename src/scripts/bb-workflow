@@ -937,6 +937,50 @@ def _validate_signals(workflow: dict) -> list:
     return errors
 
 
+def validate_definition(workflow: dict) -> list:
+    """Blocking rules for the workflow-level `definition` contract (spec 2026-07-17).
+    Params, outputs (produced_by + promote/formatter), emits (promote/create),
+    reserved id DEFINITION. Signal keys are lowercase <pid>.<name>."""
+    d = workflow.get("definition")
+    if not d:
+        return []
+    errors = []
+
+    # reserved id
+    if any(p.get("id") == "DEFINITION" for p in workflow.get("phases", [])):
+        errors.append("phase id 'DEFINITION' is reserved for the workflow definition block")
+
+    # --- params ---
+    seen = set()
+    for p in d.get("params", []) or []:
+        name = p.get("name", "?")
+        tag = f"definition param '{name}'"
+        ptype = p.get("type")
+        if name in seen:
+            errors.append(f"{tag}: duplicate param name")
+        seen.add(name)
+        if ptype == "enum":
+            errors.extend(_check_values_form(p.get("values"), tag))
+        if ptype == "list":
+            if not p.get("of"):
+                errors.append(f"{tag}: type 'list' requires an 'of' element type")
+            else:
+                errors.extend(_check_of_form(p.get("of"), p.get("values"), tag))
+        if p.get("required") and p.get("default") not in (None, ""):
+            errors.append(f"{tag}: a required param cannot declare a default")
+        default = p.get("default")
+        if default not in (None, ""):
+            if ptype == "number" and not isinstance(default, (int, float)):
+                errors.append(f"{tag}: default must be a number")
+            if ptype == "bool" and not isinstance(default, bool):
+                errors.append(f"{tag}: default must be a bool")
+            if ptype == "enum" and default not in (p.get("values") or []):
+                errors.append(f"{tag}: default must be one of the enum values")
+            if ptype == "list":
+                errors.append(f"{tag}: a list param cannot declare a default")
+    return errors
+
+
 def _value_spec(emit):
     t = emit.get("type")
     if t == "bool":
@@ -1472,6 +1516,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
         errors.extend(validate_orchestration(workflow))
 
     errors.extend(_validate_signals(workflow))
+
+    errors.extend(validate_definition(workflow))
 
     return errors
 
