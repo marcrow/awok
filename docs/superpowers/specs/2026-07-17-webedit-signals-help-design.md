@@ -23,8 +23,11 @@ Ce persona devient la référence pour l'accessibilité de toute la web UI
   panneau ni noyer les contrôles. La lisibilité vient de mini-labels discrets ;
   la profondeur pédagogique vit dans les tooltips (invisible tant qu'on ne
   survole pas). Pas de bloc dépliable (écarté : bruit > gain).
-- Zéro dépendance, zéro JS de tooltip custom : `title=` natif (convention déjà
-  présente dans `formfields.js`).
+- Zéro dépendance nouvelle : réutiliser la convention de tooltip existante de
+  l'éditeur — `helpIcon(text)` (`render-helpers.js`) : glyphe « ? » + popover
+  CSS `.help-pop` au survol. (Amendement : le brainstorm disait `title=` natif,
+  mais la convention maison existe déjà et son commentaire proscrit `title=`
+  qui doublonnerait le popover.)
 
 ## 3. Les trois couches
 
@@ -49,9 +52,9 @@ petites colonnes label-au-dessus-du-contrôle, sans élargissement notable.
 
 Le bouton ✕ et le chip d'avertissement regex ne reçoivent pas de label.
 
-### 3.3 Tooltips ⓘ par champ
+### 3.3 Tooltips par champ
 
-À côté de chaque mini-label, un glyphe ⓘ portant un `title=` natif. Contenus
+À côté de chaque mini-label, un glyphe « ? » (`helpIcon`, popover CSS). Contenus
 (formulations finales à ajuster à l'implémentation, l'esprit est fixé) :
 
 | Champ | Tooltip (anglais) |
