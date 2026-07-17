@@ -160,6 +160,16 @@ def test_dataflow_graph_workflow_call_produces_target_definition_outputs(tmp_pat
     assert any(e[0] == "C1" and e[3] == tgt_path for e in graph["producer_edges"]), \
         graph["producer_edges"]
 
+def test_compile_style():
+    lines = bbw.compile_style({"length": "brief", "tone": "didactic",
+                               "format": "bullets", "language": "French",
+                               "mustInclude": ["TL;DR"], "avoid": ["preamble"], "stance": "recommend"})
+    joined = " ".join(lines)
+    assert "brief" in joined and "didactic" in joined and "bullet" in joined.lower()
+    assert "French" in joined and "TL;DR" in joined and "preamble" in joined
+    assert bbw.compile_style({"tone": "custom", "toneCustom": "like a pirate"}) == ["like a pirate"]
+    assert bbw.compile_style({}) == []
+
 def test_dataflow_graph_workflow_call_missing_target_does_not_crash(tmp_path, monkeypatch):
     # Crash-guard: a workflow_call whose target .yaml doesn't exist must be a
     # silent no-op for dataflow (no crash, no spurious producer edge).

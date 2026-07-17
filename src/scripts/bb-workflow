@@ -2648,6 +2648,86 @@ def _derive_definition_depends_on(workflow: dict, d: dict) -> list:
     return sorted(deps)
 
 
+_LEN_HINT = {"terse": "~40 words", "brief": "~150 words", "standard": "~400 words",
+             "detailed": "~800 words", "exhaustive": "as long as needed"}
+_FMT_PROSE = {"prose": "Write as flowing prose.", "bullets": "Structure as bullet points.",
+              "table": "Present as a table.", "sections": "Organize under section headers.",
+              "tldr": "Lead with a TL;DR, then the detail."}
+
+
+def compile_style(style: dict) -> list:
+    """Prompt-assist knobs -> deterministic prose lines (single source of truth;
+    the WebUI preview renders these verbatim). Free prompt is concatenated after."""
+    st = style or {}
+    parts = []
+    if st.get("length"):
+        parts.append(f"Keep the answer {st['length']} ({_LEN_HINT.get(st['length'], 'appropriate length')}).")
+    if st.get("tone") == "custom":
+        if st.get("toneCustom"):
+            parts.append(st["toneCustom"])
+    elif st.get("tone"):
+        parts.append(f"Write in a {st['tone']} tone.")
+    if st.get("format") in _FMT_PROSE:
+        parts.append(_FMT_PROSE[st["format"]])
+    if st.get("language") and st["language"] != "inherit":
+        parts.append(f"Respond in {st['language']}.")
+    if st.get("audience"):
+        parts.append(f"Written for a {st['audience']}.")
+    for m in st.get("mustInclude", []) or []:
+        parts.append(f"Always include: {m}.")
+    for a in st.get("avoid", []) or []:
+        parts.append(f"Avoid: {a}.")
+    if st.get("stance") == "present":
+        parts.append("Present options rather than a single pick.")
+    elif st.get("stance") == "recommend":
+        parts.append("Give a clear recommendation.")
+    return parts
+
+
+def compose_formatter_prompt(workflow: dict, def_phase: dict) -> str:
+    """Full formatter prompt = io listing + compiled style + free prompt. Files
+    are listed HERE, never by the author (pitfall #5).
+
+    `_format_io_compact(inputs, outputs)` takes plain io_ref lists and expects
+    each item to already carry a resolved `path` (see `resolve_io_path` /
+    `resolve_io_paths`). `resolve_io_paths()` only walks `workflow['phases']`,
+    not the `definition` block, so the DEFINITION phase's formatter I/O is
+    resolved here explicitly — mirroring the same-purpose resolution already
+    done ad hoc for it in `build_dataflow_graph`. `def_phase` is expected to be
+    `_synthesize_definition_phase(workflow)`'s output: its `inputs` are exactly
+    the formatter's inputs, and its `outputs` mix promote + formatter outputs,
+    so only `produced_by: formatter` outputs belong in the formatter's own
+    "Writes" listing.
+    """
+    fmt = (workflow.get("definition") or {}).get("formatter") or {}
+    namespaces = workflow.get("namespaces", {})
+
+    def _resolved(io_list):
+        resolved = []
+        for io in io_list or []:
+            io = dict(io)
+            if not io.get("path"):
+                path = resolve_io_path(io, namespaces)
+                if path is not None:
+                    io["path"] = path
+            resolved.append(io)
+        return resolved
+
+    inputs = _resolved(def_phase.get("inputs", []))
+    outputs = _resolved([o for o in (def_phase.get("outputs") or [])
+                         if o.get("produced_by") == "formatter"])
+    io_line = _format_io_compact(inputs, outputs)
+    style_lines = compile_style(fmt.get("style") or {})
+    blocks = []
+    if io_line and io_line != "_(no I/O)_":
+        blocks.append(io_line)
+    if style_lines:
+        blocks.append("\n".join(style_lines))
+    if fmt.get("prompt"):
+        blocks.append(fmt["prompt"])
+    return "\n\n".join(blocks)
+
+
 def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
     """Build a dataflow view of the workflow.
 
