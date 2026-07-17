@@ -50,3 +50,38 @@ def test_params_rules():
     assert any("duplicate" in e and "dup" in e for e in errs)
     assert any("listp" in e and "of" in e for e in errs)
     assert not any("'ok'" in e for e in errs)
+
+def test_outputs_and_emits_rules():
+    wf = _wf(
+        phases=[{"id": "SYN", "name": "s", "group": "g", "type": "agent",
+                 "invocations": [{"agent": "a", "outputs": [{"role": "work:draft", "kind": "json"}]}],
+                 "emits": [{"name": "verdict", "type": "string", "source": "field",
+                            "from": "work:draft", "field": "verdict"}]}],
+        definition={
+            "outputs": [
+                {"role": "work:missing", "kind": "md", "produced_by": "promote"},
+                {"role": "work:final", "kind": "md", "produced_by": "formatter"},
+            ],
+            "emits": [
+                {"name": "ok", "type": "string", "source": "promote", "from": "syn.verdict"},
+                {"name": "ghost", "type": "string", "source": "promote", "from": "syn.nope"},
+                {"name": "len", "type": "number", "source": "create", "from": "work:final", "field": "n"},
+            ],
+            "formatter": {"enabled": True, "prompt": "x",
+                          "invoke": {"type": "agent", "agent": "a"},
+                          "inputs": [{"role": "work:draft", "kind": "json"}]},
+        })
+    errs = bbw.validate_definition(wf)
+    # promote of a role not produced anywhere → error
+    assert any("work:missing" in e for e in errs)
+    # promote of an unknown internal signal → error
+    assert any("ghost" in e and "syn.nope" in e for e in errs)
+    # create emit reads a non-json output (md) → error (needs json + field)
+    assert any("'len'" in e and "json" in e for e in errs)
+    assert not any("'ok'" in e for e in errs)
+
+def test_create_emit_requires_formatter():
+    wf = _wf(definition={"emits": [
+        {"name": "x", "type": "number", "source": "create", "from": "work:final", "field": "n"}]})
+    errs = bbw.validate_definition(wf)
+    assert any("'x'" in e and "formatter" in e for e in errs)

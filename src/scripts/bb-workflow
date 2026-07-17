@@ -937,6 +937,19 @@ def _validate_signals(workflow: dict) -> list:
     return errors
 
 
+def _all_produced_roles(workflow: dict) -> dict:
+    """role (namespace-stripped of trailing .field) -> kind, for every output an
+    internal phase/invocation produces. Used to check definition promote-outputs."""
+    roles = {}
+    for phase in workflow.get("phases", []):
+        for out in phase.get("outputs", []) or []:
+            roles[out.get("role", "")] = out.get("kind")
+        for inv in phase.get("invocations", []) or []:
+            for out in inv.get("outputs", []) or []:
+                roles[out.get("role", "")] = out.get("kind")
+    return roles
+
+
 def validate_definition(workflow: dict) -> list:
     """Blocking rules for the workflow-level `definition` contract (spec 2026-07-17).
     Params, outputs (produced_by + promote/formatter), emits (promote/create),
@@ -978,6 +991,58 @@ def validate_definition(workflow: dict) -> list:
                 errors.append(f"{tag}: default must be one of the enum values")
             if ptype == "list":
                 errors.append(f"{tag}: a list param cannot declare a default")
+
+    # --- outputs ---
+    produced = _all_produced_roles(workflow)
+    fmt = (d.get("formatter") or {})
+    has_formatter = bool(fmt.get("enabled"))
+    fmt_output_roles = {o.get("role"): o.get("kind")
+                        for o in d.get("outputs", []) or [] if o.get("produced_by") == "formatter"}
+    for o in d.get("outputs", []) or []:
+        role = o.get("role") or o.get("path") or "?"
+        pb = o.get("produced_by")
+        if pb == "promote" and o.get("role") and o["role"] not in produced:
+            errors.append(f"definition output '{role}' is produced_by promote but no internal phase produces role '{o['role']}'")
+        if pb == "formatter" and not has_formatter:
+            errors.append(f"definition output '{role}' is produced_by formatter but no formatter is enabled")
+
+    # --- emits ---
+    signals = collect_signals(workflow)
+    seen_e = set()
+    for e in d.get("emits", []) or []:
+        name = e.get("name", "?")
+        tag = f"definition emit '{name}'"
+        if name in seen_e:
+            errors.append(f"{tag}: duplicate emit name")
+        seen_e.add(name)
+        if e.get("type") == "enum":
+            errors.extend(_check_values_form(e.get("values"), tag))
+        if e.get("type") == "list":
+            if not e.get("of"):
+                errors.append(f"{tag}: type 'list' requires 'of'")
+            else:
+                errors.extend(_check_of_form(e.get("of"), e.get("values"), tag))
+        src = e.get("source")
+        if src == "promote":
+            key = e.get("from")
+            if not key:
+                errors.append(f"{tag}: promote requires a 'from' internal signal key")
+            elif key not in signals:
+                errors.append(f"{tag}: promote 'from' {key!r} is not a declared signal")
+            else:
+                st = signals[key].get("type")
+                if st and st != e.get("type"):
+                    errors.append(f"{tag}: type '{e.get('type')}' differs from promoted signal {key} ('{st}')")
+        elif src == "create":
+            if not has_formatter:
+                errors.append(f"{tag}: source 'create' requires a formatter")
+            role = e.get("from")
+            if not role or role not in fmt_output_roles:
+                errors.append(f"{tag}: create 'from' must read a formatter output role")
+            elif fmt_output_roles.get(role) != "json":
+                errors.append(f"{tag}: create reads role '{role}' which must be kind 'json' to carry a field")
+            if not e.get("field"):
+                errors.append(f"{tag}: create requires a 'field' selector")
     return errors
 
 
