@@ -164,3 +164,49 @@ def test_render_emission_script_exit_code_number(bbw_module):
     # number exit_code describes the integer code, not the 0=>true boolean mapping
     assert "grep_rc" in s and ("integer" in s.lower() or "code" in s.lower())
     assert "true" not in s.lower()
+
+
+def test_render_emission_field_renames_json_key(bbw_module):
+    # source=field with an explicit `field:` — the emitter is told to write a
+    # JSON field named by `field`, while the signal KEY still comes from `name`.
+    ph = {"id": "ARBITRE", "name": "arb", "group": "g",
+          "invocations": [{"agent": "a", "outputs": [{"role": "work:arbitre", "kind": "json"}]}]}
+    emit = {"name": "escalade_airbus", "type": "string", "source": "field",
+            "from": "work:arbitre", "field": "niveau"}
+    s = bbw_module.render_signal_emission(ph, emit)
+    assert "`niveau`" in s                       # write the field `niveau`
+    assert "arbitre.escalade_airbus" in s        # signal key unchanged
+    assert "field `escalade_airbus`" not in s    # NOT a field named like the signal
+
+
+def test_render_emission_field_defaults_to_name(bbw_module):
+    # no `field:` → the JSON field name falls back to the signal name (unchanged behaviour)
+    ph = {"id": "P", "name": "p", "group": "g",
+          "invocations": [{"agent": "a", "outputs": [{"role": "work:o", "kind": "json"}]}]}
+    s = bbw_module.render_signal_emission(ph, {"name": "n", "type": "number", "source": "field", "from": "work:o"})
+    assert "field `n`" in s
+
+
+def test_render_emission_field_rename_script_nature(bbw_module):
+    # the rename also applies to a script-nature field emitter
+    ph = {"id": "S", "name": "s", "group": "g", "type": "script",
+          "outputs": [{"role": "work:o", "kind": "json"}]}
+    emit = {"name": "sig", "type": "string", "source": "field", "from": "work:o", "field": "raw"}
+    s = bbw_module.render_signal_emission(ph, emit)
+    assert "`raw`" in s and "field `sig`" not in s
+
+
+def test_schema_accepts_field_key(bbw_module):
+    model = _wf([{"id": "P", "name": "p", "group": "g",
+                  "invocations": [{"agent": "a", "outputs": [{"role": "work:o", "kind": "json"}]}],
+                  "emits": [{"name": "sig", "type": "string", "source": "field",
+                             "from": "work:o", "field": "niveau"}]}])
+    assert bbw_module.validate_schema(model) == []
+
+
+def test_rule_field_key_requires_source_field(bbw_module):
+    # `field` is only meaningful for source=field; on a token signal it is an error
+    e = _errs(bbw_module, [{"id": "P", "name": "p", "group": "g",
+        "invocations": [{"agent": "x"}],
+        "emits": [{"name": "sig", "type": "string", "source": "token", "field": "oops"}]}])
+    assert any("field" in m and "sig" in m for m in e)

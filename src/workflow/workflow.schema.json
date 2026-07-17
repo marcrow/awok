@@ -94,7 +94,8 @@
               "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
               "type": { "enum": ["number", "string", "bool", "enum", "list"] },
               "source": { "enum": ["field", "token", "exit_code"] },
-              "from": { "type": "string", "description": "For source=field: 'role' or 'role.field' of an existing json output." },
+              "from": { "type": "string", "description": "For source=field: the 'role' of an existing json output whose field carries the signal. A trailing '.field' suffix is tolerated but ignored (only the role is read) — use the separate 'field' key to rename the read field." },
+              "field": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "For source=field: the name of the json field to read, when it differs from the signal 'name'. Absent → the field is named like the signal. The signal key stays '<phase>.<name>'." },
               "by": { "type": "string", "description": "For source token/exit_code on a multi-agent block: the agent whose output carries the signal. Omit for single-producer actions and for source=field." },
               "values": { "type": "array", "items": { "type": "string" }, "description": "For type=enum: the allowed values." },
               "of": {

@@ -202,7 +202,7 @@ const SIGNAL_HELP = {
   type: "Value shape: string, number, bool, enum (closed vocabulary), or list.",
   source: "How the value is produced — token: the agent ends its output with a compact `SIGNALS: name=value` line · field: read from a field of a JSON output file · exit_code: the script's exit status (bool: 0 ⇒ true · number: the raw code, e.g. grep 0/1/2).",
   from_role: "Which declared JSON output the value is read from.",
-  from_field: "Optional field path inside that JSON (defaults to the whole file).",
+  from_field: "Optional: the JSON field to read, when its name differs from the signal name. Empty → the field is named like the signal. The signal key stays <action_id>.<name>.",
   by: "When several agents run in this action: which one emits the token.",
   values: "The closed vocabulary — the agent must emit exactly one of these.",
   of: "Element type of the list items; `object` declares a flat field map.",
@@ -286,7 +286,7 @@ export function signalsEditor(label, items, phase, onChange){
         if (item.source === "exit_code" && item.type !== "bool" && item.type !== "number") item.type = "bool";
         if (item.type !== "enum") delete item.values;
         if (item.type !== "list") delete item.of;
-        if (item.source !== "field") delete item.from;
+        if (item.source !== "field") { delete item.from; delete item.field; }
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
       });
@@ -302,13 +302,22 @@ export function signalsEditor(label, items, phase, onChange){
       if (curSource === "field") {
         const sub = document.createElement("div"); sub.className = "signal-subrow";
         const roles = outputRoles.slice();
+        // `from` is a pure role; the read field lives in its own `field` key. A
+        // legacy dotted `from` ("role.field") is still parsed so old workflows
+        // prefill correctly, but any edit rewrites them into the split form.
         const parsed = splitFrom(item.from, roles);
+        const curField = (item.field != null ? item.field : parsed.field) || "";
         if (parsed.role && !roles.includes(parsed.role)) roles.unshift(parsed.role);
         const roleSel = document.createElement("select");
         if (!roles.length) { const o = document.createElement("option"); o.value = ""; o.textContent = "(no output role declared)"; roleSel.appendChild(o); }
         for (const rl of roles){ const o = document.createElement("option"); o.value = rl; o.textContent = rl; if (rl === parsed.role) o.selected = true; roleSel.appendChild(o); }
-        const fieldInput = document.createElement("input"); fieldInput.type = "text"; fieldInput.placeholder = "field (optional)"; fieldInput.value = parsed.field || "";
-        const setFrom = () => { const role = roleSel.value; const field = fieldInput.value.trim(); item.from = field ? `${role}.${field}` : role; emit(); };
+        const fieldInput = document.createElement("input"); fieldInput.type = "text"; fieldInput.placeholder = "field (defaults to signal name)"; fieldInput.value = curField;
+        const setFrom = () => {
+          item.from = roleSel.value;                       // role stays pure
+          const field = fieldInput.value.trim();
+          if (field) item.field = field; else delete item.field;
+          emit();
+        };
         roleSel.addEventListener("change", setFrom);
         fieldInput.addEventListener("change", setFrom);
         sub.appendChild(labeled("from", SIGNAL_HELP.from_role, roleSel));

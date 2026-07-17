@@ -272,6 +272,51 @@ test("field-sourced signal labels the from controls", () => {
   expect(labels).toContain("field");
 });
 
+test("field rename writes a separate `field` key, keeping `from` a pure role", () => {
+  dom();
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  let model = [{ name: "hits", type: "number", source: "field", from: "work:t1" }];
+  const r = signalsEditor("emits", model, phase, v => { model = v; });
+  const fieldInput = [...r.querySelectorAll(".signal-subrow input")].find(i => i.placeholder && i.placeholder.startsWith("field"));
+  fieldInput.value = "niveau";
+  fieldInput.dispatchEvent(ev(fieldInput));
+  expect(model[0].from).toBe("work:t1");   // role stays pure — no dotted packing
+  expect(model[0].field).toBe("niveau");   // the rename lives in its own key
+});
+
+test("clearing the field removes the `field` key", () => {
+  dom();
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  let model = [{ name: "hits", type: "number", source: "field", from: "work:t1", field: "niveau" }];
+  const r = signalsEditor("emits", model, phase, v => { model = v; });
+  const fieldInput = [...r.querySelectorAll(".signal-subrow input")].find(i => i.placeholder && i.placeholder.startsWith("field"));
+  expect(fieldInput.value).toBe("niveau");   // an explicit `field` prefills the input
+  fieldInput.value = "";
+  fieldInput.dispatchEvent(ev(fieldInput));
+  expect(model[0].from).toBe("work:t1");
+  expect("field" in model[0]).toBe(false);
+});
+
+test("a legacy dotted `from` prefills the field input (backward compat)", () => {
+  dom();
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  const r = signalsEditor("emits", [{ name: "hits", type: "number", source: "field", from: "work:t1.raw" }], phase, () => {});
+  const fieldInput = [...r.querySelectorAll(".signal-subrow input")].find(i => i.placeholder && i.placeholder.startsWith("field"));
+  expect(fieldInput.value).toBe("raw");
+});
+
+test("switching source away from field drops both from and field", () => {
+  dom();
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  let model = [{ name: "hits", type: "number", source: "field", from: "work:t1", field: "niveau" }];
+  const r = signalsEditor("emits", model, phase, v => { model = v; });
+  const source = [...r.querySelectorAll("select")].find(s => [...s.options].some(o => o.value === "token"));
+  [...source.querySelectorAll("option")].forEach(o => o.selected = o.value === "token");
+  source.dispatchEvent(ev(source));
+  expect("from" in model[0]).toBe(false);
+  expect("field" in model[0]).toBe(false);
+});
+
 test("list signal labels the of dropdown with a popover", () => {
   dom();
   const phase = { id: "T1", type: "agent" };
