@@ -65,6 +65,13 @@
   verifiable (today the validator only checks the target exists); needed LATER as the
   `args` / return-value mapping of a dynamic workflow, and for standard→dynamic composition.
   To do: schema field, `workflow_call` validation against it, cartography rendering.
+  **STATUS 2026-07-17: designed + planned, dev not started.** Branch `feat/workflow-io-contract`.
+  Model = a phase-shaped top-level `definition:` block (`params` typed args + single `outputs`
+  io_ref list with `produced_by` + `emits` promote/create + optional `formatter` with
+  engine-compiled prompt-assist) + `workflow_call args:` binding + a WebUI "Workflow definition"
+  tab. Spec `docs/superpowers/specs/2026-07-17-workflow-io-contract-design.md`, plan
+  `docs/superpowers/plans/2026-07-17-workflow-io-contract.md` (12 tasks, subagent-driven),
+  mockup vendored alongside the spec. Dynamic args/return mapping deferred to B1.
 
 - [ ] **S2 — Extend `orchestration-capabilities.yaml` with an `actions:` section.**
   The js-safe frontier is declared for operators/connectors/builtins/operands but NOT for
