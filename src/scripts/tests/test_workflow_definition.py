@@ -195,3 +195,40 @@ def test_dataflow_graph_workflow_call_missing_target_does_not_crash(tmp_path, mo
                           "type": "workflow_call", "workflow": "ghost"}])
     graph = bbw.build_dataflow_graph(caller, mode="all")
     assert not any(e[0] == "C1" for e in graph["producer_edges"])
+
+
+FIXTURE_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "workflows"
+
+
+def test_definition_demo_fixture_validates_clean():
+    # The demo fixture exercises every §8 rule POSITIVELY: params (mixed
+    # string/enum/number/list-of), a promote emit off an internal signal, a
+    # create emit off a formatter json output + field, and both
+    # produced_by kinds on the outputs list. It must validate with zero errors.
+    wf = bbw.load_workflow(FIXTURE_DIR / "definition_demo.yaml")
+    assert bbw.validate_schema(wf) == []
+    assert bbw.validate_coherence(wf, agents_dir=pathlib.Path(__file__).resolve().parents[2] / "agents") == []
+    assert bbw.validate_definition(wf) == []
+
+
+def test_definition_demo_fixture_renders_golden_substrings():
+    # Golden-substring test (not a full golden file): render the fixture's
+    # SKILL.md and check the DEFINITION boundary section + composed prompt +
+    # both emit flavors (promote and create) show up.
+    wf = bbw.load_workflow(FIXTURE_DIR / "definition_demo.yaml")
+    md = bbw.render_skill_markdown(wf)
+
+    # boundary section header + reserved terminal action
+    assert "Workflow output — the contract callers bind" in md
+    assert "`DEFINITION`" in md
+
+    # composed prompt: io listing (formatter reads/writes) + compiled style + free prompt
+    assert "work:highlights" in md and "work:summary" in md
+    assert "Keep the answer brief" in md
+    assert "Write in a professional tone." in md
+    assert "Structure as bullet points." in md
+    assert "Compose the final channel summary from the gathered highlights" in md
+
+    # both emit flavors on the return-signals line
+    assert "`sentiment` (enum) — promoted from `analyze.sentiment`" in md
+    assert "`summary_len` (number) — from output `work:summary`.`length`" in md
