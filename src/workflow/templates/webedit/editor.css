@@ -316,6 +316,16 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
 .signal-warn{font-size:11px;color:var(--bad)}
 .signal-del{background:none;border:none;color:var(--dim);font-size:15px;padding:0 2px}
 .signal-del:hover{color:#fca5a5}
+
+/* signals help layer — mini-labels above controls, depth in the popovers */
+.labeled-ctl{display:flex;flex-direction:column;gap:2px;min-width:0}
+.labeled-ctl.grow{flex:1 1 auto;min-width:80px}
+.labeled-ctl>input,.labeled-ctl>select{width:100%}
+.mini-label{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--dim);line-height:1}
+.signal-row{align-items:flex-end}
+.signal-row>button.signal-del,.signal-row>.signal-warn{margin-bottom:6px}
+.signals-intro{margin:4px 0 2px}
+
 .signal-subrow{display:flex;gap:6px;align-items:center;margin:6px 0 0 10px}
 .signal-subrow select,.signal-subrow input{background:var(--panel);border:1px solid var(--border);border-radius:6px;
   color:#cbd5e1;padding:6px 9px;font:12px/1.3 var(--mono);outline:none}

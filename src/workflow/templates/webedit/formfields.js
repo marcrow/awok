@@ -192,6 +192,33 @@ function splitFrom(fromStr, roles){
   return idx === -1 ? { role: fromStr, field: "" } : { role: fromStr.slice(0, idx), field: fromStr.slice(idx + 1) };
 }
 
+// Help layer for the signals editor (persona: never read the YAML nor the
+// docs — see docs/superpowers/specs/2026-07-17-webedit-signals-help-design.md).
+// Depth lives in the hover popovers; labels stay tiny so the rows keep their
+// footprint. Uses the shared helpIcon popover (never native title=).
+const SIGNAL_HELP = {
+  intro: "A signal is a small typed value (status, number, list…) this action publishes when it finishes — the orchestration can branch or loop on it. Key: <action_id>.<name>.",
+  name: "Lowercase identifier (^[a-z][a-z0-9_]*$). The orchestration reads this signal as <action_id>.<name>.",
+  type: "Value shape: string, number, bool, enum (closed vocabulary), or list.",
+  source: "How the value is produced — token: the agent ends its output with a compact `SIGNALS: name=value` line · field: read from a field of a JSON output file · exit_code: the script's exit status (0 ⇒ true).",
+  from_role: "Which declared JSON output the value is read from.",
+  from_field: "Optional field path inside that JSON (defaults to the whole file).",
+  by: "When several agents run in this action: which one emits the token.",
+  values: "The closed vocabulary — the agent must emit exactly one of these.",
+  of: "Element type of the list items; `object` declares a flat field map.",
+  of_field: "One required field of each list item (flat — no nesting).",
+  of_field_type: "Field type: a scalar, or enum with its own closed vocabulary.",
+};
+
+function labeled(labelText, helpText, controlEl){
+  const w = document.createElement("div"); w.className = "labeled-ctl";
+  const l = document.createElement("span"); l.className = "mini-label";
+  l.appendChild(document.createTextNode(labelText));
+  if (helpText) l.appendChild(helpIcon(helpText));
+  w.appendChild(l); w.appendChild(controlEl);
+  return w;
+}
+
 // items = phase.emits (or []). `phase` is the owning action, used to derive
 // the nature-filtered source list and the output-role candidates for `from`.
 export function signalsEditor(label, items, phase, onChange){
@@ -205,6 +232,10 @@ export function signalsEditor(label, items, phase, onChange){
     wrap.appendChild(note);
     return wrap;
   }
+  const intro = document.createElement("div");
+  intro.className = "muted-note signals-intro";
+  intro.textContent = SIGNAL_HELP.intro;
+  wrap.appendChild(intro);
   const list = (items || []).map(x => ({ ...x }));
   const emit = () => onChange(list.map(x => ({ ...x })));
   const outputRoles = collectOutputRoles(phase);
@@ -219,7 +250,9 @@ export function signalsEditor(label, items, phase, onChange){
       const warn = document.createElement("span"); warn.className = "signal-warn";
       const refreshWarn = () => { const ok = !item.name || SIGNAL_NAME_RE.test(item.name); warn.textContent = ok ? "" : "⚠ ^[a-z][a-z0-9_]*$"; };
       name.addEventListener("change", () => { item.name = name.value.trim(); refreshWarn(); emit(); });
-      r.appendChild(name);
+      const nameWrap = labeled("name", SIGNAL_HELP.name, name);
+      nameWrap.classList.add("grow");
+      r.appendChild(nameWrap);
       // exit_code accepts bool (0 ⇒ true shorthand) or number (raw exit code, e.g. grep 0/1/2).
       const exitCode = (item.source || sources[0]) === "exit_code";
       const typeOpts = exitCode ? ["bool", "number"] : SIGNAL_TYPES;
@@ -230,14 +263,13 @@ export function signalsEditor(label, items, phase, onChange){
       }
       const type = document.createElement("select");
       for (const t of typeOpts){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
-      if (exitCode) type.title = "exit_code ⇒ bool (exit 0 = true) or number (raw exit code)";
       type.addEventListener("change", () => {
         item.type = type.value;
         if (item.type !== "enum") delete item.values;
         if (item.type !== "list") delete item.of;
         emit(); render();
       });
-      r.appendChild(type);
+      r.appendChild(labeled("type", SIGNAL_HELP.type, type));
       const source = document.createElement("select");
       for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
       source.addEventListener("change", () => {
@@ -249,7 +281,7 @@ export function signalsEditor(label, items, phase, onChange){
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
       });
-      r.appendChild(source);
+      r.appendChild(labeled("source", SIGNAL_HELP.source, source));
       const del = document.createElement("button"); del.className = "signal-del"; del.textContent = "✕";
       del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
       r.appendChild(del);

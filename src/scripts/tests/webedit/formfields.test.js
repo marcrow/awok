@@ -228,3 +228,36 @@ test("signalsEditor render-time exit_code coercion clears stale of/values", () =
   expect(emitted[0].type).toBe("bool");
   expect("of" in emitted[0]).toBe(false);
 });
+
+test("signalsEditor renders the always-visible intro note", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [], phase, () => {});
+  const note = r.querySelector(".signals-intro");
+  expect(note).not.toBeNull();
+  expect(note.textContent).toContain("branch or loop");
+  expect(note.textContent).toContain("<action_id>.<name>");
+});
+
+test("signalsEditor labels the main-row controls (name, type, source)", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [{ name: "status", type: "string", source: "token" }], phase, () => {});
+  const labels = [...r.querySelectorAll(".signal-row .mini-label")]
+    .map(l => l.childNodes[0].textContent);
+  expect(labels).toContain("name");
+  expect(labels).toContain("type");
+  expect(labels).toContain("source");
+});
+
+test("main-row mini-labels carry help popovers (no native title)", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [{ name: "s", type: "string", source: "token" }], phase, () => {});
+  const nameWrap = [...r.querySelectorAll(".labeled-ctl")]
+    .find(w => w.querySelector(".mini-label").childNodes[0].textContent === "name");
+  const pop = nameWrap.querySelector(".help-icon .help-pop");
+  expect(pop).not.toBeNull();
+  expect(pop.textContent.length).toBeGreaterThan(10);
+  expect(nameWrap.querySelector("input").getAttribute("title")).toBeNull();
+});
