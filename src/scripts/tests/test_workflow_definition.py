@@ -116,3 +116,57 @@ def test_synthesize_definition_phase():
 
 def test_synthesize_none_without_definition():
     assert bbw._synthesize_definition_phase(_wf()) is None
+
+def test_dataflow_graph_ingests_definition_formatter_io():
+    # DEFINITION acts as a terminal node: PRODUCER of its formatter's output
+    # (produced_by: formatter) and CONSUMER of its formatter's input.
+    wf = _wf(
+        namespaces={"work": "work/demo"},
+        definition={
+            "outputs": [{"role": "work:final", "kind": "md", "produced_by": "formatter"}],
+            "formatter": {"enabled": True, "prompt": "x",
+                          "invoke": {"type": "agent", "agent": "summarizer", "model": "sonnet"},
+                          "inputs": [{"role": "work:draft", "kind": "json"}]},
+        })
+    out_path = bbw.resolve_io_path({"role": "work:final", "kind": "md"}, wf["namespaces"])
+    in_path = bbw.resolve_io_path({"role": "work:draft", "kind": "json"}, wf["namespaces"])
+    # mode="all" — the definition's own I/O has no other producer/consumer in
+    # this minimal workflow, so "internal" mode would filter the edges out.
+    graph = bbw.build_dataflow_graph(wf, mode="all")
+    assert any(e[0] == "DEFINITION" and e[3] == out_path for e in graph["producer_edges"]), \
+        graph["producer_edges"]
+    assert any(e[0] == "DEFINITION" and e[3] == in_path for e in graph["consumer_edges"]), \
+        graph["consumer_edges"]
+
+def test_dataflow_graph_workflow_call_produces_target_definition_outputs(tmp_path, monkeypatch):
+    # A workflow_call phase "receives" its target's declared definition outputs,
+    # so it must show up as their PRODUCER in the caller's dataflow graph.
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    (wfs / "target.yaml").write_text(
+        "schema_version: 1\n"
+        "skill: {name: target, description: d}\n"
+        "groups: {g: {description: x}}\n"
+        "phases: [{id: P0, name: p, group: g}]\n"
+        "namespaces: {work: work/target}\n"
+        "definition:\n"
+        "  outputs:\n"
+        "    - {role: work:final, kind: md, produced_by: promote}\n")
+    monkeypatch.setattr(bbw, "DEFAULT_WORKFLOWS_DIR", wfs)
+
+    caller = _wf(phases=[{"id": "C1", "name": "c", "group": "g",
+                          "type": "workflow_call", "workflow": "target"}])
+    graph = bbw.build_dataflow_graph(caller, mode="all")
+    tgt_path = bbw.resolve_io_path({"role": "work:final", "kind": "md"}, {"work": "work/target"})
+    assert any(e[0] == "C1" and e[3] == tgt_path for e in graph["producer_edges"]), \
+        graph["producer_edges"]
+
+def test_dataflow_graph_workflow_call_missing_target_does_not_crash(tmp_path, monkeypatch):
+    # Crash-guard: a workflow_call whose target .yaml doesn't exist must be a
+    # silent no-op for dataflow (no crash, no spurious producer edge).
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    monkeypatch.setattr(bbw, "DEFAULT_WORKFLOWS_DIR", wfs)
+
+    caller = _wf(phases=[{"id": "C1", "name": "c", "group": "g",
+                          "type": "workflow_call", "workflow": "ghost"}])
+    graph = bbw.build_dataflow_graph(caller, mode="all")
+    assert not any(e[0] == "C1" for e in graph["producer_edges"])

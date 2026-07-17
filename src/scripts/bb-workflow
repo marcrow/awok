@@ -2728,12 +2728,12 @@ def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
                 phase_agents.append(node)
             def_namespaces = workflow.get("namespaces", {})
             for out in fmt_outputs:
-                path = out.get("path") or resolve_io_path(out, def_namespaces)
+                path = resolve_io_path(out, def_namespaces)
                 if path:
                     producer_edges.add((pid, agent_label, node_id, path))
                     file_paths.add(path)
             for inp in fmt_inputs:
-                path = inp.get("path") or resolve_io_path(inp, def_namespaces)
+                path = resolve_io_path(inp, def_namespaces)
                 if path:
                     consumer_edges.add((pid, agent_label, node_id, path))
                     file_paths.add(path)
@@ -2766,7 +2766,7 @@ def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
         node_id = node["node_id"]
         tgt_namespaces = tw.get("namespaces", {})
         for out in tgt_outputs:
-            path = out.get("path") or resolve_io_path(out, tgt_namespaces)
+            path = resolve_io_path(out, tgt_namespaces)
             if path:
                 producer_edges.add((pid, agent_label, node_id, path))
                 file_paths.add(path)
