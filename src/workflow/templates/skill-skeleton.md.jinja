@@ -168,6 +168,27 @@ _External tool outside the pipeline. Expected outputs:_{% for out in phase.outpu
 
 {% endfor %}
 
+{% if definition_phase %}
+---
+
+## Workflow output — the contract callers bind
+
+> 🎯 This is the workflow's **definition** (reserved terminal action `DEFINITION`).
+{% if definition_phase.type == 'main_agent' %}
+The **main agent** produces the final answer:
+{% elif definition_phase.invocations %}
+{% for inv in definition_phase.invocations %}**{{ inv.agent }}** [{{ inv.model or 'inherit' }}] produces the final answer:
+{% endfor %}
+{% endif %}
+
+{{ definition_phase.composed_prompt }}
+
+{% if definition_phase.emits %}
+**Return signals** (a caller reads them as `‹caller_phase›.<name>`):
+{% for e in definition_phase.emits %}- `{{ e.name }}` ({{ e.type }}){% if e.source == 'promote' %} — promoted from `{{ e.from }}`{% else %} — from output `{{ e.from }}`.`{{ e.field }}`{% endif %}
+{% endfor %}
+{% endif %}
+{% endif %}
 {% if on_demand_agents %}
 ---
 

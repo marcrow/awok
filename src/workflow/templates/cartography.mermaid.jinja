@@ -23,11 +23,20 @@ _calls /{{ phase.workflow }}_`"]]:::workflow_call
 _{{ meta_parts|join(' · ') }}_{% endif %}`"]:::{{ phase.group }}
 {%- endif %}
 {% endfor %}
+{%- if definition_phase %}
+    DEFINITION[["`🎯 **Workflow output**
+_returns: {{ definition_phase.emits | map(attribute='name') | join(', ') or '—' }}_`"]]:::definition
+{%- endif %}
 {% for phase in phases -%}
 {%- for dep in phase.depends_on|default([]) %}
     {{ dep }} --> {{ phase.id }}
 {%- endfor %}
 {% endfor %}
+{%- if definition_phase %}
+{%- for dep in definition_phase.depends_on|default([]) %}
+    {{ dep }} --> DEFINITION
+{%- endfor %}
+{%- endif %}
 {%- for phase in phases -%}
 {%- if phase._opp and phase._opp.mark == 'opportunistic' %}
     class {{ phase.id }} opportunistic
@@ -58,6 +67,7 @@ end
     classDef {{ gname }} fill:{{ group_colors[gname] }},stroke:#94a3b8,stroke-width:1px,color:#f1f5f9
 {% endfor -%}
     classDef workflow_call fill:#312e81,stroke:#a78bfa,stroke-width:2px,color:#ede9fe
+classDef definition fill:#0b2a1e,stroke:#4ade80,stroke-width:2px,color:#dcfce7
 classDef opportunistic stroke:#f59e0b,stroke-width:2px,stroke-dasharray:5 4
 classDef opp_locked stroke:#6b7280,stroke-width:1px,color:#9ca3af
 ```

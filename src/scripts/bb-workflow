@@ -2099,24 +2099,19 @@ def _invocation_run_directive(inv: dict):
             f"at `deploy`; the sub-agent uses exactly these, nothing to pass at launch.")
 
 
-def generate_skill_md(workflow_path: Path, output_path: Path,
-                     templates_dir: Path = None, agents_dir: Path = None,
-                     invocations_dir: Path = None) -> None:
-    """Generate the SKILL.md from workflow.yaml + snippets."""
+def render_skill_markdown(workflow: dict, templates_dir: Path = None,
+                          invocations_dir: Path = None) -> str:
+    """Render the SKILL.md string from an already-loaded workflow dict + snippets.
+
+    Shared by `generate_skill_md` (file writer) and tests that only need the
+    rendered string (e.g. exercising the synthetic DEFINITION phase end to end).
+    Does NOT validate — callers that read from disk (`generate_skill_md`)
+    validate first; callers that already hold a trusted in-memory dict (tests)
+    can skip straight to rendering.
+    """
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
     # Jinja templates are engine-owned; invocation snippets are content-owned.
     invocations_dir = invocations_dir or (templates_dir / "invocations")
-
-    workflow = load_workflow(workflow_path)
-
-    # Validate first; fail loudly
-    schema_errors = validate_schema(workflow)
-    if schema_errors:
-        raise ValueError(f"Workflow invalid: {schema_errors}")
-
-    coherence_errors = validate_coherence(workflow, agents_dir=agents_dir)
-    if coherence_errors:
-        raise ValueError(f"Workflow coherence errors: {coherence_errors}")
 
     # Résout les chemins dérivés (role+namespace) pour le rendu — sur une copie,
     # le YAML source reste en rôles.
@@ -2246,6 +2241,15 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         lstrip_blocks=True,
     )
     template = env.get_template("skill-skeleton.md.jinja")
+
+    # Synthesize the terminal DEFINITION phase (only present when the workflow
+    # declares a `definition:` block) and compose its full formatter prompt —
+    # None for workflows without a definition, which keeps their SKILL.md
+    # byte-identical (the template guards the whole block on this being set).
+    definition_phase = _synthesize_definition_phase(workflow)
+    if definition_phase is not None:
+        definition_phase["composed_prompt"] = compose_formatter_prompt(workflow, definition_phase)
+
     output = template.render(
         skill=workflow.get("skill", {"name": "unnamed", "description": ""}),
         phases=phases_rendered,
@@ -2265,7 +2269,29 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         any_invocation_tools=any_invocation_tools,
         any_parallelism=any_parallelism,
         orchestration_md=render_orchestration(workflow),
+        definition_phase=definition_phase,
     )
+
+    return output
+
+
+def generate_skill_md(workflow_path: Path, output_path: Path,
+                     templates_dir: Path = None, agents_dir: Path = None,
+                     invocations_dir: Path = None) -> None:
+    """Generate the SKILL.md from workflow.yaml + snippets."""
+    workflow = load_workflow(workflow_path)
+
+    # Validate first; fail loudly
+    schema_errors = validate_schema(workflow)
+    if schema_errors:
+        raise ValueError(f"Workflow invalid: {schema_errors}")
+
+    coherence_errors = validate_coherence(workflow, agents_dir=agents_dir)
+    if coherence_errors:
+        raise ValueError(f"Workflow coherence errors: {coherence_errors}")
+
+    output = render_skill_markdown(workflow, templates_dir=templates_dir,
+                                   invocations_dir=invocations_dir)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -2999,11 +3025,20 @@ def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> st
     env.filters["node_id"] = _node_id_filter
     resolve_opportunistic(workflow)
     template = env.get_template("cartography.mermaid.jinja")
+
+    # Mirror render_skill_markdown: synthesize the terminal DEFINITION phase so
+    # the cartography can draw its boundary node — None (and no node rendered)
+    # for workflows without a `definition:` block.
+    definition_phase = _synthesize_definition_phase(workflow)
+    if definition_phase is not None:
+        definition_phase["composed_prompt"] = compose_formatter_prompt(workflow, definition_phase)
+
     return template.render(
         phases=workflow.get("phases", []),
         groups=workflow.get("groups", {}),
         group_colors=_resolve_group_colors(workflow),
         orchestration_overlay=build_orchestration_overlay(workflow),
+        definition_phase=definition_phase,
     )
 
 

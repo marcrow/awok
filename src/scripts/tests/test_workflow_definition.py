@@ -170,6 +170,21 @@ def test_compile_style():
     assert bbw.compile_style({"tone": "custom", "toneCustom": "like a pirate"}) == ["like a pirate"]
     assert bbw.compile_style({}) == []
 
+def test_generate_renders_definition(tmp_path):
+    # Minimal end-to-end: build the skill for a workflow with a definition and
+    # assert the rendered markdown mentions the boundary + the composed prompt.
+    wf = _wf(definition={
+        "outputs": [{"role": "work:final", "kind": "md", "produced_by": "formatter"}],
+        "emits": [{"name": "ok", "type": "string", "source": "promote", "from": "p0.ok"}],
+        "formatter": {"enabled": True, "prompt": "Write the final summary.",
+                      "invoke": {"type": "main_agent"},
+                      "style": {"length": "brief", "format": "tldr"}}})
+    md = bbw.render_skill_markdown(wf)
+    assert "Workflow output" in md
+    assert "Write the final summary." in md
+    assert "TL;DR" in md   # compiled style injected
+
+
 def test_dataflow_graph_workflow_call_missing_target_does_not_crash(tmp_path, monkeypatch):
     # Crash-guard: a workflow_call whose target .yaml doesn't exist must be a
     # silent no-op for dataflow (no crash, no spurious producer edge).
