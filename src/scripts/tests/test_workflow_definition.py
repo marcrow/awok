@@ -232,3 +232,15 @@ def test_definition_demo_fixture_renders_golden_substrings():
     # both emit flavors on the return-signals line
     assert "`sentiment` (enum) — promoted from `analyze.sentiment`" in md
     assert "`summary_len` (number) — from output `work:summary`.`length`" in md
+
+
+def test_view_payload_has_definition_preview():
+    wf = _wf(definition={
+        "outputs": [{"role": "work:final", "kind": "md", "produced_by": "formatter"}],
+        "formatter": {"enabled": True, "prompt": "Do it.",
+                      "invoke": {"type": "main_agent"}, "style": {"length": "terse"},
+                      "inputs": [{"role": "work:draft", "kind": "json"}]}})
+    view = bbw.build_view_payload(wf)
+    assert "definition_preview" in view
+    assert "Do it." in view["definition_preview"]["prompt"]
+    assert any("terse" in c for c in view["definition_preview"]["compiled"])

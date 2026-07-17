@@ -2524,6 +2524,7 @@ def build_view_payload(model: dict) -> dict:
         "orchestration_overlay": build_orchestration_overlay(model),
         "orchestration_warnings": validate_orchestration(model),
         "dataflow_warnings": _safe_dataflow_warnings(model),
+        "definition_preview": _safe_definition_preview(model),
     }
 
 
@@ -2533,6 +2534,26 @@ def _safe_dataflow_warnings(model: dict) -> list:
         return check_dataflow_warnings(model)
     except Exception:
         return []
+
+
+def _safe_definition_preview(model: dict) -> dict:
+    """Server-rendered `definition_preview` for the editor — computed here so
+    the WebUI (Task 10) never recompiles the style knobs, just renders them
+    verbatim. `{prompt, compiled, io_line}`; None when there is no
+    `definition` block or a mid-edit model makes synthesis blow up."""
+    try:
+        def_phase = _synthesize_definition_phase(model)
+        if def_phase is None:
+            return None
+        fmt = (model.get("definition") or {}).get("formatter") or {}
+        inputs, outputs = _resolve_definition_formatter_io(model, def_phase)
+        return {
+            "prompt": compose_formatter_prompt(model, def_phase),
+            "compiled": compile_style(fmt.get("style") or {}),
+            "io_line": _format_io_compact(inputs, outputs),
+        }
+    except Exception:
+        return None
 
 
 def build_edge_labels(workflow: dict) -> dict:
@@ -2710,22 +2731,21 @@ def compile_style(style: dict) -> list:
     return parts
 
 
-def compose_formatter_prompt(workflow: dict, def_phase: dict) -> str:
-    """Full formatter prompt = io listing + compiled style + free prompt. Files
-    are listed HERE, never by the author (pitfall #5).
+def _resolve_definition_formatter_io(workflow: dict, def_phase: dict) -> tuple:
+    """Resolve the DEFINITION phase's formatter inputs/outputs to concrete
+    paths and return them as `(inputs, outputs)` plain io_ref lists, ready for
+    `_format_io_compact`.
 
-    `_format_io_compact(inputs, outputs)` takes plain io_ref lists and expects
-    each item to already carry a resolved `path` (see `resolve_io_path` /
-    `resolve_io_paths`). `resolve_io_paths()` only walks `workflow['phases']`,
-    not the `definition` block, so the DEFINITION phase's formatter I/O is
-    resolved here explicitly — mirroring the same-purpose resolution already
-    done ad hoc for it in `build_dataflow_graph`. `def_phase` is expected to be
-    `_synthesize_definition_phase(workflow)`'s output: its `inputs` are exactly
-    the formatter's inputs, and its `outputs` mix promote + formatter outputs,
-    so only `produced_by: formatter` outputs belong in the formatter's own
-    "Writes" listing.
+    `resolve_io_paths()` only walks `workflow['phases']`, not the
+    `definition` block, so the DEFINITION phase's formatter I/O is resolved
+    here explicitly — mirroring the same-purpose resolution already done ad
+    hoc for it in `build_dataflow_graph`. `def_phase` is expected to be
+    `_synthesize_definition_phase(workflow)`'s output: its `inputs` are
+    exactly the formatter's inputs, and its `outputs` mix promote + formatter
+    outputs, so only `produced_by: formatter` outputs belong in the
+    formatter's own "Writes" listing. Shared by `compose_formatter_prompt`
+    and `_safe_definition_preview` so path resolution lives in one place.
     """
-    fmt = (workflow.get("definition") or {}).get("formatter") or {}
     namespaces = workflow.get("namespaces", {})
 
     def _resolved(io_list):
@@ -2742,6 +2762,19 @@ def compose_formatter_prompt(workflow: dict, def_phase: dict) -> str:
     inputs = _resolved(def_phase.get("inputs", []))
     outputs = _resolved([o for o in (def_phase.get("outputs") or [])
                          if o.get("produced_by") == "formatter"])
+    return inputs, outputs
+
+
+def compose_formatter_prompt(workflow: dict, def_phase: dict) -> str:
+    """Full formatter prompt = io listing + compiled style + free prompt. Files
+    are listed HERE, never by the author (pitfall #5).
+
+    `_format_io_compact(inputs, outputs)` takes plain io_ref lists and expects
+    each item to already carry a resolved `path` — see
+    `_resolve_definition_formatter_io`.
+    """
+    fmt = (workflow.get("definition") or {}).get("formatter") or {}
+    inputs, outputs = _resolve_definition_formatter_io(workflow, def_phase)
     io_line = _format_io_compact(inputs, outputs)
     style_lines = compile_style(fmt.get("style") or {})
     blocks = []
