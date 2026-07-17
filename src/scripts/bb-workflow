@@ -2594,6 +2594,60 @@ def build_phase_agent_nodes(workflow: dict) -> list:
     return nodes
 
 
+def _synthesize_definition_phase(workflow: dict) -> dict:
+    """Build the terminal DEFINITION phase from the definition block, WITHOUT
+    mutating workflow['phases']. depends_on is derived from the phases that
+    produce its promoted signals, promote-outputs and formatter inputs."""
+    d = workflow.get("definition")
+    if not d:
+        return None
+    fmt = d.get("formatter") or {}
+    has_fmt = bool(fmt.get("enabled"))
+    inv = fmt.get("invoke") or {}
+    phase = {
+        "id": "DEFINITION", "name": "Workflow output", "group": "handoff",
+        "type": (inv.get("type") or "main_agent") if has_fmt else "main_agent",
+        "inputs": list(fmt.get("inputs") or []),
+        "outputs": list(d.get("outputs") or []),
+        "emits": list(d.get("emits") or []),
+        "depends_on": _derive_definition_depends_on(workflow, d),
+    }
+    if has_fmt and inv.get("type") == "agent" and inv.get("agent"):
+        io = {"inputs": list(fmt.get("inputs") or []),
+              "outputs": [o for o in (d.get("outputs") or []) if o.get("produced_by") == "formatter"]}
+        phase["invocations"] = [dict(agent=inv["agent"], model=inv.get("model"),
+                                     effort=inv.get("effort"), tools=inv.get("tools"),
+                                     description=fmt.get("prompt", ""), **io)]
+    return phase
+
+
+def _derive_definition_depends_on(workflow: dict, d: dict) -> list:
+    """Phases the DEFINITION node waits on: producers of promoted signals, of
+    promote-output roles, and of formatter input roles."""
+    deps = set()
+    # promoted signals -> emitting phase
+    sig_phase = {f"{p['id'].lower()}.{e['name']}": p["id"]
+                 for p in workflow.get("phases", []) for e in (p.get("emits") or [])}
+    for e in d.get("emits", []) or []:
+        if e.get("source") == "promote" and e.get("from") in sig_phase:
+            deps.add(sig_phase[e["from"]])
+    # role -> producing phase
+    role_phase = {}
+    for p in workflow.get("phases", []):
+        for out in (p.get("outputs") or []):
+            role_phase[out.get("role")] = p["id"]
+        for inv in (p.get("invocations") or []):
+            for out in (inv.get("outputs") or []):
+                role_phase[out.get("role")] = p["id"]
+    for o in d.get("outputs", []) or []:
+        if o.get("produced_by") == "promote" and o.get("role") in role_phase:
+            deps.add(role_phase[o["role"]])
+    for i in (d.get("formatter") or {}).get("inputs", []) or []:
+        if i.get("role") in role_phase:
+            deps.add(role_phase[i["role"]])
+    return sorted(deps)
+
+
 def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
     """Build a dataflow view of the workflow.
 
@@ -2647,6 +2701,75 @@ def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
             for inp in phase.get("inputs", []) or []:
                 consumer_edges.add((pid, agent_label, node_id, inp["path"]))
                 file_paths.add(inp["path"])
+
+    # The workflow-level definition block acts as a terminal producer/consumer
+    # node: only formatter I/O participates (promote-only outputs are already
+    # tracked at their originating phase — re-registering them here would be a
+    # spurious second producer for the same path).
+    def_phase = _synthesize_definition_phase(workflow)
+    if def_phase:
+        fmt_inputs = def_phase.get("inputs") or []
+        fmt_outputs = [o for o in (def_phase.get("outputs") or [])
+                       if o.get("produced_by") == "formatter"]
+        if fmt_inputs or fmt_outputs:
+            invs = def_phase.get("invocations") or []
+            agent_label = invs[0]["agent"] if invs else def_phase.get("type", "phase")
+            pid = def_phase["id"]
+            node_id = f"{pid}_{_node_id_filter(agent_label)}"
+            key = (pid, agent_label)
+            node = nodes_by_key.get(key)
+            if not node:
+                node = {
+                    "node_id": node_id, "phase_id": pid,
+                    "phase_name": def_phase.get("name", pid),
+                    "agent": agent_label, "group": def_phase.get("group", ""),
+                }
+                nodes_by_key[key] = node
+                phase_agents.append(node)
+            def_namespaces = workflow.get("namespaces", {})
+            for out in fmt_outputs:
+                path = out.get("path") or resolve_io_path(out, def_namespaces)
+                if path:
+                    producer_edges.add((pid, agent_label, node_id, path))
+                    file_paths.add(path)
+            for inp in fmt_inputs:
+                path = inp.get("path") or resolve_io_path(inp, def_namespaces)
+                if path:
+                    consumer_edges.add((pid, agent_label, node_id, path))
+                    file_paths.add(path)
+
+    # A workflow_call phase produces its target workflow's declared definition
+    # outputs (the caller "receives" them, so downstream consumers in THIS
+    # workflow see the call as their producer). Guarded: a missing/broken
+    # target must never crash dataflow rendering.
+    for phase in workflow.get("phases", []):
+        if phase.get("type") != "workflow_call":
+            continue
+        tgt = phase.get("workflow")
+        if not tgt:
+            continue
+        tpath = DEFAULT_WORKFLOWS_DIR / f"{tgt}.yaml"
+        if not tpath.exists():
+            continue
+        try:
+            tw = load_workflow(tpath)
+        except Exception:
+            continue
+        tgt_outputs = (tw.get("definition") or {}).get("outputs") or []
+        if not tgt_outputs:
+            continue
+        pid = phase["id"]
+        agent_label = phase.get("type", "phase")
+        node = nodes_by_key.get((pid, agent_label))
+        if not node:
+            continue
+        node_id = node["node_id"]
+        tgt_namespaces = tw.get("namespaces", {})
+        for out in tgt_outputs:
+            path = out.get("path") or resolve_io_path(out, tgt_namespaces)
+            if path:
+                producer_edges.add((pid, agent_label, node_id, path))
+                file_paths.add(path)
 
     # Classify each path: internal (has both producer and consumer),
     # external (consumed only) or terminal (produced only).

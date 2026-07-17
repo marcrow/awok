@@ -100,3 +100,19 @@ def test_workflow_call_args_binding(tmp_path):
     errs = bbw.validate_coherence(caller, agents_dir=tmp_path, workflows_dir=wfs)
     assert any("question" in e and "unbound" in e for e in errs)
     assert any("unknown" in e for e in errs)
+
+def test_synthesize_definition_phase():
+    wf = _wf(definition={
+        "outputs": [{"role": "work:final", "kind": "md", "produced_by": "formatter"}],
+        "emits": [{"name": "ok", "type": "string", "source": "promote", "from": "p0.ok"}],
+        "formatter": {"enabled": True, "prompt": "x",
+                      "invoke": {"type": "agent", "agent": "summarizer", "model": "sonnet"},
+                      "inputs": [{"role": "work:draft", "kind": "json"}]}})
+    ph = bbw._synthesize_definition_phase(wf)
+    assert ph["id"] == "DEFINITION"
+    assert any(o["role"] == "work:final" for o in ph["outputs"])
+    assert any(i["role"] == "work:draft" for i in ph["inputs"])
+    assert wf["phases"] and wf["phases"][0]["id"] == "P0"  # phases NOT mutated
+
+def test_synthesize_none_without_definition():
+    assert bbw._synthesize_definition_phase(_wf()) is None
