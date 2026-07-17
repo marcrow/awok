@@ -3,6 +3,16 @@
 > Shared project tracking file. Source of truth for the awok backlog.
 > Created 2026-07-13. Check items off as you go; keep each item's context so it stays
 > actionable after a `/clear`.
+>
+> **Status point 2026-07-17:** three features landed and are now **merged to `main` and pushed
+> to origin** (merge `11ced9d`, range `2e20a7e..11ced9d`, 65 commits — the whole local backlog
+> since the 2026-07-13 portes-logiques merge reached origin for the first time here):
+> (1) signals-on-action (declare signals in the Wiring editor + deterministic emitter/validation
+> checks — the deterministic part of B4); (2) recursive `and`/`or`/`not` condition connectors;
+> (3) typed signal payloads (enum `values` + list `of` — narrows S4). Plus per-invocation `tools`
+> (see A2 update). Also shipped in the same range: the web-UI condition-block canvas (**B2 done**)
+> and the signals-section contextual help (**C3 signals part done**). Engine redeployed to
+> `~/.claude` on 2026-07-17. `awok check` clean, 295 pytest + 73 webedit green.
 
 ## Sequencing (intended order)
 
@@ -33,6 +43,10 @@
   case (warning, injects nothing) — but the **cross-workflow** case is not covered. Audit and
   decide (namespace the deployed agent per workflow? forbid divergent efforts on a shared agent?
   something else?). Ref: CLAUDE.md § "effort: per-invocation".
+  **UPDATE 2026-07-17: `tools` are now ALSO per-invocation and materialized into the deployed
+  agent frontmatter at deploy** (commit `d8aad65`, same mechanism as `effort`), so the exact
+  same last-build-wins cross-workflow blind spot applies to `tools` — the audit must cover both
+  axes together, and any fix (per-workflow namespacing / forbid divergence) should apply to both.
 
 ---
 
