@@ -1530,6 +1530,22 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
                         f"phase '{pid}' (workflow_call) references unknown workflow '{target}' "
                         f"(no src/workflows/{target}.yaml)"
                     )
+                else:
+                    # bind args against the target's definition.params
+                    target_path = workflows_dir / f"{target}.yaml"
+                    try:
+                        target_wf = load_workflow(target_path)
+                    except Exception:
+                        target_wf = None
+                    if target_wf is not None:
+                        tparams = (target_wf.get("definition") or {}).get("params", []) or []
+                        tnames = {p.get("name") for p in tparams}
+                        required = {p.get("name") for p in tparams if p.get("required")}
+                        bound = set((phase.get("args") or {}).keys())
+                        for miss in sorted(required - bound):
+                            errors.append(f"phase '{pid}' (workflow_call {target}) required param '{miss}' is unbound")
+                        for extra in sorted(bound - tnames):
+                            errors.append(f"phase '{pid}' (workflow_call {target}) binds unknown param '{extra}'")
 
         # invocations
         for inv in phase.get("invocations", []):

@@ -85,3 +85,18 @@ def test_create_emit_requires_formatter():
         {"name": "x", "type": "number", "source": "create", "from": "work:final", "field": "n"}]})
     errs = bbw.validate_definition(wf)
     assert any("'x'" in e and "formatter" in e for e in errs)
+
+def test_workflow_call_args_binding(tmp_path):
+    # target workflow with a required param
+    wfs = tmp_path / "workflows"; wfs.mkdir()
+    (wfs / "target.yaml").write_text(
+        "schema_version: 1\n"
+        "skill: {name: target, description: d}\n"
+        "groups: {g: {description: x}}\n"
+        "phases: [{id: P0, name: p, group: g}]\n"
+        "definition:\n  params:\n    - {name: question, type: string, required: true}\n")
+    caller = _wf(phases=[{"id": "C1", "name": "c", "group": "g", "type": "workflow_call",
+                          "workflow": "target", "args": {"unknown": "v"}}])
+    errs = bbw.validate_coherence(caller, agents_dir=tmp_path, workflows_dir=wfs)
+    assert any("question" in e and "unbound" in e for e in errs)
+    assert any("unknown" in e for e in errs)
