@@ -35,6 +35,7 @@
     <div class="tabs-left">
       <button class="tab active" data-tab="grid">Grid</button>
       <button class="tab" data-tab="dataflow">Dataflow</button>
+      <button class="tab" data-tab="definition">Definition</button>
       <button class="tab" data-tab="settings">Settings</button>
       <button class="tab tab-yaml" data-tab="yaml">YAML</button>
     </div>
@@ -107,6 +108,15 @@
           <div id="df-empty" class="df-empty" hidden>No artifacts yet — add a file block to get started.</div>
         </div>
       </div>
+    </section>
+
+    <!-- DEFINITION (Workflow definition: identity, params, outputs & emits) -->
+    <section id="panel-definition" class="panel">
+      <div id="definition-toolbar">
+        <span class="tb-title">Definition</span>
+        <span class="tb-count">the I/O contract callers bind</span>
+      </div>
+      <div id="definition-scroll"><div id="definition"></div></div>
     </section>
 
     <!-- SETTINGS -->

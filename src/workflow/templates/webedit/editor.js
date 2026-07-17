@@ -13,6 +13,7 @@ import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor, signalsEditor } from "./formfields.js";
 import { createDataflow } from "./dataflow.js";
 import * as orch from "./orchestration.js";
+import * as definition from "./definition.js";
 
 const $ = s => document.querySelector(s);
 const api = (m, p, b) => fetch(p, { method: m, headers: { "Content-Type": "application/json" },
@@ -117,6 +118,7 @@ async function refreshView() {
   renderYaml();
   renderIssues();
   if (state.tab === "dataflow") dataflow.render();
+  if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
   setStatus(j.errors && j.errors.length ? "⚠ " + j.errors.length + " schema issue(s)" : "");
   const orchCount = orchestrationWarnList().length;
   // Armed = a per-workflow baseline is established. Not armed (fresh load) →
@@ -1071,6 +1073,11 @@ function settingsCtx() {
            globalOpportunisticState, setGlobalOpportunistic } };
 }
 
+// --- definition (Workflow definition tab: params/outputs/emits/formatter) --
+function definitionCtx() {
+  return { getModel: () => state.model, setModel: m => { state.model = m; }, refreshView, view: state.view || {} };
+}
+
 // --- save / new / clone ----------------------------------------------------
 function modelForSave() {
   // Strip editor-only transient keys (standalone file blocks, block _id) so they
@@ -1125,6 +1132,7 @@ function switchTab(tab) {
   if (tab === "grid") schedulePaint();
   if (tab === "settings") renderSettings($("#settings"), settingsCtx());
   if (tab === "dataflow") dataflow.render();
+  if (tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
 }
 
 window.addEventListener("resize", () => { if (state.tab === "grid") schedulePaint(); if (state.tab === "dataflow") dataflow.paintEdges(); });

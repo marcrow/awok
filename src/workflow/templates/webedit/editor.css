@@ -68,13 +68,13 @@ main{flex:1 1 auto;position:relative;min-height:0;display:flex}
 .panel{display:none;flex:1 1 auto;min-width:0;min-height:0;flex-direction:column}
 .panel.active{display:flex}
 
-/* canvas (grid + dataflow + settings) */
-#panel-grid,#panel-dataflow,#panel-settings{
+/* canvas (grid + dataflow + settings + definition) */
+#panel-grid,#panel-dataflow,#panel-settings,#panel-definition{
   background:radial-gradient(circle at 1px 1px,#16223c 1px,transparent 0) 0 0/24px 24px,var(--bg)}
 #panel-grid{transition:margin-right .18s ease}
 
 /* ---- toolbars ---- */
-#grid-toolbar,#df-toolbar,#settings-toolbar{flex:0 0 auto;display:flex;align-items:center;gap:12px;
+#grid-toolbar,#df-toolbar,#settings-toolbar,#definition-toolbar{flex:0 0 auto;display:flex;align-items:center;gap:12px;
   padding:9px 16px;border-bottom:1px solid var(--border);background:rgba(5,10,20,0.65);backdrop-filter:blur(6px);
   flex-wrap:wrap}
 #df-toolbar{position:relative}
@@ -447,6 +447,13 @@ select:disabled{opacity:.42;cursor:not-allowed}
 #settings-scroll{flex:1 1 auto;overflow:auto;min-height:0}
 #settings{max-width:1120px;margin:0 auto;padding:32px 28px 120px;display:grid;
   grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:24px;align-items:start}
+
+/* ---- definition (Workflow definition tab) ---- */
+/* Single stacked column (unlike settings' masonry grid): §1-§7 read top to
+   bottom as one form — identity → params → return → formatter → previews. */
+#definition-scroll{flex:1 1 auto;overflow:auto;min-height:0}
+#definition{max-width:900px;margin:0 auto;padding:32px 28px 120px;display:flex;
+  flex-direction:column;gap:24px}
 /* overflow:visible so hover help popovers near a card edge aren't clipped;
    the header gets matching rounded top corners since the card no longer clips. */
 .settings-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:visible}
