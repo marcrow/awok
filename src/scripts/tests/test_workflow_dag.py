@@ -45,6 +45,30 @@ def test_dag_dataflow_edges(bbw_module):
     assert ("T1", "agent-a", "T3", "agent-c", "out/a.json") in edges
 
 
+def test_dag_resolves_block_id_dep_to_member_phases(bbw_module):
+    """A depends_on that names a logic block resolves to the block's member
+    phases, so topo_order doesn't KeyError on the block id and the dependent
+    lands after every action the block can run."""
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "w", "description": "x"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [
+            {"id": "A", "name": "a", "group": "g"},
+            {"id": "B", "name": "b", "group": "g"},
+            {"id": "Z", "name": "z", "group": "g", "depends_on": ["GATE"]},
+        ],
+        "orchestration": [
+            {"id": "GATE", "if": {"op": "exists", "left": "a.x"},
+             "then": [{"ref": "A"}], "else": [{"ref": "B"}]},
+        ],
+    }
+    dag = bbw_module.build_dag(wf)
+    order = dag.topo_order()
+    assert order.index("A") < order.index("Z")
+    assert order.index("B") < order.index("Z")
+
+
 def test_orphan_input_warning(bbw_module):
     """Input file that has no producing phase generates a warning."""
     wf = {

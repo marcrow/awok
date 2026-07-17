@@ -20,3 +20,16 @@ def test_numeric_operator_declares_types(bbw_module):
 def test_escape_hatch_not_js_safe(bbw_module):
     caps = bbw_module.load_capabilities()
     assert caps["operands"]["escape_hatch"]["js_safe"] is False
+
+
+def test_connectors_present_and_js_safe(bbw_module):
+    caps = bbw_module.load_capabilities()
+    assert set(caps["connectors"]) == {"and", "or", "not"}
+    for c in ("and", "or", "not"):
+        assert caps["connectors"][c]["js_safe"] is True
+        assert caps["connectors"][c]["standard"] is True
+
+
+def test_capabilities_shape_includes_connectors(bbw_module):
+    caps = bbw_module.load_capabilities()
+    assert set(caps) >= {"operators", "builtins", "operands", "connectors"}

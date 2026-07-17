@@ -105,6 +105,168 @@ def test_numeric_operator_on_string_signal(bbw_module):
     assert any("t1.v" in e and "number" in e for e in errs)
 
 
+def test_emits_enum_values_carried_by_collect_signals(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["open", "vuln", "clean"]}])
+    sigs = bbw_module.collect_signals(wf)
+    assert sigs["t1.status"]["values"] == ["open", "vuln", "clean"]
+
+
+def test_literal_not_in_enum_values_warns(bbw_module):
+    wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "ghost"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["open", "vuln"]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("status" in e and "ghost" in e for e in errs)
+
+
+def test_condition_literal_check_skipped_without_values(bbw_module):
+    # No declared `values` → the ==/contains literal check has no vocabulary to
+    # check against, so validate_orchestration stays silent. (The missing-values
+    # blocking error is raised by _validate_signals, see enum-strict tests.)
+    wf = _wf([{"if": {"op": "==", "left": "t1.status", "right": "whatever"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token"}])
+    assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_contains_literal_not_in_enum_list_values(bbw_module):
+    wf = _wf([{"if": {"op": "contains", "left": "t1.tags", "right": "ghost"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "tags", "type": "list", "source": "field", "from": "t1.json",
+                     "of": "enum", "values": ["a", "b"]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("tags" in e and "ghost" in e for e in errs)
+
+
+def test_contains_literal_in_enum_list_values_ok(bbw_module):
+    wf = _wf([{"if": {"op": "contains", "left": "t1.tags", "right": "a"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "tags", "type": "list", "source": "field", "from": "t1.json",
+                     "of": "enum", "values": ["a", "b"]}])
+    assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_non_exists_op_on_object_list_is_error(bbw_module):
+    wf = _wf([{"if": {"op": "contains", "left": "t1.findings", "right": "x"},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "findings", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string"}}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("findings" in e and "object" in e.lower() for e in errs)
+
+
+def test_exists_on_object_list_ok(bbw_module):
+    wf = _wf([{"if": {"op": "exists", "left": "t1.findings"}, "then": [{"ref": "T1"}]}],
+             emits=[{"name": "findings", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string"}}])
+    assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_enum_without_values_is_blocking(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("status" in e and "values" in e for e in errs)
+
+
+def test_enum_with_values_ok(bbw_module):
+    # single invocation so the token signal's emitter resolves cleanly —
+    # isolates the assertion to the enum/values form checks.
+    wf = _wf([{"ref": "T1"}],
+             phases=[{"id": "T1", "name": "a", "group": "g",
+                      "invocations": [{"agent": "test-agent"}]}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["ok", "degraded", "failed"]}])
+    assert bbw_module._validate_signals(wf) == []
+
+
+def test_enum_values_must_be_nonempty(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token", "values": []}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("status" in e and "values" in e for e in errs)
+
+
+def test_enum_values_must_be_unique_strings(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "status", "type": "enum", "source": "token",
+                     "values": ["ok", "ok"]}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("status" in e and "duplicate" in e.lower() for e in errs)
+
+
+def test_values_rejected_on_non_enum(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "n", "type": "number", "source": "token", "values": ["1"]}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("n" in e and "values" in e for e in errs)
+
+
+def test_collect_signals_carries_of(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "hits", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "string"}])
+    sigs = bbw_module.collect_signals(wf)
+    assert sigs["t1.hits"]["of"] == "string"
+
+
+def test_of_on_non_list_is_error(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "n", "type": "number", "source": "token", "of": "string"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("n" in e and "'of'" in e for e in errs)
+
+
+def test_of_unknown_scalar_keyword_is_error(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "hits", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "widget"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("hits" in e and "widget" in e for e in errs)
+
+
+def test_of_enum_requires_values(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "v", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "enum"}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("v" in e and "values" in e for e in errs)
+
+
+def test_of_enum_with_values_ok(bbw_module):
+    # single invocation with a matching output role so the field signal's
+    # emitter resolves cleanly — isolates the assertion to the of/values form
+    # checks (see resolve_signal_emitter, source=field).
+    wf = _wf([{"ref": "T1"}],
+             phases=[{"id": "T1", "name": "a", "group": "g",
+                      "invocations": [{"agent": "test-agent",
+                                       "outputs": [{"role": "t1", "kind": "json"}]}]}],
+             emits=[{"name": "v", "type": "list", "source": "field",
+                     "from": "t1.json", "of": "enum", "values": ["a", "b"]}])
+    assert bbw_module._validate_signals(wf) == []
+
+
+def test_of_object_flat_ok(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             phases=[{"id": "T1", "name": "a", "group": "g",
+                      "invocations": [{"agent": "test-agent",
+                                       "outputs": [{"role": "t1", "kind": "json"}]}]}],
+             emits=[{"name": "f", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string", "severity": {"enum": ["low", "high"]}}}])
+    assert bbw_module._validate_signals(wf) == []
+
+
+def test_of_object_nested_is_error(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "f", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"bad": {"nested": "string"}}}])
+    errs = bbw_module._validate_signals(wf)
+    assert any("f" in e and "bad" in e for e in errs)
+
+
 def test_file_exists_rejected_in_js_target(bbw_module):
     wf = _wf([{"if": {"op": "exists", "left": {"file_exists": "x.txt"}}, "then": [{"ref": "T1"}]}])
     errs = bbw_module.validate_orchestration(wf, target="js")
@@ -117,11 +279,103 @@ def test_escape_hatch_ok_in_standard(bbw_module):
     assert errs == []
 
 
+def test_list_without_of_rejected_in_js_target(bbw_module):
+    wf = _wf([{"for_each": "t1.hits", "as": "h", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "hits", "type": "list", "source": "field", "from": "t1.json"}])
+    errs = bbw_module.validate_orchestration(wf, target="js")
+    assert any("hits" in e and "of" in e and "js" in e.lower() for e in errs)
+
+
+def test_list_without_of_ok_in_standard_target(bbw_module):
+    wf = _wf([{"for_each": "t1.hits", "as": "h", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "hits", "type": "list", "source": "field", "from": "t1.json"}])
+    # standard target: missing `of` is a warning (Task 5), NOT an orchestration error
+    assert not any("of" in e and "js" in e.lower()
+                   for e in bbw_module.validate_orchestration(wf, target="standard"))
+
+
+def test_and_or_not_valid_condition(bbw_module):
+    wf = _wf(
+        [{"if": {"or": [
+            {"and": [{"op": "==", "left": "t1.waf", "right": "true"},
+                     {"op": ">", "left": "t1.risk", "right": 7}]},
+            {"not": {"op": "==", "left": "t1.status", "right": "open"}},
+        ]}, "then": [{"ref": "T1"}]}],
+        emits=[{"name": "waf", "type": "bool", "source": "token"},
+               {"name": "risk", "type": "number", "source": "token"},
+               {"name": "status", "type": "string", "source": "token"}],
+    )
+    assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_nested_unknown_signal_is_caught(bbw_module):
+    wf = _wf([{"if": {"and": [{"op": "==", "left": "t1.v", "right": "x"},
+                              {"op": "==", "left": "ghost.v", "right": "y"}]},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("ghost.v" in e for e in errs)
+
+
+def test_incomplete_leaf_missing_right_is_error(bbw_module):
+    wf = _wf([{"if": {"op": "==", "left": "t1.v", "right": ""},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("incomplete" in e.lower() or "missing" in e.lower() for e in errs)
+
+
+def test_builtin_missing_argument_is_error(bbw_module):
+    wf = _wf([{"if": {"op": "exists", "left": {"file_exists": ""}},
+               "then": [{"ref": "T1"}]}])
+    errs = bbw_module.validate_orchestration(wf)
+    assert any("argument" in e.lower() and "file_exists" in e for e in errs)
+
+
+def test_group_with_single_member_warns_not_blocks(bbw_module):
+    wf = _wf([{"if": {"and": [{"op": "==", "left": "t1.v", "right": "x"}]},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "string", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf)
+    # non-blocking: no ERROR, but a warning string is present
+    assert any("at least 2" in e.lower() or "single member" in e.lower() for e in errs)
+    assert all(e.lower().startswith("orchestration:") for e in errs)
+
+
+def test_escape_hatch_inside_group_rejected_in_js(bbw_module):
+    wf = _wf([{"if": {"or": [{"op": "exists", "left": "t1.v"},
+                             "some free predicate"]},
+               "then": [{"ref": "T1"}]}],
+             emits=[{"name": "v", "type": "bool", "source": "token"}])
+    errs = bbw_module.validate_orchestration(wf, target="js")
+    assert any("escape-hatch" in e.lower() for e in errs)
+
+
 def test_parallel_block_rejected_by_schema(bbw_module):
     import jsonschema, pytest
     schema = bbw_module.load_orchestration_schema()
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate([{"parallel": [{"ref": "A"}]}], schema)
+
+
+def test_schema_accepts_and_or_not(bbw_module):
+    import jsonschema
+    schema = bbw_module.load_orchestration_schema()
+    block = {"if": {"or": [
+        {"and": [{"op": "==", "left": "recon.waf", "right": "true"},
+                 {"op": ">", "left": "scan.risk", "right": "7"}]},
+        {"not": {"and": [{"op": "==", "left": "scan.status", "right": "open"},
+                         {"op": "exists", "left": {"file_exists": "/etc/passwd"}}]}},
+    ]}, "then": [{"ref": "A"}]}
+    jsonschema.validate([block], schema)  # must not raise
+
+
+def test_schema_rejects_unknown_connector(bbw_module):
+    import jsonschema, pytest
+    schema = bbw_module.load_orchestration_schema()
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate([{"if": {"xor": [{"op": "exists", "left": "a.x"}]},
+                              "then": [{"ref": "A"}]}], schema)
 
 
 def test_until_missing_cap_message_names_the_loop(bbw_module):
@@ -157,6 +411,25 @@ def test_for_each_valid(bbw_module):
     wf = _wf([{"for_each": "t1.items", "cap": 5, "body": [{"ref": "T1"}]}],
              emits=[{"name": "items", "type": "list", "source": "field"}])
     assert bbw_module.validate_orchestration(wf) == []
+
+
+def test_for_each_body_states_item_shape(bbw_module):
+    wf = _wf([{"for_each": "t1.findings", "as": "f", "cap": 5, "body": [{"ref": "T1"}]}],
+             emits=[{"name": "findings", "type": "list", "source": "field", "from": "t1.json",
+                     "of": {"path": "string", "severity": {"enum": ["low", "high"]}}}])
+    text = bbw_module.render_orchestration(wf)
+    assert "each `f`" in text
+    assert "path" in text and "severity" in text
+
+
+def test_fixture_composite_condition_renders(bbw_module):
+    wf = bbw_module.load_workflow(FIX / "orchestrated.yaml")
+    assert bbw_module.validate_orchestration(wf) == []
+    protocol = bbw_module.render_orchestration(wf)
+    assert "`scan.status` == `vuln` and `scan.risk` > `5`" in protocol
+    overlay = bbw_module.build_orchestration_overlay(wf)
+    cond = overlay["branches"][0]["cond"]
+    assert "scan.status" in cond and "scan.risk" in cond and " and " in cond
 
 
 def test_fixture_validates_and_renders(bbw_module):
@@ -196,12 +469,55 @@ def test_discover_workflows_excludes_orchestration_sibling(bbw_module, tmp_path)
     assert "w.orchestration" not in names
 
 
+def test_depends_on_block_id_accepted_by_coherence(bbw_module):
+    """A phase may depend on a logic-block id; coherence resolves it to the
+    block's members instead of rejecting it as an unknown phase (spec §3:
+    depend on the whole block, not an action reaching inside it)."""
+    wf = {
+        "schema_version": 1,
+        "skill": {"name": "w", "description": "x"},
+        "groups": {"g": {"description": "x"}},
+        "phases": [
+            {"id": "A", "name": "a", "group": "g",
+             "emits": [{"name": "flag", "type": "bool", "source": "token"}]},
+            {"id": "B", "name": "b", "group": "g"},
+            {"id": "Z", "name": "z", "group": "g", "depends_on": ["GATE"]},
+        ],
+        "orchestration": [
+            {"id": "GATE", "if": {"op": "==", "left": "a.flag", "right": True},
+             "then": [{"ref": "A"}], "else": [{"ref": "B"}]},
+        ],
+    }
+    errs = bbw_module.validate_coherence(wf)
+    assert not any("GATE" in e for e in errs), errs
+
+
 def test_render_condition_renders_bool_literal_lowercase(bbw_module):
     """A YAML `true`/`false` operand loads as a Python bool; render it
     YAML/JS-style, not as Python's capitalized `True`/`False`."""
     rendered = bbw_module._render_condition(
         {"op": "==", "left": "t1.flag", "right": True})
     assert "`true`" in rendered and "True" not in rendered
+
+
+def test_render_condition_composite(bbw_module):
+    cond = {"or": [
+        {"and": [{"op": "==", "left": "recon.waf", "right": "true"},
+                 {"op": ">", "left": "scan.risk", "right": 7}]},
+        {"not": {"and": [{"op": "==", "left": "scan.status", "right": "open"},
+                         {"op": "exists", "left": {"file_exists": "/etc/passwd"}}]}},
+    ]}
+    r = bbw_module._render_condition(cond)
+    assert "and" in r and "or" in r and "not (" in r
+    assert 'file_exists("/etc/passwd")' in r
+    assert "exists`" not in r          # builtin leaf renders without the redundant `exists` keyword
+    # the two AND groups are parenthesized inside the OR
+    assert r.count("(") >= 2 and r.count(")") >= 2
+
+
+def test_render_condition_not_leaf(bbw_module):
+    r = bbw_module._render_condition({"not": {"op": "==", "left": "a.x", "right": "1"}})
+    assert r.startswith("not (") and r.rstrip().endswith(")")
 
 
 def _wf_dep(phases, orchestration):
@@ -336,3 +652,75 @@ def test_overlay_carries_block_id_and_loop_output(bbw_module):
     ov = bbw_module.build_orchestration_overlay(wf)
     assert ov["loops"][0]["id"] == "LOOP1"
     assert ov["loops"][0]["output"] == "work:results"
+
+
+def test_list_without_of_warns(bbw_module):
+    wf = _wf([{"ref": "T1"}],
+             emits=[{"name": "hits", "type": "list", "source": "field", "from": "t1.json"}])
+    warns = bbw_module.check_signal_payload_warnings(wf)
+    assert any("hits" in w and "of" in w and "string" in w for w in warns)
+
+
+def test_homonym_divergent_values_warns(bbw_module):
+    wf = _wf([{"ref": "A"}, {"ref": "B"}],
+             phases=[{"id": "A", "name": "a", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "bad"]}]},
+                     {"id": "B", "name": "b", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "worse"]}]}])
+    warns = bbw_module.check_signal_payload_warnings(wf)
+    assert any("verdict" in w and "diverg" in w.lower() for w in warns)
+
+
+def test_homonym_same_values_no_warn(bbw_module):
+    wf = _wf([{"ref": "A"}, {"ref": "B"}],
+             phases=[{"id": "A", "name": "a", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "bad"]}]},
+                     {"id": "B", "name": "b", "group": "g",
+                      "emits": [{"name": "verdict", "type": "enum", "source": "token",
+                                 "values": ["ok", "bad"]}]}])
+    assert not any("diverg" in w.lower() for w in bbw_module.check_signal_payload_warnings(wf))
+
+
+def test_homonym_implicit_and_explicit_of_string_no_diverge(bbw_module):
+    wf = _wf([{"ref": "A"}, {"ref": "B"}],
+             phases=[{"id": "A", "name": "a", "group": "g",
+                      "emits": [{"name": "hits", "type": "list", "source": "field",
+                                 "from": "a.json"}]},
+                     {"id": "B", "name": "b", "group": "g",
+                      "emits": [{"name": "hits", "type": "list", "source": "field",
+                                 "from": "b.json", "of": "string"}]}])
+    warns = bbw_module.check_signal_payload_warnings(wf)
+    assert not any("diverg" in w.lower() for w in warns)
+
+
+def test_value_spec_renders_enum_vocabulary(bbw_module):
+    emit = {"name": "status", "type": "enum", "source": "token",
+            "values": ["ok", "degraded", "failed"]}
+    assert bbw_module._value_spec(emit) == "<ok|degraded|failed>"
+
+
+def test_emission_line_lists_enum_values(bbw_module):
+    phase = {"id": "SCAN", "type": "agent"}
+    emit = {"name": "status", "type": "enum", "source": "token",
+            "values": ["ok", "failed"]}
+    line = bbw_module.render_signal_emission(phase, emit)
+    assert "ok|failed" in line
+
+
+def test_emission_line_describes_scalar_list(bbw_module):
+    phase = {"id": "SCAN", "type": "agent"}
+    emit = {"name": "hits", "type": "list", "source": "field",
+            "from": "report.hits", "of": "string"}
+    line = bbw_module.render_signal_emission(phase, emit)
+    assert "array" in line.lower() and "string" in line
+
+
+def test_emission_line_describes_object_list(bbw_module):
+    phase = {"id": "SCAN", "type": "agent"}
+    emit = {"name": "findings", "type": "list", "source": "field", "from": "report.findings",
+            "of": {"path": "string", "severity": {"enum": ["low", "high"]}}}
+    line = bbw_module.render_signal_emission(phase, emit)
+    assert "path" in line and "severity" in line and "low|high" in line

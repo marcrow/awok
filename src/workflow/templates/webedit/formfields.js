@@ -192,6 +192,38 @@ function splitFrom(fromStr, roles){
   return idx === -1 ? { role: fromStr, field: "" } : { role: fromStr.slice(0, idx), field: fromStr.slice(idx + 1) };
 }
 
+// Help layer for the signals editor (persona: never read the YAML nor the
+// docs — see docs/superpowers/specs/2026-07-17-webedit-signals-help-design.md).
+// Depth lives in the hover popovers; labels stay tiny so the rows keep their
+// footprint. Uses the shared helpIcon popover (never native title=).
+const SIGNAL_HELP = {
+  intro: "A signal is a small typed value (status, number, list…) this action publishes when it finishes — the orchestration can branch or loop on it. Key: <action_id>.<name>.",
+  name: "Lowercase identifier (^[a-z][a-z0-9_]*$). The orchestration reads this signal as <action_id>.<name>.",
+  type: "Value shape: string, number, bool, enum (closed vocabulary), or list.",
+  source: "How the value is produced — token: the agent ends its output with a compact `SIGNALS: name=value` line · field: read from a field of a JSON output file · exit_code: the script's exit status (bool: 0 ⇒ true · number: the raw code, e.g. grep 0/1/2).",
+  from_role: "Which declared JSON output the value is read from.",
+  from_field: "Optional field path inside that JSON (defaults to the whole file).",
+  by: "When several agents run in this action: which one emits the token.",
+  values: "The closed vocabulary — the agent must emit exactly one of these.",
+  of: "Element type of the list items; `object` declares a flat field map.",
+  of_field: "One required field of each list item (flat — no nesting).",
+  of_field_type: "Field type: a scalar, or enum with its own closed vocabulary.",
+};
+
+// `helpAlign` steers the hover popover so it never spills past the drawer's
+// scroll edges (which clip it): "left" (default) opens rightward — right for a
+// control near the panel's left edge; "right" opens leftward — for the type/
+// source selects that sit against the right edge.
+function labeled(labelText, helpText, controlEl, helpAlign){
+  const w = document.createElement("div"); w.className = "labeled-ctl";
+  const l = document.createElement("span"); l.className = "mini-label";
+  if (helpAlign === "right") l.classList.add("help-align-right");
+  l.appendChild(document.createTextNode(labelText));
+  if (helpText) l.appendChild(helpIcon(helpText));
+  w.appendChild(l); w.appendChild(controlEl);
+  return w;
+}
+
 // items = phase.emits (or []). `phase` is the owning action, used to derive
 // the nature-filtered source list and the output-role candidates for `from`.
 export function signalsEditor(label, items, phase, onChange){
@@ -205,6 +237,10 @@ export function signalsEditor(label, items, phase, onChange){
     wrap.appendChild(note);
     return wrap;
   }
+  const intro = document.createElement("div");
+  intro.className = "muted-note signals-intro";
+  intro.textContent = SIGNAL_HELP.intro;
+  wrap.appendChild(intro);
   const list = (items || []).map(x => ({ ...x }));
   const emit = () => onChange(list.map(x => ({ ...x })));
   const outputRoles = collectOutputRoles(phase);
@@ -213,38 +249,54 @@ export function signalsEditor(label, items, phase, onChange){
   function render(){
     body.replaceChildren();
     list.forEach((item, idx) => {
+      // One framed block per signal groups the main row with its sub-rows
+      // (from/by/values/of) so they read as a single unit inside the border.
+      const block = document.createElement("div"); block.className = "signal-block";
+      body.appendChild(block);
       const r = document.createElement("div"); r.className = "signal-row";
       const name = document.createElement("input"); name.type = "text"; name.className = "signal-name";
       name.placeholder = "name"; name.value = item.name || "";
       const warn = document.createElement("span"); warn.className = "signal-warn";
       const refreshWarn = () => { const ok = !item.name || SIGNAL_NAME_RE.test(item.name); warn.textContent = ok ? "" : "⚠ ^[a-z][a-z0-9_]*$"; };
       name.addEventListener("change", () => { item.name = name.value.trim(); refreshWarn(); emit(); });
-      r.appendChild(name);
+      const nameWrap = labeled("name", SIGNAL_HELP.name, name);
+      nameWrap.classList.add("grow");
+      r.appendChild(nameWrap);
       // exit_code accepts bool (0 ⇒ true shorthand) or number (raw exit code, e.g. grep 0/1/2).
       const exitCode = (item.source || sources[0]) === "exit_code";
       const typeOpts = exitCode ? ["bool", "number"] : SIGNAL_TYPES;
-      if (exitCode && !typeOpts.includes(item.type)) item.type = "bool";
+      if (exitCode && !typeOpts.includes(item.type)) {
+        item.type = "bool";
+        if (item.type !== "enum") delete item.values;
+        if (item.type !== "list") delete item.of;
+      }
       const type = document.createElement("select");
       for (const t of typeOpts){ const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === (item.type || "string")) o.selected = true; type.appendChild(o); }
-      if (exitCode) type.title = "exit_code ⇒ bool (exit 0 = true) or number (raw exit code)";
-      type.addEventListener("change", () => { item.type = type.value; emit(); });
-      r.appendChild(type);
+      type.addEventListener("change", () => {
+        item.type = type.value;
+        if (item.type !== "enum") delete item.values;
+        if (item.type !== "list") delete item.of;
+        emit(); render();
+      });
+      r.appendChild(labeled("type", SIGNAL_HELP.type, type, "right"));
       const source = document.createElement("select");
       for (const s of sources){ const o = document.createElement("option"); o.value = s; o.textContent = s; if (s === (item.source || sources[0])) o.selected = true; source.appendChild(o); }
       source.addEventListener("change", () => {
         item.source = source.value;
         if (item.source === "exit_code" && item.type !== "bool" && item.type !== "number") item.type = "bool";
+        if (item.type !== "enum") delete item.values;
+        if (item.type !== "list") delete item.of;
         if (item.source !== "field") delete item.from;
         if (item.source !== "token" && item.source !== "exit_code") delete item.by;
         emit(); render();
       });
-      r.appendChild(source);
+      r.appendChild(labeled("source", SIGNAL_HELP.source, source, "right"));
       const del = document.createElement("button"); del.className = "signal-del"; del.textContent = "✕";
       del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
       r.appendChild(del);
       r.appendChild(warn);
       refreshWarn();
-      body.appendChild(r);
+      block.appendChild(r);
 
       const curSource = item.source || sources[0];
       if (curSource === "field") {
@@ -259,8 +311,11 @@ export function signalsEditor(label, items, phase, onChange){
         const setFrom = () => { const role = roleSel.value; const field = fieldInput.value.trim(); item.from = field ? `${role}.${field}` : role; emit(); };
         roleSel.addEventListener("change", setFrom);
         fieldInput.addEventListener("change", setFrom);
-        sub.appendChild(roleSel); sub.appendChild(fieldInput);
-        body.appendChild(sub);
+        sub.appendChild(labeled("from", SIGNAL_HELP.from_role, roleSel));
+        const fw = labeled("field", SIGNAL_HELP.from_field, fieldInput);
+        fw.classList.add("grow");
+        sub.appendChild(fw);
+        block.appendChild(sub);
       }
       if ((curSource === "token" || curSource === "exit_code") && invAgents.length >= 2) {
         const sub = document.createElement("div"); sub.className = "signal-subrow";
@@ -268,8 +323,106 @@ export function signalsEditor(label, items, phase, onChange){
         const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "by invocation…"; bySel.appendChild(o0);
         for (const a of invAgents){ const o = document.createElement("option"); o.value = a; o.textContent = a; if (a === item.by) o.selected = true; bySel.appendChild(o); }
         bySel.addEventListener("change", () => { if (bySel.value) item.by = bySel.value; else delete item.by; emit(); });
-        sub.appendChild(bySel);
-        body.appendChild(sub);
+        sub.appendChild(labeled("by", SIGNAL_HELP.by, bySel));
+        block.appendChild(sub);
+      }
+      if ((item.type || "string") === "enum") {
+        const sub = document.createElement("div"); sub.className = "signal-subrow";
+        const sle = stringListEditor("values", item.values, (vals) => {
+          if (vals.length) item.values = vals; else delete item.values;
+          emit();
+        });
+        sle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
+        sub.appendChild(sle);
+        block.appendChild(sub);
+      }
+      if ((item.type || "string") === "list") {
+        const sub = document.createElement("div"); sub.className = "signal-subrow";
+        const ofSel = document.createElement("select"); ofSel.className = "signal-of";
+        const ofOpts = ["string", "number", "bool", "enum", "object"];
+        const curOf = (item.of && typeof item.of === "object") ? "object"
+                    : (typeof item.of === "string" ? item.of : "string");
+        for (const o of ofOpts) { const opt = document.createElement("option"); opt.value = o; opt.textContent = o; if (o === curOf) opt.selected = true; ofSel.appendChild(opt); }
+        ofSel.addEventListener("change", () => {
+          const v = ofSel.value;
+          if (v === "object") { item.of = (item.of && typeof item.of === "object") ? item.of : {}; delete item.values; }
+          else { item.of = v; if (v !== "enum") delete item.values; }
+          emit(); render();
+        });
+        sub.appendChild(labeled("of", SIGNAL_HELP.of, ofSel));
+        block.appendChild(sub);
+
+        if (curOf === "enum") {
+          const vrow = document.createElement("div"); vrow.className = "signal-subrow";
+          const vsle = stringListEditor("values", item.values, (vals) => {
+            if (vals.length) item.values = vals; else delete item.values; emit();
+          });
+          vsle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
+          vrow.appendChild(vsle);
+          block.appendChild(vrow);
+        }
+        if (curOf === "object") {
+          const orow = document.createElement("div"); orow.className = "signal-subrow signal-of-object";
+          const obj = item.of;
+          Object.keys(obj).forEach((field) => {
+            const fr = document.createElement("div"); fr.className = "of-field-row";
+            const fname = document.createElement("input"); fname.type = "text"; fname.value = field; fname.className = "of-field-name";
+            fname.addEventListener("change", () => {
+              const nv = fname.value.trim();
+              // rename to an already-used name is a no-op (collision guard) —
+              // re-render restores the input to the old name without moving anything
+              if (nv && nv !== field && !(nv in obj)) {
+                const next = { ...item.of };
+                next[nv] = next[field];
+                delete next[field];
+                item.of = next;
+                emit();
+              }
+              render();
+            });
+            const ftype = document.createElement("select"); ftype.className = "of-field-type";
+            const cur = (obj[field] && typeof obj[field] === "object") ? "enum" : obj[field];
+            for (const t of ["string", "number", "bool", "enum"]) { const o = document.createElement("option"); o.value = t; o.textContent = t; if (t === cur) o.selected = true; ftype.appendChild(o); }
+            ftype.addEventListener("change", () => {
+              const next = { ...item.of };
+              next[field] = ftype.value === "enum" ? { enum: (obj[field] && obj[field].enum) || [] } : ftype.value;
+              item.of = next;
+              emit(); render();
+            });
+            const del = document.createElement("button"); del.className = "of-field-del"; del.textContent = "✕";
+            del.addEventListener("click", () => {
+              const next = { ...item.of };
+              delete next[field];
+              item.of = next;
+              render(); emit();
+            });
+            const fnw = labeled("field", SIGNAL_HELP.of_field, fname);
+            fnw.classList.add("grow");
+            fr.appendChild(fnw);
+            fr.appendChild(labeled("type", SIGNAL_HELP.of_field_type, ftype));
+            fr.appendChild(del);
+            orow.appendChild(fr);
+            if (obj[field] && typeof obj[field] === "object") {
+              const fsle = stringListEditor("values", obj[field].enum, (vals) => {
+                const next = { ...item.of };
+                next[field] = { enum: vals };
+                item.of = next;
+                emit();
+              });
+              fsle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
+              orow.appendChild(fsle);
+            }
+          });
+          const addF = document.createElement("button"); addF.className = "of-field-add"; addF.textContent = "+ field";
+          addF.addEventListener("click", () => {
+            const next = { ...item.of };
+            next["field" + (Object.keys(next).length + 1)] = "string";
+            item.of = next;
+            render(); emit();
+          });
+          orow.appendChild(addF);
+          block.appendChild(orow);
+        }
       }
     });
   }

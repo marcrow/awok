@@ -9,8 +9,12 @@
 1. **Handle the pending PR first**, then the **effort/frontmatter audit** — do both together,
    because the PR likely touches the same area (doing the audit after the PR is in hand avoids
    stepping on each other). → items [A1] then [A2].
-2. Then the orchestration follow-ups (dynamic workflows, web UI blocks, create/doctor/edit).
-3. Security and web UI cleanup in parallel where it fits.
+2. **The pre-dynamic common core** (section S below + B7/D1/D2): everything that both targets
+   share, developed and tested entirely on the standard target. → S1..S5.
+3. Then the dynamic-specific work (B1: JS compiler, `target` field, deploy to
+   `~/.claude/workflows/`, wrapper skill, `check` on `.js`, UI target toggle) and the other
+   orchestration follow-ups (B3/B4/B5/B6, web UI).
+4. Security and web UI cleanup in parallel where it fits.
 
 ---
 
@@ -32,6 +36,64 @@
 
 ---
 
+## S. Pre-dynamic common core (état des lieux 2026-07-16)
+
+> Everything in this section is **shared** by the standard and dynamic (JS) targets, and is
+> built/tested **entirely on the standard target** — so it can (and should) land before B1.
+> B7, D1 and D2 also belong to this core (tagged in place). Context: the block-tree model,
+> the recursive `and`/`or`/`not` conditions (branch `feat/conditions-and-or-not`, done), the
+> js-safe frontier in `orchestration-capabilities.yaml` and `validate_orchestration(target=)`
+> are already JS-compatible by design.
+
+- [ ] **S1 — Workflow-level I/O contract (inputs/outputs of the workflow itself).**
+  Today `skill:` = name/description/title only; inputs/outputs exist per phase/invocation but
+  the workflow as a whole declares no contract. Needed NOW to give `workflow_call` something
+  verifiable (today the validator only checks the target exists); needed LATER as the
+  `args` / return-value mapping of a dynamic workflow, and for standard→dynamic composition.
+  To do: schema field, `workflow_call` validation against it, cartography rendering.
+
+- [ ] **S2 — Extend `orchestration-capabilities.yaml` with an `actions:` section.**
+  The js-safe frontier is declared for operators/connectors/builtins/operands but NOT for
+  **action types**. Add `actions: {agent: js_safe, script: wrappable, main_agent: standard-only,
+  external: via-args, workflow_call: js_safe (1 nesting level)}` so `validate --target js` is
+  complete later without touching the model. Small (file + validator + tests), keeps the
+  "no hard-coded matrix" philosophy.
+
+- [ ] **S3 — Deterministic signal-reachability check in `awok validate`.**
+  The deterministic slice of B4 that does NOT need the doctor: a condition consuming a signal
+  whose **emitter is not guaranteed to have run** at evaluation time — emitter scheduled after
+  the gate, or living exclusively inside a conditional branch (incl. the gate's own then/else).
+  Pure graph analysis over orchestration + `depends_on` + `resolve_signal_emitter`. Blocking
+  error when the emitter is ordered after; warning "guard with `exists`" when the emitter is
+  conditional. Note: `_validate_signals` + condition validation ALREADY block unknown-signal
+  refs, field-role-not-produced, exit_code-on-non-script, multi-agent-token-without-`by` —
+  and `render_signal_emission`/`_attach_signal_emissions` already inject the emission
+  instructions at generate (by construction). S3 is the missing deterministic piece.
+
+- [ ] **S4 — Derive a JSON Schema from each action's `emits` (canonical output contract).**
+  The standard-side half (emission instructions injected into prompts/SKILL.md) is shipped;
+  what's missing is the machine-readable artifact: `emits` → JSON Schema per invocation.
+  In standard it can strengthen the orchestrator's extraction prose + doctor checks; in JS it
+  becomes verbatim the `schema` option of `agent()` (typed returns are the ONLY channel a
+  dynamic script can read — no filesystem in the Workflow runtime). Design constraint to
+  settle here: `token`-sourced signals must map to a schema field; `exit_code` needs the
+  script wrapped in an agent (see S2).
+  **Update 2026-07-16: typed signal payloads are implemented** on `feat/conditions-and-or-not`
+  (enum-strict `values` + list `of`, incl. condition checks, js-target `of` requirement,
+  payload warnings, emitter/`for_each` rendering, fixture, web editor `of` UI — design doc
+  `docs/superpowers/specs/2026-07-16-typed-signal-payloads-design.md` §10). S4's remaining
+  scope narrows to the `emits` → JSON Schema derivation itself; the mapping table is already
+  frozen in that design's §6.
+
+- [ ] **S5 — Exercise an orchestrated workflow end-to-end (standard).**
+  `onboard.orchestration.yaml` exists but the orchestration semantics (gates, signals, loops,
+  deps-into-blocks, else-lane, signal evaluation timing) have not been proven in real use.
+  The standard target is best-effort so semantic bugs are recoverable; the JS target will
+  execute the SAME semantics deterministically. Fix the semantics while there is one backend,
+  not two.
+
+---
+
 ## B. Orchestration follow-ups (feature shipped 2026-07-13)
 
 > The "standard target" orchestration is shipped on `feat/portes-logiques-orchestration`
@@ -42,6 +104,18 @@
   `validate_orchestration(target="js")` is **already ready** to reject standard-only bricks
   (file_exists/dir_exists, escape-hatch). Direct logical follow-up (proposed by Claude).
   Ref: plan § "Suivis hors de ce plan" item 1.
+  **Prerequisites: the pre-dynamic common core (section S) + B7 + D1/D2.** Dynamic-specific
+  scope (do NOT start before the core lands): `target: standard|js` schema field + plumbing;
+  the block-tree → `Workflow`-script renderer (pure-literal `meta`, DAG→`pipeline()`/
+  `parallel()` codegen from the existing level analysis, `if→if`, `while/until→while+cap`,
+  `for_each→pipeline/parallel`, loop output→JS accumulator; runtime constraints: no fs, no
+  `Date.now()`/`Math.random()`, 1 nesting level for `workflow()`); `agent()` calls emit
+  `agentType` (agents already deployed to `~/.claude/agents`) + per-invocation
+  `effort`/`model` as call options (partially dissolves A2 for this target); deploy generated
+  scripts to `~/.claude/workflows/` + a thin generated wrapper SKILL.md (`/<name>` → Workflow
+  tool call = the user opt-in path); extend `awok check` to the generated `.js`; golden tests
+  (+ optional `node --check`). Out of scope: importing hand-written JS (`migrate-from-js`,
+  assist-based, separate).
 
 - [x] **B2 — Web UI: editing condition blocks.** DONE. The orchestration view is now a
   full authoring canvas: the whole DAG with gates as frames (then/else/body lanes); drag an
@@ -67,13 +141,19 @@
   best-effort overuse, flag escaped logic (escape-hatch), and check signal↔condition seams +
   the mandatory `cap`. It should also verify if action in a condition cause an issue for dependancies 
   if the condition is not triggered.
-  **Signal-emitter contract check (from the signals-on-action brainstorm, 2026-07-14):** awok
-  cannot execute a script, so it cannot prove a signal is actually produced. The doctor should
-  warn when a declared signal's emitter is unverifiable: for `source: field`, that the emitting
-  action's `<role>` output really is a produced json in the dataflow (and ideally that the field
-  is plausibly written); for `source: exit_code`, that the action is a `script`; for
-  `source: token`, that the emitting action's prose actually instructs the emission. Goal: catch
-  "signal declared but never produced" before runtime.
+  **Signal-emitter contract check (from the signals-on-action brainstorm, 2026-07-14) —
+  UPDATED 2026-07-16 after code audit: most of it is already deterministic and DONE.**
+  `_validate_signals` already blocks: `source: field` whose from-role is not produced by the
+  action; `source: exit_code` on a non-script (+ type rules); multi-agent `token` without
+  `by`. Condition validation already blocks references to unknown signals. And
+  `render_signal_emission`/`_attach_signal_emissions` inject the emission instruction into
+  the emitter's prompt at generate — so "the prose doesn't instruct the emission" cannot
+  happen in a *generated* skill (by construction). The remaining deterministic piece is
+  **S3** (emitter reachability/ordering vs the consuming gate) → belongs in `validate`, not
+  here. What is LEFT for the doctor (LLM-judgment residue only): is the value *meaningfully*
+  produced (field plausibly written with real content, not filler); does the agent's own
+  hand-written .md contradict/preempt the injected instruction; conditional-in-the-prompt =
+  stale orchestration; best-effort overuse; escaped logic.
   Ref: plan § "Suivis hors de ce plan" item 3.
 
 - [ ] **B5 — edit-workflow: orchestration-aware.** Reason about orchestration seams when editing
@@ -89,7 +169,8 @@
   _To specify: is it a static generated view, or a per-run state-aware helper? How does it read
   action states (signals/ledger)? Where does it live (SKILL.md section vs cartography overlay)?_
 
-- [ ] **B7 — Loop `output` role as a first-class dataflow node.** Deferred from the
+- [ ] **B7 — Loop `output` role as a first-class dataflow node.** _[pre-dynamic common core:
+  this role is exactly the JS accumulator variable — fix it before B1]_ Deferred from the
   depends_on-unification plan (`2026-07-14-orchestration-depends-on-unification.md`, Task 6/8):
   a loop block may declare `output: {role, kind}`, but `build_dataflow_graph` is NOT taught that
   this role is a **producer** (the body writes it) and the downstream action is its **consumer**.
@@ -120,12 +201,23 @@
     **first tab**.
   - _To specify: other remaining web UI changes._
 - [x] **C2 — fix invocation file in web UI.** ✅ Done (removed from TBD).
+- [ ] **C3 — Help & accessibility of the web UI for the uninitiated user.**
+  **Persona (reference for all UI help work): someone who has never read a workflow
+  YAML nor the awok docs** — they must understand each concept and fill each field
+  without leaving the editor. Help is in English, layered (always-visible one-line
+  intro + mini field labels + native ⓘ tooltips), and must stay compact — readability
+  without crowding the controls. The **signals section is done** (2026-07-17, spec
+  `docs/superpowers/specs/2026-07-17-webedit-signals-help-design.md`); extend the same
+  treatment to the rest of the Wiring panel (io refs `role (ns:name)` / `path override`,
+  triggers, on-demand agents…) and the other panels/tabs.
 
 ---
 
 ## D. awok model / conventions
 
-- [ ] **D1 — Ban multi-agent action blocks.** An action block (`phase`) can currently hold
+- [ ] **D1 — Ban multi-agent action blocks.** _[pre-dynamic common core: the JS codegen maps
+  1 block → 1 `agent()` call; multi-invocation blocks would break that mapping. Every week of
+  delay adds content to migrate — do it before B1]_ An action block (`phase`) can currently hold
   **several invocations** (`invocations: [ ... ]`, multiple agents). Leaning decision: **forbid
   it** — 1 block = 1 action = 1 agent. Rationale: multi-agent within a block causes problems
   down the line, hurts readability, and runs counter to what awok is meant to offer. Needs
@@ -135,7 +227,8 @@
 
 - [ ] **D2 — Vocabulary migration action/stage/group** (Palier 1 doc done). Remaining:
   Palier 2 (retire inert fields) + Palier 3 (rename `phase`→`action`).
-  Ref: memory `awok-vocab-migration`. Overlaps with D1.
+  Ref: memory `awok-vocab-migration`. Overlaps with D1. _[pre-dynamic common core: a
+  vocabulary rename costs double once a second compiler backend exists — do it before B1]_
 
 ---
 

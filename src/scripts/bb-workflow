@@ -788,6 +788,8 @@ def collect_signals(workflow: dict) -> dict:
                 "type": emit.get("type"),
                 "source": emit.get("source"),
                 "phase": pid,
+                "values": emit.get("values"),
+                "of": emit.get("of"),
             }
     return signals
 
@@ -836,12 +838,63 @@ def resolve_signal_emitter(workflow: dict, phase: dict, emit: dict) -> dict:
     return {"kind": "unresolved", "reason": "multi-agent token needs `by`"}
 
 
+def _check_values_form(values, tag):
+    """Form errors for a declared enum `values` list: must be a non-empty list
+    of unique strings. Returns a list of error strings (empty if well-formed)."""
+    errs = []
+    if not isinstance(values, list) or not values:
+        errs.append(f"{tag}: 'values' must be a non-empty list of strings")
+        return errs
+    if any(not isinstance(v, str) for v in values):
+        errs.append(f"{tag}: 'values' entries must all be strings")
+    if len(set(values)) != len(values):
+        errs.append(f"{tag}: 'values' contains duplicate entries")
+    return errs
+
+
+_OF_SCALARS = ("string", "number", "bool", "enum")
+
+
+def _check_of_form(of, values, tag):
+    """Form errors for a list's `of` element type. `of` is a scalar keyword or a
+    flat object map. `values` is the emit's top-level values (element vocab when
+    of == 'enum'). Returns a list of error strings."""
+    errs = []
+    if isinstance(of, str):
+        if of not in _OF_SCALARS:
+            errs.append(f"{tag}: 'of' must be one of {list(_OF_SCALARS)}, got '{of}'")
+        elif of == "enum":
+            if values is None:
+                errs.append(f"{tag}: 'of: enum' requires a non-empty 'values' list (the element vocabulary)")
+            else:
+                errs.extend(_check_values_form(values, tag))
+        return errs
+    if isinstance(of, dict):
+        if not of:
+            errs.append(f"{tag}: 'of' object must declare at least one field")
+        for field, spec in of.items():
+            ftag = f"{tag}: field '{field}'"
+            if isinstance(spec, str):
+                if spec not in ("string", "number", "bool"):
+                    errs.append(f"{ftag}: type must be one of ['string', 'number', 'bool'] or {{enum: [...]}}, got '{spec}'")
+            elif isinstance(spec, dict) and set(spec.keys()) == {"enum"}:
+                errs.extend(_check_values_form(spec["enum"], ftag))
+            else:
+                errs.append(f"{ftag}: must be a scalar type or {{enum: [...]}} (no nesting)")
+        return errs
+    errs.append(f"{tag}: 'of' must be a scalar keyword or a flat object map")
+    return errs
+
+
 def _validate_signals(workflow: dict) -> list:
     """Blocking semantic rules for declared `emits` signals.
 
     - source: exit_code requires action nature 'script' and type 'bool'
       (0 => true shorthand) or 'number' (the raw integer exit code).
     - type: list requires source: field.
+    - type: enum requires a well-formed `values` vocabulary (non-empty,
+      unique strings); `values` is rejected on any other type (except a
+      list-of-enum, handled elsewhere).
     - a field signal's `from` role must actually be produced by the action
       (delegated to resolve_signal_emitter, which returns 'unresolved')."""
     errors = []
@@ -860,6 +913,22 @@ def _validate_signals(workflow: dict) -> list:
                     errors.append(f"{tag}: source 'exit_code' requires type 'bool' (0 => true) or 'number' (raw exit code)")
             if typ == "list" and src != "field":
                 errors.append(f"{tag}: type 'list' requires source 'field'")
+            values = emit.get("values")
+            if typ == "enum":
+                if values is None:
+                    errors.append(f"{tag}: type 'enum' requires a non-empty 'values' list (the closed vocabulary)")
+                else:
+                    errors.extend(_check_values_form(values, tag))
+            elif values is not None and not (typ == "list" and emit.get("of") == "enum"):
+                # values is only meaningful for an enum, or for a list whose
+                # elements are enums (Task 2 handles the list case).
+                errors.append(f"{tag}: 'values' is only valid for type 'enum' (or a list of enums)")
+            of = emit.get("of")
+            if typ == "list":
+                if of is not None:
+                    errors.extend(_check_of_form(of, values, tag))
+            elif of is not None:
+                errors.append(f"{tag}: 'of' is only valid for type 'list'")
             em = resolve_signal_emitter(workflow, phase, emit)
             if em["kind"] == "unresolved":
                 errors.append(f"{tag}: {em['reason']}")
@@ -871,8 +940,29 @@ def _value_spec(emit):
     if t == "bool":
         return "<true|false>"
     if t == "enum":
+        vals = emit.get("values")
+        if vals:
+            return "<" + "|".join(vals) + ">"
         return "<one of the allowed values>"
     return f"<{t}>"
+
+
+def _of_spec(emit):
+    """Human-readable element contract for a list emit's `of` (default: string)."""
+    of = emit.get("of") or "string"
+    if isinstance(of, str):
+        if of == "enum":
+            vals = emit.get("values")
+            return "one of " + "|".join(vals) if vals else "an enum value"
+        return of
+    # flat object map
+    parts = []
+    for field, spec in of.items():
+        if isinstance(spec, dict) and "enum" in spec:
+            parts.append(f"{field}: {'|'.join(spec['enum'])}")
+        else:
+            parts.append(f"{field}: {spec}")
+    return "objects {" + ", ".join(parts) + "}"
 
 
 def render_signal_emission(phase: dict, emit: dict) -> str:
@@ -888,7 +978,10 @@ def render_signal_emission(phase: dict, emit: dict) -> str:
         if src == "token":
             return f"- **Emit signal `{key}`**: end your output with a compact line `SIGNALS {name}={_value_spec(emit)}`."
         if src == "field":
-            return f"- **Emit signal `{key}`**: your `{role}` json output MUST contain a field `{name}` of type `{emit.get('type')}`."
+            base = f"- **Emit signal `{key}`**: your `{role}` json output MUST contain a field `{name}` of type `{emit.get('type')}`"
+            if emit.get("type") == "list":
+                return base + f" — a json array of {_of_spec(emit)}."
+            return base + "."
     if nature == "script":
         if src == "exit_code":
             if emit.get("type") == "number":
@@ -897,12 +990,18 @@ def render_signal_emission(phase: dict, emit: dict) -> str:
         if src == "token":
             return f"- **Signal `{key}`** = the `SIGNALS {name}=…` line the script prints on stdout."
         if src == "field":
-            return f"- **Signal `{key}`** = the field `{name}` of the script's `{role}` json output."
+            base = f"- **Signal `{key}`** = the field `{name}` of the script's `{role}` json output"
+            if emit.get("type") == "list":
+                return base + f" — a json array of {_of_spec(emit)}."
+            return base + "."
     if nature == "main_agent":
         if src == "token":
             return f"- **Produce signal `{key}`** as you do this step: state a line `SIGNALS {name}={_value_spec(emit)}`."
         if src == "field":
-            return f"- **Produce signal `{key}`**: write a field `{name}` ({emit.get('type')}) into `{role}`."
+            base = f"- **Produce signal `{key}`**: write a field `{name}` ({emit.get('type')}) into `{role}`"
+            if emit.get("type") == "list":
+                return base + f" — a json array of {_of_spec(emit)}."
+            return base + "."
     return ""
 
 
@@ -1072,6 +1171,13 @@ def validate_orchestration(workflow, capabilities=None, target="standard"):
     signals = collect_signals(workflow)
     known_pids = {p["id"] for p in workflow.get("phases", [])}
     errors = []
+    if target == "js":
+        for phase in workflow.get("phases", []):
+            for emit in phase.get("emits", []) or []:
+                if emit.get("type") == "list" and emit.get("of") is None:
+                    errors.append(
+                        f"signal {phase['id']}.{emit.get('name', '?')}: type 'list' "
+                        f"requires an explicit 'of' element type in a js target")
     errors.extend(_validate_block_ids(workflow["orchestration"], known_pids))
     errors.extend(_validate_dependencies(workflow))
 
@@ -1128,6 +1234,35 @@ def _validate_condition(cond, signals, caps, target):
     if not isinstance(cond, dict):
         return errors
 
+    # --- boolean connectors: and / or / not (recursive) ---
+    conn = next((k for k in ("and", "or", "not") if k in cond), None)
+    if conn is not None:
+        cmeta = caps.get("connectors", {}).get(conn)
+        if cmeta is None:
+            errors.append(f"orchestration: unknown connector '{conn}'")
+            return errors
+        if target == "js" and not cmeta.get("js_safe", False):
+            errors.append(f"orchestration: connector '{conn}' is standard-only in a js target")
+        if conn == "not":
+            inner = cond["not"]
+            if isinstance(inner, list):
+                errors.append("orchestration: 'not' takes a single condition, not a list")
+            else:
+                errors.extend(_validate_condition(inner, signals, caps, target))
+        else:
+            members = cond[conn]
+            if not isinstance(members, list):
+                errors.append(f"orchestration: '{conn}' must be a list of conditions")
+            else:
+                if len(members) < 2:
+                    errors.append(
+                        f"orchestration: group '{conn}' should have at least 2 members "
+                        f"(has {len(members)})")
+                for m in members:
+                    errors.extend(_validate_condition(m, signals, caps, target))
+        return errors
+
+    # --- leaf comparison ---
     op = cond.get("op")
     op_meta = caps["operators"].get(op)
     if op_meta is None:
@@ -1138,20 +1273,30 @@ def _validate_condition(cond, signals, caps, target):
 
     left, right = cond.get("left"), cond.get("right")
 
-    # builtin operand (file_exists/dir_exists) js-safety
+    # leaf completeness (mini-spec §7)
+    def _empty(v):
+        return v is None or (isinstance(v, str) and v.strip() == "")
+    if _empty(left):
+        errors.append("orchestration: incomplete comparison — missing left operand")
+    if op != "exists" and _empty(right):
+        errors.append("orchestration: incomplete comparison — missing right operand")
+
+    # builtin operand (file_exists/dir_exists) js-safety + argument presence
     for operand in (left, right):
         if isinstance(operand, dict):
-            for bname in operand:
+            for bname, barg in operand.items():
                 bmeta = caps["builtins"].get(bname)
                 if bmeta is None:
                     errors.append(f"orchestration: unknown builtin '{bname}'")
-                elif target == "js" and not bmeta.get("js_safe", False):
+                    continue
+                if target == "js" and not bmeta.get("js_safe", False):
                     errors.append(f"orchestration: builtin '{bname}' is standard-only in a js target")
+                if _empty(barg):
+                    errors.append(f"orchestration: builtin '{bname}' is missing its argument")
 
     # signal existence: a dotted string operand that looks like a ref must resolve
     for operand in (left, right):
         if isinstance(operand, str) and "." in operand and _SIGNAL_PREFIX_RE.match(operand.split(".")[0]):
-            # heuristic: treat 'a.b' as a signal ref
             if operand not in signals and not _looks_like_literal(operand):
                 errors.append(f"orchestration: condition references unknown signal '{operand}'")
 
@@ -1161,6 +1306,44 @@ def _validate_condition(cond, signals, caps, target):
             t = _operand_type(operand, signals)
             if t is not None and t not in ("number", "builtin"):
                 errors.append(f"orchestration: operator '{op}' needs number operands, got '{operand}' (type {t})")
+
+    # enum-vocabulary check: a literal compared to (==/!=) an enum signal, or
+    # `contains`-ed into a list of enums, must belong to the declared vocabulary.
+    if op in ("==", "!=", "contains"):
+        for sig_operand, lit_operand in ((left, right), (right, left)):
+            if not isinstance(sig_operand, str) or sig_operand not in signals:
+                continue
+            sig_meta = signals[sig_operand]
+            typ = sig_meta.get("type")
+            values = sig_meta.get("values")
+            is_enum = typ == "enum"
+            is_enum_list = typ == "list" and sig_meta.get("of") == "enum"
+            if not (is_enum or is_enum_list) or not values:
+                continue
+            # `contains` only carries a vocabulary meaning for an enum LIST;
+            # ==/!= only for a scalar enum.
+            if op == "contains" and not is_enum_list:
+                continue
+            if op in ("==", "!=") and not is_enum:
+                continue
+            if not isinstance(lit_operand, str) or lit_operand in signals:
+                continue
+            if lit_operand not in values:
+                errors.append(
+                    f"orchestration: literal '{lit_operand}' is not one of enum "
+                    f"signal '{sig_operand}' values {values}")
+
+    # object-list guard: a list whose elements are objects has no scalar to
+    # compare — only `exists` is meaningful.
+    if op != "exists":
+        for operand in (left, right):
+            if isinstance(operand, str) and operand in signals:
+                m = signals[operand]
+                if m.get("type") == "list" and isinstance(m.get("of"), dict):
+                    errors.append(
+                        f"orchestration: operator '{op}' cannot compare object-list "
+                        f"signal '{operand}' — only 'exists' is valid (compare a scalar "
+                        f"field via a field signal instead)")
     return errors
 
 
@@ -1184,6 +1367,10 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
     errors = []
     known_agents = _all_agent_names(agents_dir)
     known_phase_ids = {p["id"] for p in workflow.get("phases", [])}
+    # A depends_on may name a logic block; it means "after all the block's
+    # member phases" (spec §3 — depend on the whole block, never reach inside).
+    # Block-target scope/visibility is enforced separately in validate_orchestration.
+    known_block_ids = set(_block_members(workflow))
     known_groups = set(workflow.get("groups", {}).keys())
     known_conditions = set(workflow.get("conditions", {}).keys())
     known_workflows = (
@@ -1200,10 +1387,10 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
         if phase["group"] not in known_groups:
             errors.append(f"phase '{pid}' references unknown group '{phase['group']}'")
 
-        # depends_on must reference existing phases
+        # depends_on must reference an existing phase or logic-block id
         for dep in phase.get("depends_on", []):
-            if dep not in known_phase_ids:
-                errors.append(f"phase '{pid}' depends_on references unknown phase '{dep}'")
+            if dep not in known_phase_ids and dep not in known_block_ids:
+                errors.append(f"phase '{pid}' depends_on references unknown phase or block '{dep}'")
 
         # parallel_with similarly
         for par in phase.get("parallel_with", []):
@@ -1291,14 +1478,29 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
 class WorkflowDAG:
     """Represents the DAG of phases with execution order and data flow."""
 
-    def __init__(self, phases: list):
+    def __init__(self, phases: list, block_members: dict = None):
         self.phases = {p["id"]: p for p in phases}
+        # block id -> set(member phase ids); a depends_on naming a block means
+        # "after all its member phases" (spec §3). Empty => pure DAG.
+        self.block_members = block_members or {}
         self._build_edges()
+
+    def _resolve_deps(self, deps):
+        """Expand each dep to real phase ids: a phase id stays; a logic-block id
+        becomes its member phases. Keeps only known phases so downstream indexing
+        (children/indeg) never hits a KeyError on a block id."""
+        out = set()
+        for d in deps or []:
+            for r in self.block_members.get(d, {d}):
+                if r in self.phases:
+                    out.add(r)
+        return out
 
     def _build_edges(self):
         """Build control-flow edges (depends_on) and data-flow edges (inputs/outputs)."""
-        # Control edges: child -> set(parents)
-        self.parents = {pid: set(p.get("depends_on", [])) for pid, p in self.phases.items()}
+        # Control edges: child -> set(parents), with block-id deps resolved to members
+        self.parents = {pid: self._resolve_deps(p.get("depends_on", []))
+                        for pid, p in self.phases.items()}
 
         # parallel_with is symmetric; treated as no order constraint between them
         self.parallel_with = {pid: set(p.get("parallel_with", [])) for pid, p in self.phases.items()}
@@ -1382,7 +1584,7 @@ class WorkflowDAG:
 def build_dag(workflow: dict) -> WorkflowDAG:
     """Construct DAG from workflow dict."""
     workflow = resolve_io_paths(workflow)
-    return WorkflowDAG(workflow.get("phases", []))
+    return WorkflowDAG(workflow.get("phases", []), _block_members(workflow))
 
 
 def _paths_match(a: str, b: str) -> bool:
@@ -1549,6 +1751,39 @@ def check_effort_warnings(workflow: dict) -> list:
     for od in workflow.get("on_demand_agents", []) or []:
         _check("on_demand agent", od.get("agent"), od.get("model"), od.get("effort"))
     return warnings
+
+
+def check_signal_payload_warnings(workflow: dict) -> list:
+    """Non-blocking payload-typing warnings: a list signal with no `of` (assumed
+    string), and same-named signals across actions with divergent value/of specs."""
+    warnings = []
+    by_name = {}
+    for phase in workflow.get("phases", []):
+        for emit in phase.get("emits", []) or []:
+            name = emit.get("name", "?")
+            of = emit.get("of")
+            if emit.get("type") == "list" and of is None:
+                warnings.append(
+                    f"signal {phase['id']}.{name}: type 'list' has no 'of' — assuming "
+                    f"'of: string' (declare it to fix the element contract)")
+                of = "string"  # normalize the implicit default before divergence compare
+            spec = (emit.get("type"), _freeze(emit.get("values")), _freeze(of))
+            by_name.setdefault(name, set()).add(spec)
+    for name, specs in by_name.items():
+        if len(specs) > 1:
+            warnings.append(
+                f"signal '{name}' is emitted by several actions with divergent "
+                f"type/values/of specs — the vocabulary should match")
+    return warnings
+
+
+def _freeze(v):
+    """Hashable snapshot of a values list / of map for divergence comparison."""
+    if isinstance(v, list):
+        return tuple(v)
+    if isinstance(v, dict):
+        return tuple(sorted((k, _freeze(x)) for k, x in v.items()))
+    return v
 
 
 def check_skill_name_matches_filename(workflow: dict, workflow_path) -> list:
@@ -1980,18 +2215,38 @@ def _fmt_operand(v):
 def _render_condition(cond):
     if isinstance(cond, str):
         return f"_{cond}_"  # escape-hatch: natural-language predicate
+    if not isinstance(cond, dict):
+        return str(cond)
+
+    # boolean connectors
+    for conn, word in (("and", "and"), ("or", "or")):
+        if conn in cond:
+            parts = [_render_condition_member(m) for m in cond[conn]]
+            return f" {word} ".join(parts)
+    if "not" in cond:
+        return f"not ({_render_condition(cond['not'])})"
+
+    # leaf
     op, left, right = cond.get("op"), cond.get("left"), cond.get("right")
     if isinstance(left, dict):
-        left = " ".join(f"{k}({v})" for k, v in left.items())
-    else:
-        left = _fmt_operand(left)
+        # builtin operand: autonomous predicate, e.g. file_exists("/etc/passwd")
+        return " ".join(f'{k}("{v}")' for k, v in left.items())
+    left = _fmt_operand(left)
     right = _fmt_operand(right)
     if op == "exists":
         return f"`{left}` exists"
     return f"`{left}` {op} `{right}`"
 
 
-def _render_blocks(blocks, depth=0):
+def _render_condition_member(m):
+    """A group/negation member is parenthesized so precedence reads correctly;
+    a bare leaf is rendered inline."""
+    if isinstance(m, dict) and ("and" in m or "or" in m):
+        return f"({_render_condition(m)})"
+    return _render_condition(m)
+
+
+def _render_blocks(blocks, depth=0, signals=None):
     lines = []
     pad = "  " * depth
     for b in blocks or []:
@@ -2000,19 +2255,23 @@ def _render_blocks(blocks, depth=0):
         elif "if" in b:
             gid = f" [{b['id']}]" if b.get("id") else ""
             lines.append(f"{pad}- **If**{gid} {_render_condition(b['if'])}:")
-            lines += _render_blocks(b.get("then"), depth + 1)
+            lines += _render_blocks(b.get("then"), depth + 1, signals)
             if b.get("else"):
                 lines.append(f"{pad}- **Else**:")
-                lines += _render_blocks(b["else"], depth + 1)
+                lines += _render_blocks(b["else"], depth + 1, signals)
         elif "for_each" in b:
             var = b.get("as", "item")
             gid = f" [{b['id']}]" if b.get("id") else ""
             out_note = (f" Aggregated output → `{b['output']['role']}`."
                         if b.get("output") else "")
+            shape_note = ""
+            sig = (signals or {}).get(b["for_each"])
+            if sig and sig.get("type") == "list" and sig.get("of") is not None:
+                shape_note = f"; each `{var}` is {_of_spec(sig)}"
             lines.append(f"{pad}- **For each**{gid} `{var}` in signal `{b['for_each']}` "
                          f"(cap {b.get('cap')}): run the body once per `{var}`; independent "
-                         f"iterations launch together in one message.{out_note}")
-            lines += _render_blocks(b.get("body"), depth + 1)
+                         f"iterations launch together in one message{shape_note}.{out_note}")
+            lines += _render_blocks(b.get("body"), depth + 1, signals)
         elif "while" in b or "until" in b:
             kw = "While" if "while" in b else "Until"
             cond = b.get("while") or b.get("until")
@@ -2022,7 +2281,7 @@ def _render_blocks(blocks, depth=0):
             lines.append(f"{pad}- **{kw}**{gid} {_render_condition(cond)} "
                          f"(max {b.get('cap')} iterations): re-run the body and re-check "
                          f"the condition after each pass.{out_note}")
-            lines += _render_blocks(b.get("body"), depth + 1)
+            lines += _render_blocks(b.get("body"), depth + 1, signals)
     return lines
 
 
@@ -2049,7 +2308,7 @@ def render_orchestration(workflow: dict) -> str:
         "",
         "### Control flow", "",
     ]
-    out += _render_blocks(workflow["orchestration"])
+    out += _render_blocks(workflow["orchestration"], signals=signals)
     if signals:
         out += ["", "**Signals** (how to read each condition operand):", ""]
         for key, meta in signals.items():
@@ -2843,6 +3102,7 @@ def _validate_one(name: str, workflow_path: Path) -> tuple:
     warnings += check_skill_name_matches_filename(workflow, workflow_path)
     warnings += check_opportunistic_warnings(workflow)
     warnings += check_effort_warnings(workflow)
+    warnings += check_signal_payload_warnings(workflow)
     for e in schema_errors:
         print(f"  [{name}] SCHEMA: {e}", file=sys.stderr)
     for e in coherence_errors:

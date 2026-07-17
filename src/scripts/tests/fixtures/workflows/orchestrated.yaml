@@ -2,6 +2,6 @@ schema_version: 1
 skill: {name: orchestrated, description: fixture d'orchestration}
 groups: {g: {description: demo}}
 phases:
-  - {id: RECON, name: recon, group: g, emits: [{name: endpoints, type: list, source: field, from: recon.json}]}
-  - {id: SCAN, name: scan, group: g, emits: [{name: status, type: enum, source: token}]}
+  - {id: RECON, name: recon, group: g, emits: [{name: endpoints, type: list, source: field, from: recon.json, of: string}]}
+  - {id: SCAN, name: scan, group: g, emits: [{name: status, type: enum, source: token, values: [open, vuln, clean]}, {name: risk, type: number, source: token}]}
   - {id: EXPLOIT, name: exploit, group: g}
