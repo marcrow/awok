@@ -200,7 +200,7 @@ const SIGNAL_HELP = {
   intro: "A signal is a small typed value (status, number, list…) this action publishes when it finishes — the orchestration can branch or loop on it. Key: <action_id>.<name>.",
   name: "Lowercase identifier (^[a-z][a-z0-9_]*$). The orchestration reads this signal as <action_id>.<name>.",
   type: "Value shape: string, number, bool, enum (closed vocabulary), or list.",
-  source: "How the value is produced — token: the agent ends its output with a compact `SIGNALS: name=value` line · field: read from a field of a JSON output file · exit_code: the script's exit status (0 ⇒ true).",
+  source: "How the value is produced — token: the agent ends its output with a compact `SIGNALS: name=value` line · field: read from a field of a JSON output file · exit_code: the script's exit status (bool: 0 ⇒ true · number: the raw code, e.g. grep 0/1/2).",
   from_role: "Which declared JSON output the value is read from.",
   from_field: "Optional field path inside that JSON (defaults to the whole file).",
   by: "When several agents run in this action: which one emits the token.",
@@ -302,7 +302,10 @@ export function signalsEditor(label, items, phase, onChange){
         const setFrom = () => { const role = roleSel.value; const field = fieldInput.value.trim(); item.from = field ? `${role}.${field}` : role; emit(); };
         roleSel.addEventListener("change", setFrom);
         fieldInput.addEventListener("change", setFrom);
-        sub.appendChild(roleSel); sub.appendChild(fieldInput);
+        sub.appendChild(labeled("from", SIGNAL_HELP.from_role, roleSel));
+        const fw = labeled("field", SIGNAL_HELP.from_field, fieldInput);
+        fw.classList.add("grow");
+        sub.appendChild(fw);
         body.appendChild(sub);
       }
       if ((curSource === "token" || curSource === "exit_code") && invAgents.length >= 2) {
@@ -311,15 +314,17 @@ export function signalsEditor(label, items, phase, onChange){
         const o0 = document.createElement("option"); o0.value = ""; o0.textContent = "by invocation…"; bySel.appendChild(o0);
         for (const a of invAgents){ const o = document.createElement("option"); o.value = a; o.textContent = a; if (a === item.by) o.selected = true; bySel.appendChild(o); }
         bySel.addEventListener("change", () => { if (bySel.value) item.by = bySel.value; else delete item.by; emit(); });
-        sub.appendChild(bySel);
+        sub.appendChild(labeled("by", SIGNAL_HELP.by, bySel));
         body.appendChild(sub);
       }
       if ((item.type || "string") === "enum") {
         const sub = document.createElement("div"); sub.className = "signal-subrow";
-        sub.appendChild(stringListEditor("values", item.values, (vals) => {
+        const sle = stringListEditor("values", item.values, (vals) => {
           if (vals.length) item.values = vals; else delete item.values;
           emit();
-        }));
+        });
+        sle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
+        sub.appendChild(sle);
         body.appendChild(sub);
       }
       if ((item.type || "string") === "list") {
@@ -335,14 +340,16 @@ export function signalsEditor(label, items, phase, onChange){
           else { item.of = v; if (v !== "enum") delete item.values; }
           emit(); render();
         });
-        sub.appendChild(ofSel);
+        sub.appendChild(labeled("of", SIGNAL_HELP.of, ofSel));
         body.appendChild(sub);
 
         if (curOf === "enum") {
           const vrow = document.createElement("div"); vrow.className = "signal-subrow";
-          vrow.appendChild(stringListEditor("values", item.values, (vals) => {
+          const vsle = stringListEditor("values", item.values, (vals) => {
             if (vals.length) item.values = vals; else delete item.values; emit();
-          }));
+          });
+          vsle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
+          vrow.appendChild(vsle);
           body.appendChild(vrow);
         }
         if (curOf === "object") {
@@ -380,15 +387,21 @@ export function signalsEditor(label, items, phase, onChange){
               item.of = next;
               render(); emit();
             });
-            fr.appendChild(fname); fr.appendChild(ftype); fr.appendChild(del);
+            const fnw = labeled("field", SIGNAL_HELP.of_field, fname);
+            fnw.classList.add("grow");
+            fr.appendChild(fnw);
+            fr.appendChild(labeled("type", SIGNAL_HELP.of_field_type, ftype));
+            fr.appendChild(del);
             orow.appendChild(fr);
             if (obj[field] && typeof obj[field] === "object") {
-              orow.appendChild(stringListEditor("values", obj[field].enum, (vals) => {
+              const fsle = stringListEditor("values", obj[field].enum, (vals) => {
                 const next = { ...item.of };
                 next[field] = { enum: vals };
                 item.of = next;
                 emit();
-              }));
+              });
+              fsle.querySelector("label").appendChild(helpIcon(SIGNAL_HELP.values));
+              orow.appendChild(fsle);
             }
           });
           const addF = document.createElement("button"); addF.className = "of-field-add"; addF.textContent = "+ field";

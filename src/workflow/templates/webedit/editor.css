@@ -334,7 +334,8 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
 /* list `of: object` flat field repeater — stacks its field rows vertically
    (overrides the row-flex .signal-subrow it also carries) */
 .signal-of-object{flex-direction:column;align-items:stretch}
-.of-field-row{display:flex;gap:6px;align-items:center;margin-top:4px}
+.of-field-row{display:flex;gap:6px;align-items:flex-end;margin-top:4px}
+.of-field-row>button.of-field-del{margin-bottom:6px}
 .of-field-name{flex:1 1 auto;min-width:60px}
 .of-field-del{background:none;border:none;color:var(--dim);font-size:15px;padding:0 4px}
 .of-field-del:hover{color:#fca5a5}

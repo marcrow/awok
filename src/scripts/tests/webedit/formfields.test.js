@@ -261,3 +261,42 @@ test("main-row mini-labels carry help popovers (no native title)", () => {
   expect(pop.textContent.length).toBeGreaterThan(10);
   expect(nameWrap.querySelector("input").getAttribute("title")).toBeNull();
 });
+
+test("field-sourced signal labels the from controls", () => {
+  dom();
+  const phase = { id: "T1", type: "agent", outputs: [{ role: "work:t1", kind: "json" }] };
+  const r = signalsEditor("emits", [{ name: "hits", type: "number", source: "field", from: "work:t1" }], phase, () => {});
+  const labels = [...r.querySelectorAll(".signal-subrow .mini-label")]
+    .map(l => l.childNodes[0].textContent);
+  expect(labels).toContain("from");
+  expect(labels).toContain("field");
+});
+
+test("list signal labels the of dropdown with a popover", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [{ name: "hits", type: "list", source: "token", of: "string" }], phase, () => {});
+  const ofWrap = [...r.querySelectorAll(".labeled-ctl")]
+    .find(w => w.querySelector("select.signal-of"));
+  expect(ofWrap).not.toBeNull();
+  expect(ofWrap.querySelector(".mini-label").childNodes[0].textContent).toBe("of");
+  expect(ofWrap.querySelector(".help-icon .help-pop").textContent).toContain("lement");
+});
+
+test("enum values chips carry a help icon on their heading", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [{ name: "s", type: "enum", source: "token", values: ["ok"] }], phase, () => {});
+  const sle = r.querySelector(".stringlist-editor");
+  expect(sle.querySelector("label .help-icon .help-pop").textContent).toContain("vocabulary");
+});
+
+test("object repeater labels field name and type", () => {
+  dom();
+  const phase = { id: "T1", type: "agent" };
+  const r = signalsEditor("emits", [{ name: "f", type: "list", source: "token", of: { path: "string" } }], phase, () => {});
+  const labels = [...r.querySelectorAll(".of-field-row .mini-label")]
+    .map(l => l.childNodes[0].textContent);
+  expect(labels).toContain("field");
+  expect(labels).toContain("type");
+});
