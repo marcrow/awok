@@ -14,6 +14,7 @@ import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
 import { createDataflow } from "./dataflow.js";
 import * as orch from "./orchestration.js";
 import * as definition from "./definition.js";
+import { renderVocabEditor } from "./vocab.js";
 
 const $ = s => document.querySelector(s);
 const api = (m, p, b) => fetch(p, { method: m, headers: { "Content-Type": "application/json" },
@@ -1139,6 +1140,37 @@ function switchTab(tab) {
   if (tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
 }
 
+// --- awok settings (global, outside any workflow) --------------------------
+async function openVocabEditor() {
+  const { j } = await api("GET", "/api/vocab");
+  const merged = (j && j.merged) || { knobs: {} };
+  const overlay = (j && j.overlay) || { version: 1, knobs: {} };
+  state.vocab = merged;   // keep the definition tab in sync with any fresh edits
+  renderVocabEditor($("#awok-vocab"), {
+    getMerged: () => merged,
+    getOverlay: () => overlay,
+    onSave: async (ov) => {
+      const r = await api("PUT", "/api/vocab", ov);
+      if (r.status === 200) {
+        const fresh = await api("GET", "/api/vocab");
+        state.vocab = (fresh.j && fresh.j.merged) || merged;
+      }
+      return (r.j) || { ok: r.status === 200, errors: [] };
+    },
+  });
+}
+function enterAwokPage() {
+  document.querySelectorAll("#tabs, main > .panel").forEach(el => el.classList.add("awok-hidden"));
+  $("#page-awok").hidden = false;
+  openVocabEditor();
+}
+function exitAwokPage() {
+  $("#page-awok").hidden = true;
+  document.querySelectorAll("#tabs, main > .panel").forEach(el => el.classList.remove("awok-hidden"));
+  // Re-render the active workflow tab from the (preserved) in-memory model.
+  if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
+}
+
 window.addEventListener("resize", () => { if (state.tab === "grid") schedulePaint(); if (state.tab === "dataflow") dataflow.paintEdges(); });
 document.addEventListener("DOMContentLoaded", () => {
   dataflow = createDataflow({ getModel: () => state.model, getAgents: () => state.agents, refreshView, setStatus });
@@ -1154,6 +1186,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-new").addEventListener("click", newWf);
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);
+  $("#awok-settings-btn").addEventListener("click", enterAwokPage);
+  $("#awok-back").addEventListener("click", exitAwokPage);
   $("#add-phase").addEventListener("click", addPhase);
   $("#target-pill").addEventListener("click", (e) => openTargetMenu(e.currentTarget));
   $("#info-btn").addEventListener("click", (e) => openInfoPopover(e.currentTarget));

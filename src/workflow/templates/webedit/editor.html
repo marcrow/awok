@@ -14,6 +14,7 @@
     <div class="brand">
       <img id="brand-logo" src="/editor/awok-mascot.png" alt="awok" width="34" height="34">
       <span class="wordmark">awok</span>
+      <button id="awok-settings-btn" class="icon-btn" title="awok settings (vocabulary)">⚙</button>
     </div>
     <div class="vsep"></div>
     <div class="wf-picker">
@@ -131,6 +132,16 @@
     <!-- YAML (read-only view, unchanged) -->
     <section id="panel-yaml" class="panel"><pre id="yaml-src"></pre></section>
   </main>
+
+  <!-- awok settings (global, outside any workflow) -->
+  <section id="page-awok" class="awok-page" hidden>
+    <header class="awok-page-head">
+      <button id="awok-back" class="btn-ghost">← Workflow</button>
+      <h2>awok settings</h2>
+    </header>
+    <nav class="awok-page-nav"><button class="awok-sec active" data-sec="vocab">Vocabulary</button></nav>
+    <div id="awok-vocab"></div>
+  </section>
 
   <!-- Drawer (action editor) -->
   <aside id="edit-panel" hidden></aside>
