@@ -50,3 +50,33 @@ def test_load_vocab_merges_overlay(tmp_path, monkeypatch):
     # added option: overlay-sourced, appended
     assert tone["warm"]["source"] == "overlay"
     assert bbw.load_vocab.__doc__ is not None
+
+
+def test_compile_style_reads_vocab(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
+    # Known values -> the option's prose verbatim (reproduces legacy output).
+    lines = bbw.compile_style({"length": "brief", "tone": "professional",
+                               "format": "bullets", "audience": "maintainer",
+                               "language": "French", "stance": "recommend"})
+    assert "Keep the answer brief (~150 words)." in lines
+    assert "Write in a professional tone." in lines
+    assert "Structure as bullet points." in lines
+    assert "Written for a maintainer." in lines
+    assert "Respond in French." in lines
+    assert "Give a clear recommendation." in lines
+
+
+def test_compile_style_inherit_and_custom_and_lists(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
+    assert bbw.compile_style({"language": "inherit"}) == []          # empty prose -> nothing
+    assert bbw.compile_style({"tone": "custom", "toneCustom": "like a pirate"}) == ["like a pirate"]
+    assert bbw.compile_style({}) == []
+    out = bbw.compile_style({"mustInclude": ["TL;DR"], "avoid": ["preamble"]})
+    assert "Always include: TL;DR." in out and "Avoid: preamble." in out
+
+
+def test_compile_style_unknown_value_falls_back_to_template(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
+    # A value not in the vocab degrades via the knob's prose_template.
+    assert bbw.compile_style({"tone": "sardonic"}) == ["Write in a sardonic tone."]
+    assert bbw.compile_style({"length": "epic"}) == ["Keep the answer epic (appropriate length)."]

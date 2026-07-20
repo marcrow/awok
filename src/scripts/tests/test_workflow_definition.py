@@ -170,6 +170,18 @@ def test_compile_style():
     assert bbw.compile_style({"tone": "custom", "toneCustom": "like a pirate"}) == ["like a pirate"]
     assert bbw.compile_style({}) == []
 
+
+def test_base_vocab_prose_pinned(monkeypatch):
+    # Pins the required-knob base prose so any wording change is deliberate.
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
+    knobs = bbw.load_vocab()["knobs"]
+    def prose(k, v): return {o["value"]: o["prose"] for o in knobs[k]["options"]}[v]
+    assert prose("length", "brief") == "Keep the answer brief (~150 words)."
+    assert prose("tone", "didactic") == "Write in a didactic tone."
+    assert prose("format", "bullets") == "Structure as bullet points."
+    assert prose("audience", "maintainer") == "Written for a maintainer."
+    assert prose("language", "French") == "Respond in French."
+
 def test_generate_renders_definition(tmp_path):
     # Minimal end-to-end: build the skill for a workflow with a definition and
     # assert the rendered markdown mentions the boundary + the composed prompt.

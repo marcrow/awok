@@ -2756,39 +2756,60 @@ def _derive_definition_depends_on(workflow: dict, d: dict) -> list:
     return sorted(deps)
 
 
-_LEN_HINT = {"terse": "~40 words", "brief": "~150 words", "standard": "~400 words",
-             "detailed": "~800 words", "exhaustive": "as long as needed"}
-_FMT_PROSE = {"prose": "Write as flowing prose.", "bullets": "Structure as bullet points.",
-              "table": "Present as a table.", "sections": "Organize under section headers.",
-              "tldr": "Lead with a TL;DR, then the detail."}
+def _vocab_prose(knob, value):
+    """Injected prose for one (knob, value): the option's explicit `prose`
+    (verbatim; '' -> inject nothing) else the knob's prose_template
+    interpolated with {value} and {hint}. Returns None to inject nothing."""
+    for opt in knob.get("options") or []:
+        if opt.get("value") == value:
+            if "prose" in opt:
+                return opt["prose"] or None
+            break
+    tmpl = knob.get("prose_template")
+    if not tmpl:
+        return None
+    hint = knob.get("hint_fallback", "")
+    for opt in knob.get("options") or []:
+        if opt.get("value") == value:
+            hint = opt.get("hint", hint); break
+    try:
+        return tmpl.format(value=value, hint=hint) or None
+    except (KeyError, IndexError):
+        return None
 
 
 def compile_style(style: dict) -> list:
     """Prompt-assist knobs -> deterministic prose lines (single source of truth;
-    the WebUI preview renders these verbatim). Free prompt is concatenated after."""
+    the WebUI preview renders these verbatim). Reads the merged vocabulary
+    (load_vocab). Free prompt is concatenated after by the caller."""
     st = style or {}
+    knobs = load_vocab()["knobs"]
     parts = []
     if st.get("length"):
-        parts.append(f"Keep the answer {st['length']} ({_LEN_HINT.get(st['length'], 'appropriate length')}).")
+        line = _vocab_prose(knobs["length"], st["length"])
+        if line: parts.append(line)
     if st.get("tone") == "custom":
         if st.get("toneCustom"):
             parts.append(st["toneCustom"])
     elif st.get("tone"):
-        parts.append(f"Write in a {st['tone']} tone.")
-    if st.get("format") in _FMT_PROSE:
-        parts.append(_FMT_PROSE[st["format"]])
+        line = _vocab_prose(knobs["tone"], st["tone"])
+        if line: parts.append(line)
+    if st.get("format"):
+        line = _vocab_prose(knobs["format"], st["format"])
+        if line: parts.append(line)
     if st.get("language") and st["language"] != "inherit":
-        parts.append(f"Respond in {st['language']}.")
+        line = _vocab_prose(knobs["language"], st["language"])
+        if line: parts.append(line)
     if st.get("audience"):
-        parts.append(f"Written for a {st['audience']}.")
+        line = _vocab_prose(knobs["audience"], st["audience"])
+        if line: parts.append(line)
     for m in st.get("mustInclude", []) or []:
         parts.append(f"Always include: {m}.")
     for a in st.get("avoid", []) or []:
         parts.append(f"Avoid: {a}.")
-    if st.get("stance") == "present":
-        parts.append("Present options rather than a single pick.")
-    elif st.get("stance") == "recommend":
-        parts.append("Give a clear recommendation.")
+    if st.get("stance"):
+        line = _vocab_prose(knobs["stance"], st["stance"])
+        if line: parts.append(line)
     return parts
 
 
