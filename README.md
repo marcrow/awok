@@ -137,6 +137,24 @@ outside you depend on the **whole block** (via its `id`), never on an action
 inside it. Loops bound iterations with a mandatory `cap`, and may expose an
 aggregated `output` file the next action reads.
 
+### Declare a workflow's contract — the `definition:` block
+
+Per-phase I/O says how files flow *inside* the pipeline; the optional top-level
+**`definition:`** block declares the contract the workflow presents to a *caller* —
+its typed inputs (`params`), its file deliverables (`outputs`), and its return
+values (`emits`). It compiles to a closing `DEFINITION` boundary node in the DAG and
+is what makes `type: workflow_call` verifiable: a caller binds the target's params
+with an `args:` map (`param → literal | signal:<key>`), `awok validate` checks every
+required param is bound, and the target's outputs/emits show up as real producers and
+readable signals at the call site instead of dangling orphans.
+
+A `definition:` may carry an optional **formatter** — a closing action that shapes the
+final deliverable — steered by **prompt-assist** knobs (length, tone, format, language,
+audience…) that compile to prose in the prompt. Those knobs are a data-driven
+**vocabulary** (`src/workflow/vocab.yaml`) you can extend or reword per project through a
+gitignored `custom/` overlay, editable from the web editor's settings page — the engine
+never hard-codes the option list.
+
 ### Edit visually — `awok edit`
 
 Prefer a GUI to YAML? `awok edit` serves a local, dependency-free web editor on

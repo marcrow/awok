@@ -241,10 +241,120 @@ Claude de lancer `/<autre-workflow>` via le Skill tool, puis de revenir.
 - Champ `workflow:` obligatoire (sinon erreur de coherence)
 - Cible doit exister (`src/workflows/<target>.yaml`)
 - Auto-call interdit (loop)
+- Si la cible déclare un `definition:` (voir ci-dessous), les `args:` de
+  l'appelant sont vérifiés : chaque param **requis** est lié, un param inconnu est
+  rejeté.
+
+**Lier l'appel — `args:`** : une phase `workflow_call` mappe les `params`
+déclarés par la cible :
+
+```yaml
+- id: W4-HANDOFF
+  type: workflow_call
+  workflow: autre-workflow
+  args:                          # param → littéral | signal:<clé>
+    channel: "#releases"
+    max_items: 5
+    tone: "signal:recon.mode"    # lie à un signal amont
+```
+
+La valeur est un littéral (`string | number | bool`) ou `signal:<clé>`. Les
+`outputs` de la cible deviennent des **producteurs de dataflow** au point d'appel
+(leurs consommateurs cessent d'être orphelins) et ses `emits` des signaux
+lisibles, clés `<id phase workflow_call>.<name>`.
 
 **Rendu** :
 - SKILL.md → bloc "🔗 Cette phase dispatche `/<target>`"
 - Cartography mermaid → node violet pour distinguer du flux principal
+
+## Contrat I/O du workflow : le bloc `definition:`
+
+Un workflow peut déclarer **l'interface-action qu'il présente à un appelant** :
+ses entrées (`params`), ses fichiers livrables (`outputs`) et ses valeurs de
+retour (`emits`), dans un bloc **top-level** `definition:`. Avant lui, `skill:` ne
+portait que `name`/`description`/`title` ; un workflow appelé ne liait rien et ne
+produisait rien dans les graphes dataflow/signaux. Le bloc comble ça : c'est lui
+qui rend `type: workflow_call` vérifiable (le contrôle des `args:` ci-dessus) et
+qui, à terme, hébergera la couture `args`/retour d'un workflow dynamique (JS).
+
+C'est une **phase terminale du DAG, déguisée** : id réservé `DEFINITION` (aucune
+autre phase ne peut l'utiliser), exécutée en dernier, `depends_on` **dérivé** des
+phases qu'elle lit/promeut. Rendu comme un node-frontière dans la cartographie, et
+un onglet dédié dans l'éditeur web.
+
+```yaml
+definition:
+  params:                                   # entrées — VALEURS typées (les args), pas des io_ref
+    - { name: channel,   type: string, required: true, description: Canal cible. }
+    - { name: tone,      type: enum, values: [neutral, casual, formal], default: neutral }
+    - { name: max_items, type: number, default: 5 }
+    - { name: labels,    type: list, of: string }        # `of` requis pour list
+  outputs:                                  # sorties — io_ref livrables (liste UNIQUE)
+    - { role: work:action-items, kind: md,   produced_by: promote }   # déjà écrit par une phase interne
+    - { role: work:summary,      kind: json, produced_by: formatter } # écrit par le formatter
+  emits:                                    # sorties — les VALEURS de retour (signaux)
+    - { name: sentiment,   type: enum, values: [positive, neutral, negative],
+        source: promote, from: analyze.sentiment }       # projette un signal interne (clé minuscule)
+    - { name: summary_len, type: number,
+        source: create,  from: work:summary, field: length }  # lit un champ d'un output JSON du formatter
+  formatter:                                # action de clôture optionnelle → active le mode *format*
+    enabled: true
+    prompt: >
+      Compose le résumé final à partir des highlights, en respectant le ton et le cap.
+    invoke: { type: main_agent }            # ou {type: agent, agent: …, model:, effort:, tools:}
+    inputs:                                 # le formatter est une phase — ses entrées sont CÂBLÉES ici
+      - { role: work:highlights, kind: json }
+    style:                                  # knobs prompt-assist → compilés en prose au `generate`
+      length: brief                         # terse|brief|standard|detailed|exhaustive
+      tone: professional
+      format: bullets                       # prose|bullets|table|sections|tldr
+      language: inherit
+      mustInclude: ["nom du canal"]
+      avoid: ["jargon interne"]
+      stance: recommend
+```
+
+**Règles à connaître pour rédiger** :
+- **`params`** = valeurs typées (une question, un chemin, un flag de mode), **pas
+  des fichiers** — les graines de fichier restent l'io_ref `external: true`.
+  Champs : `name` (`^[a-z][a-z0-9_]*$`), `type` (`number|string|bool|enum|list`),
+  `values` (ssi `enum`), `of` (ssi `list` — mot-clé scalaire ou map plate
+  `champ→spec`, même forme que le `of` des payloads typés), `required`, `default`,
+  `description`. **`required` + `default` ensemble est interdit** (un default rend
+  déjà optionnel).
+- **`outputs`** = liste **unique** ; chaque entrée déclare `produced_by: promote`
+  (un `role` qu'une phase interne produit déjà — la frontière ne fait que le
+  publier) ou `produced_by: formatter` (écrit par le formatter). **Pas** de
+  seconde liste d'outputs propre au formatter.
+- **`emits`** = valeurs de retour. `source: promote` projette un signal interne
+  via `from: <id_phase_minuscule>.<signal>` (clé minuscule — `RECON` →
+  `recon.endpoints`). `source: create` lit un **output du formatter** et exige
+  donc un formatter, un output `kind: json` et un sélecteur `field:`.
+- **Le mode est structurel, jamais un enum déclaré** : un corps `formatter` ⇒
+  capacité *format* ; chaque emit choisit indépendamment promote ou create ; un
+  workflow peut **mélanger** (un rapport formaté qui promeut aussi un `status`
+  interne).
+- **Le prompt du formatter ne liste jamais de fichiers** (lint souple) — les
+  `inputs` câblés et les `outputs` sont injectés au `generate`
+  (`inputs_outputs_compact` + `compile_style(style)` + ton prompt, dans cet ordre).
+- Un emit de frontière est lu par chaque appelant sous **sa propre** clé
+  (`<id phase appelante>.<name>`) ; l'éditeur affiche donc un placeholder
+  `‹caller_phase›.<name>` ; en interne la frontière les clé `definition.<name>`.
+
+**Validation** (`awok validate`) : params name/unicité + `enum→values` +
+`list→of` + `required⊕default` + type/appartenance du default ; outputs `kind`
+requis + namespace déclaré + le role `promote` a un producteur interne + `formatter`
+exige un corps formatter ; emits name/unicité + `promote.from` résout (+warn de
+type) + `create` exige un output json & un `field` & un formatter ; id `DEFINITION`
+réservé. **Rendu** : la phase `DEFINITION` clôt le SKILL.md (prompt formatter
+composé en mode format, ou l'énoncé de promotion en mode promote) ; la cartographie
+dessine le node-frontière et, chez tout appelant, les outputs de la cible en
+producteurs de dataflow.
+
+> C'est une **feature moteur** — ajouter/modifier le bloc re-render tous les
+> SKILL.md, donc la discipline de ripple s'applique (tout régénérer, committer les
+> artefacts, trailer `Regen:`, redéployer). Spec :
+> `docs/superpowers/specs/2026-07-17-workflow-io-contract-design.md`.
 
 ## Autonomie opportuniste : `opportunistic`
 
@@ -574,12 +684,14 @@ sans régénérer.
 - `docs/superpowers/specs/2026-05-28-bb-workflow-web-editor-design.md` (éditeur web v1)
 - `docs/superpowers/specs/2026-05-29-bb-workflow-web-editor-v2-design.md` (éditeur web v2)
 - `docs/superpowers/specs/2026-06-02-bb-workflow-io-model.md` (modèle I/O figé — qui sait/produit/vérifie quoi) + `.mermaid`
+- `docs/superpowers/specs/2026-07-17-workflow-io-contract-design.md` (contrat I/O du workflow — le bloc `definition:`)
 
 ## Plan d'implémentation
 
 - `docs/superpowers/plans/2026-05-21-workflow-modulable-yaml.md`
 - `docs/superpowers/plans/2026-05-28-bb-workflow-web-editor.md` (éditeur web v1)
 - `docs/superpowers/plans/2026-05-29-bb-workflow-web-editor-v2-lot{1,2,3}.md` (éditeur web v2)
+- `docs/superpowers/plans/2026-07-17-workflow-io-contract.md` (le bloc `definition:`)
 
 ## `--workdir` / `$AWOK_WORKDIR` (external content root)
 
