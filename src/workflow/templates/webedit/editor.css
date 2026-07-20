@@ -454,6 +454,64 @@ select:disabled{opacity:.42;cursor:not-allowed}
 #definition-scroll{flex:1 1 auto;overflow:auto;min-height:0}
 #definition{max-width:900px;margin:0 auto;padding:32px 28px 120px;display:flex;
   flex-direction:column;gap:24px}
+
+/* ---- front-door hero (reusable pattern; earmarked for Settings later) ---- */
+.def-hero{position:relative;overflow:hidden;background:linear-gradient(180deg,#0f1a2e,var(--panel));
+  border:1px solid var(--border);border-radius:14px;padding:24px 26px 22px}
+.def-hero .glow{position:absolute;top:-90px;right:-50px;width:260px;height:260px;border-radius:50%;
+  background:radial-gradient(circle,rgba(56,189,248,0.16),transparent 70%);pointer-events:none}
+.def-hero .inner{position:relative}
+.def-hero .eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.def-hero .eyebrow .diamond{width:8px;height:8px;border-radius:2px;background:var(--accent);transform:rotate(45deg)}
+.def-hero .eyebrow .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:#7dd3fc;font-weight:700}
+.def-hero h2{margin:0;font-size:22px;font-weight:800;color:#f8fafc;letter-spacing:-.01em}
+.def-hero .lede{font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:5px;max-width:600px}
+.def-hero .fields{margin-top:18px;display:flex;flex-direction:column;gap:14px}
+.def-mode{position:absolute;top:0;right:0;display:inline-flex;align-items:center;gap:6px;
+  padding:5px 11px;border-radius:8px;font:11px/1 var(--mono);font-weight:600;border:1px solid var(--border)}
+.def-mode.format{color:#7dd3fc;background:var(--accent-soft);border-color:rgba(56,189,248,0.4)}
+.def-mode.promote{color:var(--muted);background:var(--well)}
+.def-pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.def-pill{font:10.5px/1 var(--mono);padding:4px 8px;border-radius:6px;border:1px solid var(--border);color:var(--dim)}
+.def-pill.on{color:var(--good-2)}
+
+/* ---- ordinal slider (length / tone / format / audience) ---- */
+.def-slider{background:var(--well);border:1px solid var(--border);border-radius:10px;padding:12px 13px}
+.def-slider .top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+.def-slider .lab{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);display:flex;align-items:center;gap:5px}
+.def-slider .readout{font:11.5px/1 var(--mono);color:#7dd3fc;font-weight:700;white-space:nowrap}
+.def-slider input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+.def-slider .stops{display:flex;justify-content:space-between;margin-top:7px;gap:4px}
+.def-slider .stops span{font-size:10.5px;cursor:pointer;text-align:center;color:var(--dim);transition:color .12s}
+.def-slider .stops span.on{color:#7dd3fc;font-weight:700}
+
+/* ---- chip selector (language / stance / custom-voice toggle) ---- */
+.def-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.def-chip{font-size:12px;padding:6px 12px;border-radius:999px;cursor:pointer;border:1px solid var(--border);
+  background:var(--well);color:var(--muted);transition:border-color .12s,color .12s,background .12s}
+.def-chip:hover{border-color:var(--border-2)}
+.def-chip.on{background:var(--accent-soft);border-color:rgba(56,189,248,0.5);color:#7dd3fc;font-weight:600}
+
+/* ---- integrated prompt preview (server-rendered; D5) ---- */
+.def-preview{background:linear-gradient(180deg,rgba(56,189,248,0.05),var(--well));
+  border:1px solid rgba(56,189,248,0.28);border-left:3px solid var(--accent);border-radius:10px;padding:14px 15px}
+.def-preview .ttl{display:flex;align-items:center;gap:8px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.06em;color:#7dd3fc;font-weight:700;margin-bottom:10px}
+.def-preview .sub{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:12px 0 6px}
+.def-preview .sub:first-of-type{margin-top:0}
+.def-preview .files{font:11px/1.5 var(--mono);color:var(--violet-2);word-break:break-word}
+.def-style-chips{display:flex;flex-wrap:wrap;gap:6px}
+.def-style-chip{font:10.5px/1.35 var(--sans);padding:4px 9px;border-radius:6px;background:var(--accent-soft);
+  border:1px solid rgba(56,189,248,0.25);color:#bae6fd}
+.def-prompt{margin:0;background:#0a1322;border:1px solid var(--border);border-radius:8px;padding:12px 14px;
+  font:12px/1.55 var(--mono);color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto}
+
+/* ---- toasts (feedback on add/remove) ---- */
+.def-toast-host{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;
+  display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.def-toast{background:#111a2e;border:1px solid var(--border-2);border-radius:8px;padding:9px 16px;
+  font-size:12.5px;color:var(--text-2);box-shadow:0 6px 20px rgba(0,0,0,.4);animation:defToastIn .18s ease}
+@keyframes defToastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 /* overflow:visible so hover help popovers near a card edge aren't clipped;
    the header gets matching rounded top corners since the card no longer clips. */
 .settings-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:visible}

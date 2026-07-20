@@ -23,6 +23,21 @@ const MODELS = ["inherit", "haiku", "sonnet", "opus"];
 const EFFORTS = ["inherit", "low", "medium", "high", "xhigh", "max"];
 const FILE_PATH_HINT = /(^|\s)[\w./-]+\.(json|md|yaml|txt|csv|html)\b/;
 
+// Prompt-assist scales — ordinal knobs edited as sliders (least → most), the
+// intuitive control ported from the mockup's `bigSlider`. Values match the
+// engine's compile_style() vocabulary; only the on-screen ORDER is the axis.
+const LEN_SCALE = ["terse", "brief", "standard", "detailed", "exhaustive"];
+const LEN_HINT = { terse: "~40 words", brief: "~150 words", standard: "~400 words", detailed: "~800 words", exhaustive: "as long as needed" };
+const TONE_SCALE = ["direct", "professional", "didactic", "beginner", "zero-knowledge"];
+const TONE_LABELS = ["direct", "pro", "didactic", "beginner", "zero-know"];
+const FMT_SCALE = ["prose", "tldr", "bullets", "sections", "table"];
+const FMT_LABELS = ["prose", "TL;DR", "bullets", "sections", "table"];
+const AUD_SCALE = ["maintainer", "external stakeholder", "downstream workflow"];
+const AUD_LABELS = ["maintainer", "external", "downstream"];
+const LANGS = ["inherit", "English", "French", "German", "Spanish"];
+const LANG_LABELS = { inherit: "↩ inherit", English: "🇬🇧 English", French: "🇫🇷 French", German: "🇩🇪 German", Spanish: "🇪🇸 Spanish" };
+const STANCE = ["recommend", "present"];
+
 export function renderDefinition(root, ctx) {
   if (!root || !ctx.getModel()) return;
   root.replaceChildren();
@@ -50,39 +65,68 @@ export function renderDefinition(root, ctx) {
 // §1 HERO / IDENTITY — D7: writes the SHARED model.skill.{name,description,
 // title} (same fields Settings edits — no fork), reads model.namespaces live.
 // ============================================================================
+// The front-door hero: the mockup's first vignette — a radial-glow header with
+// an accent eyebrow, a plain-language title, a mode badge (format / promote),
+// then the identity fields and completeness pills. Kept as a self-contained
+// `.def-hero` (not a `.settings-card`) so the same visual pattern can later be
+// lifted onto Settings.
 function heroSection(m, ctx, rerender) {
   const skill = m.skill;
+  const d = m.definition;
   const nameOK = NAME_RE.test(skill.name || "");
   const descOK = !!(skill.description && skill.description.trim());
-  const c = card("Workflow definition", "identity, params, outputs & emits — the I/O contract callers bind",
-    null, "Front door of the workflow: name/description drive discovery (Claude Code reads the description to decide when to invoke /<name>); params/outputs/emits are the typed contract a caller — or another workflow's workflow_call — binds.");
+
+  const hero = document.createElement("section"); hero.className = "def-hero";
+  const glow = document.createElement("div"); glow.className = "glow"; hero.appendChild(glow);
+  const inner = document.createElement("div"); inner.className = "inner"; hero.appendChild(inner);
+
+  const fmtMode = !!(d.formatter && d.formatter.enabled);
+  const badge = document.createElement("span");
+  badge.className = "def-mode " + (fmtMode ? "format" : "promote");
+  badge.textContent = fmtMode ? "◑ format mode" : "→ promote only";
+  badge.title = fmtMode
+    ? "A closing formatter composes the final answer."
+    : "No formatter — this workflow only promotes internal signals / outputs.";
+  inner.appendChild(badge);
+
+  const eyebrow = document.createElement("div"); eyebrow.className = "eyebrow";
+  const dia = document.createElement("span"); dia.className = "diamond"; eyebrow.appendChild(dia);
+  const elbl = document.createElement("span"); elbl.className = "lbl"; elbl.textContent = "Workflow definition · front door"; eyebrow.appendChild(elbl);
+  inner.appendChild(eyebrow);
+
+  const h2 = document.createElement("h2"); h2.textContent = "Workflow definition"; inner.appendChild(h2);
+  const lede = document.createElement("div"); lede.className = "lede";
+  lede.textContent = "The I/O contract callers bind. Name and description drive discovery — Claude Code reads the description to decide when to invoke /" + (skill.name || "<name>") + "; params, outputs and emits are the typed contract a caller (or another workflow's workflow_call) binds.";
+  inner.appendChild(lede);
+
+  const fields = document.createElement("div"); fields.className = "fields"; inner.appendChild(fields);
 
   const nameRow = fieldText("name", skill.name || "", v => { skill.name = v.trim(); rerender(); ctx.refreshView(); });
   const nameIn = nameRow.querySelector("input");
   nameIn.placeholder = "my-workflow";
   if (!nameOK) nameIn.style.borderColor = "var(--bad)";
-  c.body.appendChild(withHelp(nameRow, "kebab-case, unique — becomes the /slash command. Same field as Settings › Skill › Name."));
-  if (!nameOK) c.body.appendChild(fieldErr((skill.name || "").length ? "Use kebab-case: a lowercase letter first, then lowercase letters, digits or hyphens." : "Name is required."));
+  fields.appendChild(withHelp(nameRow, "kebab-case, unique — becomes the /slash command. Same field as Settings › Skill › Name."));
+  if (!nameOK) fields.appendChild(fieldErr((skill.name || "").length ? "Use kebab-case: a lowercase letter first, then lowercase letters, digits or hyphens." : "Name is required."));
 
   const titleRow = fieldText("title (optional display name)", skill.title || "", v => { if (v) skill.title = v; else delete skill.title; ctx.refreshView(); });
   titleRow.querySelector("input").placeholder = "/" + (skill.name || "name") + " — " + (skill.name || "name");
-  c.body.appendChild(titleRow);
+  fields.appendChild(titleRow);
 
   const descRow = fieldTextarea("description", skill.description || "", v => { skill.description = v; ctx.refreshView(); });
-  c.body.appendChild(withHelp(descRow, "Required. Claude Code reads this to decide when to invoke /" + (skill.name || "<name>") + "."));
-  if (!descOK) c.body.appendChild(fieldErr("Description is required — Claude Code reads it to decide when to invoke /" + (skill.name || "<name>") + "."));
+  fields.appendChild(withHelp(descRow, "Required. Claude Code reads this to decide when to invoke /" + (skill.name || "<name>") + "."));
+  if (!descOK) fields.appendChild(fieldErr("Description is required — Claude Code reads it to decide when to invoke /" + (skill.name || "<name>") + "."));
 
   const nsKeys = Object.keys(m.namespaces || {});
-  c.body.appendChild(helpNote(nsKeys.length
+  fields.appendChild(helpNote(nsKeys.length
     ? "Namespaces available for roles: " + nsKeys.join(", ") + " (edit in Settings)."
     : "No namespaces declared yet — add one in Settings before wiring role-based I/O."));
 
-  c.body.appendChild(completenessPills(m, m.definition));
-  return c;
+  inner.appendChild(completenessPills(m, d));
+  return hero;
 }
 
 function completenessPills(m, d) {
-  const wrap = document.createElement("div"); wrap.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:2px";
+  const wrap = document.createElement("div"); wrap.className = "def-pills";
   const idOK = NAME_RE.test(m.skill.name || "") && !!(m.skill.description && m.skill.description.trim());
   const items = [
     ["identity", idOK],
@@ -92,7 +136,7 @@ function completenessPills(m, d) {
   ];
   items.forEach(([label, ok]) => {
     const p = document.createElement("span");
-    p.style.cssText = "font:10.5px/1 var(--mono);padding:4px 8px;border-radius:6px;border:1px solid var(--border);color:" + (ok ? "#86efac" : "var(--dim)");
+    p.className = "def-pill" + (ok ? " on" : "");
     p.textContent = (ok ? "✓ " : "○ ") + label;
     wrap.appendChild(p);
   });
@@ -107,7 +151,7 @@ function paramsSection(d, ctx, rerender) {
     "The values a caller (or you, from the CLI) passes in when running this workflow.");
   if (!d.params.length) c.body.appendChild(emptyNote("No params — this workflow takes no arguments."));
   d.params.forEach((p, idx) => c.body.appendChild(paramRow(p, idx, d, ctx, rerender)));
-  c.body.appendChild(addBtn("+ param", () => { d.params.push({ name: "", type: "string", required: false }); rerender(); ctx.refreshView(); }));
+  c.body.appendChild(addBtn("+ param", () => { d.params.push({ name: "", type: "string", required: false }); rerender(); ctx.refreshView(); toast("Param added"); }));
   return c;
 }
 
@@ -132,7 +176,7 @@ function paramRow(p, idx, d, ctx, rerender) {
   }), "required and default are mutually exclusive."));
   if (!p.required && p.type !== "list") b.appendChild(defaultField(p, ctx));
   b.appendChild(span2(fieldText("description (recommended)", p.description || "", v => { if (v) p.description = v; else delete p.description; ctx.refreshView(); })));
-  b.appendChild(removeBtn(() => { d.params.splice(idx, 1); rerender(); ctx.refreshView(); }));
+  b.appendChild(removeBtn(() => { d.params.splice(idx, 1); rerender(); ctx.refreshView(); toast("Param removed"); }));
   return b;
 }
 
@@ -236,7 +280,7 @@ function returnSection(m, d, ctx, rerender) {
   let any3a = false;
   d.outputs.forEach((o, idx) => { if (o.produced_by === "formatter") return; any3a = true; c.body.appendChild(outputRow(m, d, o, idx, ctx, rerender)); });
   if (!any3a) c.body.appendChild(emptyNote("No promoted outputs — outputs written by the formatter live in §4."));
-  c.body.appendChild(addBtn("+ output file", () => { d.outputs.push({ role: "", kind: "json", produced_by: "promote" }); rerender(); ctx.refreshView(); }));
+  c.body.appendChild(addBtn("+ output file", () => { d.outputs.push({ role: "", kind: "json", produced_by: "promote" }); rerender(); ctx.refreshView(); toast("Output added"); }));
 
   const hr = document.createElement("div"); hr.style.cssText = "height:1px;background:var(--border);margin:6px 0";
   c.body.appendChild(hr);
@@ -244,7 +288,7 @@ function returnSection(m, d, ctx, rerender) {
   c.body.appendChild(caption("3b · Emitted signals — small named return values"));
   if (!d.emits.length) c.body.appendChild(emptyNote("No signals emitted."));
   d.emits.forEach((e, idx) => c.body.appendChild(emitRow(m, d, e, idx, ctx, rerender)));
-  c.body.appendChild(addBtn("+ emitted signal", () => { d.emits.push({ name: "", type: "string", source: "promote" }); rerender(); ctx.refreshView(); }));
+  c.body.appendChild(addBtn("+ emitted signal", () => { d.emits.push({ name: "", type: "string", source: "promote" }); rerender(); ctx.refreshView(); toast("Signal added"); }));
 
   return c;
 }
@@ -268,7 +312,7 @@ function outputRow(m, d, o, idx, ctx, rerender) {
   if (path) resolved.textContent = "→ " + path;
   else { resolved.textContent = "⚠ unresolved (set a role + a declared namespace, or a path)"; resolved.classList.add("warn"); }
   b.appendChild(span2(resolved));
-  b.appendChild(removeBtn(() => { d.outputs.splice(idx, 1); rerender(); ctx.refreshView(); }));
+  b.appendChild(removeBtn(() => { d.outputs.splice(idx, 1); rerender(); ctx.refreshView(); toast("Output removed"); }));
   return b;
 }
 
@@ -332,7 +376,7 @@ function emitRow(m, d, e, idx, ctx, rerender) {
   // depends on the workflow_call phase id at the CALLING workflow, which
   // varies per caller and isn't known here.
   b.appendChild(span2(helpNote("seen by a caller as ‹caller_phase›." + (e.name || "…"))));
-  b.appendChild(removeBtn(() => { d.emits.splice(idx, 1); rerender(); ctx.refreshView(); }));
+  b.appendChild(removeBtn(() => { d.emits.splice(idx, 1); rerender(); ctx.refreshView(); toast("Signal removed"); }));
   return b;
 }
 
@@ -370,21 +414,50 @@ function formatterSection(m, d, ctx, rerender) {
   f.inputs = f.inputs || [];
   const st = f.style;
 
-  c.body.appendChild(caption("Prompt-assist — knobs compile to prose at generate time (server-owned; the preview below shows the result verbatim)"));
-  const knobs = block();
-  knobs.appendChild(fieldSelect("length", st.length || "", ["", "terse", "brief", "standard", "detailed", "exhaustive"], v => { if (v) st.length = v; else delete st.length; ctx.refreshView(); }));
+  c.body.appendChild(caption("Prompt-assist — slide the ordinal knobs; they compile to prose server-side (the preview below shows the result verbatim)"));
+  const knobs = document.createElement("div"); knobs.style.cssText = "display:flex;flex-direction:column;gap:12px";
+
+  // length — ordinal slider with a word-count readout.
+  knobs.appendChild(bigSlider("length", "How long should the final answer be?", LEN_SCALE, LEN_SCALE,
+    st.length || "", v => (v ? v + " · " + LEN_HINT[v] : "none"),
+    v => { if (v) st.length = v; else delete st.length; ctx.refreshView(); }));
+
+  // tone — ordinal slider, with a custom-voice escape hatch (engine: tone=custom + toneCustom).
   if (st.tone === "custom") {
-    knobs.appendChild(span2(fieldText("tone (custom voice)", st.toneCustom || "", v => { if (v) st.toneCustom = v; else delete st.toneCustom; ctx.refreshView(); })));
+    const cf = fieldText("tone · custom voice", st.toneCustom || "", v => { if (v) st.toneCustom = v; else delete st.toneCustom; ctx.refreshView(); });
+    cf.querySelector("input").placeholder = "e.g. warm, like explaining to a smart friend";
+    knobs.appendChild(cf);
+    knobs.appendChild(actionChip("↩ use the tone scale", () => { delete st.tone; delete st.toneCustom; rerender(); ctx.refreshView(); }));
   } else {
-    knobs.appendChild(fieldSelect("tone", st.tone || "", ["", "direct", "professional", "didactic", "beginner", "zero-knowledge", "custom"],
-      v => { if (v) st.tone = v; else delete st.tone; if (v !== "custom") delete st.toneCustom; rerender(); ctx.refreshView(); }));
+    knobs.appendChild(bigSlider("tone", "Most direct → most beginner-friendly.", TONE_SCALE, TONE_LABELS,
+      st.tone || "", v => v || "none",
+      v => { if (v) st.tone = v; else delete st.tone; ctx.refreshView(); }));
+    knobs.appendChild(actionChip("✎ custom voice…", () => { st.tone = "custom"; delete st.toneCustom; rerender(); ctx.refreshView(); }));
   }
-  knobs.appendChild(fieldSelect("format", st.format || "", ["", "prose", "bullets", "table", "sections", "tldr"], v => { if (v) st.format = v; else delete st.format; ctx.refreshView(); }));
-  knobs.appendChild(fieldSelect("language", st.language || "inherit", ["inherit", "English", "French", "German", "Spanish"], v => { st.language = v; ctx.refreshView(); }));
-  knobs.appendChild(fieldSelect("audience (optional)", st.audience || "", ["", "maintainer", "external stakeholder", "downstream workflow"], v => { if (v) st.audience = v; else delete st.audience; ctx.refreshView(); }));
-  knobs.appendChild(fieldSelect("stance (optional)", st.stance || "", ["", "recommend", "present"], v => { if (v) st.stance = v; else delete st.stance; ctx.refreshView(); }));
-  knobs.appendChild(span2(stringListEditor("must-include (optional)", st.mustInclude || [], vals => { if (vals.length) st.mustInclude = vals; else delete st.mustInclude; ctx.refreshView(); })));
-  knobs.appendChild(span2(stringListEditor("avoid (optional)", st.avoid || [], vals => { if (vals.length) st.avoid = vals; else delete st.avoid; ctx.refreshView(); })));
+
+  // format — ordinal slider (least → most structured).
+  knobs.appendChild(bigSlider("format", "Least → most structured.", FMT_SCALE, FMT_LABELS,
+    st.format || "", v => { const i = FMT_SCALE.indexOf(v); return i < 0 ? "none" : FMT_LABELS[i]; },
+    v => { if (v) st.format = v; else delete st.format; ctx.refreshView(); }));
+
+  // audience — ordinal slider (internal → external), optional.
+  knobs.appendChild(bigSlider("audience (optional)", "Internal → external reader.", AUD_SCALE, AUD_LABELS,
+    st.audience || "", v => { const i = AUD_SCALE.indexOf(v); return i < 0 ? "none" : AUD_LABELS[i]; },
+    v => { if (v) st.audience = v; else delete st.audience; ctx.refreshView(); }));
+
+  // language — non-ordinal → chips.
+  knobs.appendChild(chipField("language", "Output language; inherit = follow the session/default.",
+    chipsControl(LANGS, st.language || "inherit", v => { st.language = v; ctx.refreshView(); }, LANG_LABELS)));
+
+  // stance — non-ordinal → chips (leading “none” clears it).
+  knobs.appendChild(chipField("stance (optional)", "recommend = give a clear pick · present = lay out options.",
+    chipsControl(["", ...STANCE], st.stance || "", v => { if (v) st.stance = v; else delete st.stance; ctx.refreshView(); }, null)));
+
+  // must-include / avoid — free lists.
+  const lists = block();
+  lists.appendChild(span2(stringListEditor("must-include (optional)", st.mustInclude || [], vals => { if (vals.length) st.mustInclude = vals; else delete st.mustInclude; ctx.refreshView(); })));
+  lists.appendChild(span2(stringListEditor("avoid (optional)", st.avoid || [], vals => { if (vals.length) st.avoid = vals; else delete st.avoid; ctx.refreshView(); })));
+  knobs.appendChild(lists);
   c.body.appendChild(knobs);
 
   const promptRow = fieldTextarea("prompt — final instructions", f.prompt || "", v => { if (v) f.prompt = v; else delete f.prompt; ctx.refreshView(); });
@@ -402,7 +475,7 @@ function formatterSection(m, d, ctx, rerender) {
   let anyFo = false;
   d.outputs.forEach((o, idx) => { if (o.produced_by !== "formatter") return; anyFo = true; c.body.appendChild(outputRow(m, d, o, idx, ctx, rerender)); });
   if (!anyFo) c.body.appendChild(emptyNote("No formatter outputs yet."));
-  c.body.appendChild(addBtn("+ formatter output", () => { d.outputs.push({ role: "", kind: "json", produced_by: "formatter", terminal: true }); rerender(); ctx.refreshView(); }));
+  c.body.appendChild(addBtn("+ formatter output", () => { d.outputs.push({ role: "", kind: "json", produced_by: "formatter", terminal: true }); rerender(); ctx.refreshView(); toast("Output added"); }));
 
   c.body.appendChild(caption("Invocation — the real terminal phase of the DAG (reserved id DEFINITION)"));
   const isAgent = f.invoke.type === "agent";
@@ -445,27 +518,29 @@ function formatterSection(m, d, ctx, rerender) {
 // (io_line + compiled knob lines + the final composed prompt). Never
 // recomputes compile_style() or the file listing in JS.
 function previewBlock(ctx) {
-  const wrap = document.createElement("div"); wrap.className = "derived";
-  wrap.appendChild(caption("Prompt preview · read-only · server-rendered"));
+  const wrap = document.createElement("div"); wrap.className = "def-preview";
+  const ttl = document.createElement("div"); ttl.className = "ttl"; ttl.textContent = "◑ Prompt preview · what the formatter receives"; wrap.appendChild(ttl);
   const dp = ctx.view && ctx.view.definition_preview;
   if (!dp) {
     wrap.appendChild(helpNote("No preview yet — it resolves once the formatter has enough to compose (namespaces, roles, style)."));
     return wrap;
   }
   if (dp.io_line) {
-    wrap.appendChild(caption("files"));
-    const io = document.createElement("pre"); io.className = "yaml-pre"; io.style.color = "#c4b5fd"; io.textContent = dp.io_line;
-    wrap.appendChild(io);
+    wrap.appendChild(sub("files the formatter reads / writes"));
+    const f = document.createElement("div"); f.className = "files"; f.textContent = dp.io_line; wrap.appendChild(f);
   }
   if (Array.isArray(dp.compiled) && dp.compiled.length) {
-    wrap.appendChild(caption("style"));
-    wrap.appendChild(helpNote(dp.compiled.join(" ")));
+    wrap.appendChild(sub("compiled style — one chip per knob (server-owned)"));
+    const chips = document.createElement("div"); chips.className = "def-style-chips";
+    dp.compiled.forEach(line => { const c = document.createElement("span"); c.className = "def-style-chip"; c.textContent = line; chips.appendChild(c); });
+    wrap.appendChild(chips);
   }
-  wrap.appendChild(caption("final composed prompt"));
-  const pre = document.createElement("pre"); pre.className = "yaml-pre"; pre.textContent = dp.prompt || "_(empty)_";
+  wrap.appendChild(sub("final composed prompt"));
+  const pre = document.createElement("pre"); pre.className = "def-prompt yaml-pre"; pre.textContent = dp.prompt || "_(empty)_";
   wrap.appendChild(pre);
   return wrap;
 }
+function sub(text) { const s = document.createElement("div"); s.className = "sub"; s.textContent = text; return s; }
 
 // ============================================================================
 // §5 CALLER PREVIEW — read-only: the contract another workflow's workflow_call
@@ -628,6 +703,84 @@ function caption(text) {
   return c;
 }
 function emptyNote(text) { const n = document.createElement("div"); n.className = "help-note"; n.style.textAlign = "center"; n.style.padding = "10px"; n.textContent = text; return n; }
+
+// ---- prompt-assist controls: intuitive ordinal slider + chip selector,
+// ported from the mockup. A slider's `commit` mutates the model + refreshView
+// but never rerenders — so dragging stays smooth AND the D5 contract holds
+// (the preview only refreshes from the server view, never a client recompute).
+// Index 0 of the range is always the "none" position, which clears the knob.
+function bigSlider(labelText, help, scale, labels, current, readoutFor, commit) {
+  const wrap = document.createElement("div"); wrap.className = "def-slider";
+  const top = document.createElement("div"); top.className = "top";
+  const lab = document.createElement("span"); lab.className = "lab"; lab.textContent = labelText;
+  if (help) lab.appendChild(helpIcon(help));
+  const ro = document.createElement("span"); ro.className = "readout"; ro.textContent = readoutFor(current || "");
+  top.appendChild(lab); top.appendChild(ro); wrap.appendChild(top);
+
+  const full = ["", ...scale];
+  const fullLabels = ["none", ...(labels || scale)];
+  const idxOf = v => Math.max(0, full.indexOf(v || ""));
+
+  const range = document.createElement("input");
+  range.type = "range"; range.min = "0"; range.max = String(full.length - 1); range.step = "1";
+  range.value = String(idxOf(current));
+  wrap.appendChild(range);
+
+  const stops = document.createElement("div"); stops.className = "stops";
+  full.forEach((v, i) => { const sp = document.createElement("span"); sp.textContent = fullLabels[i]; if (v === (current || "")) sp.className = "on"; stops.appendChild(sp); });
+  wrap.appendChild(stops);
+
+  const apply = v => {
+    ro.textContent = readoutFor(v);
+    [...stops.children].forEach((sp, i) => sp.classList.toggle("on", full[i] === v));
+    range.value = String(idxOf(v));
+    commit(v);
+  };
+  range.addEventListener("input", () => apply(full[+range.value]));
+  [...stops.children].forEach((sp, i) => sp.addEventListener("click", () => apply(full[i])));
+  return wrap;
+}
+
+// Single-select chip row (language, stance). Updates highlight in place, then
+// commits (mutate + refreshView), no teardown. A "" value renders as “none”.
+function chipsControl(values, current, commit, labels) {
+  const wrap = document.createElement("div"); wrap.className = "def-chips";
+  values.forEach(v => {
+    const chip = document.createElement("span");
+    chip.className = "def-chip" + (v === (current || "") ? " on" : "");
+    chip.textContent = labels && labels[v] != null ? labels[v] : (v === "" ? "none" : v);
+    chip.addEventListener("click", () => { [...wrap.children].forEach(c => c.classList.remove("on")); chip.classList.add("on"); commit(v); });
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+// A single action chip (e.g. “✎ custom voice…”) — no selection state.
+function actionChip(label, onClick) {
+  const wrap = document.createElement("div"); wrap.className = "def-chips";
+  const chip = document.createElement("span"); chip.className = "def-chip"; chip.textContent = label;
+  chip.addEventListener("click", onClick); wrap.appendChild(chip);
+  return wrap;
+}
+// A labeled `.field` wrapper around a chips node (matches the slider header).
+function chipField(labelText, help, chipsNode) {
+  const wrap = document.createElement("div"); wrap.className = "field";
+  const l = document.createElement("label"); l.textContent = labelText + " ";
+  if (help) l.appendChild(helpIcon(help));
+  wrap.appendChild(l); wrap.appendChild(chipsNode);
+  return wrap;
+}
+// Transient feedback on structural edits (add/remove). Lives on document.body
+// (outside the torn-down tab root) and self-removes; a no-op if timers/body are
+// unavailable (e.g. a headless test that only mounts).
+function toast(msg) {
+  if (typeof document === "undefined") return;
+  const body = document.body || document.documentElement;
+  if (!body) return;
+  let host = [...body.children].find(c => c.classList && c.classList.contains("def-toast-host"));
+  if (!host) { host = document.createElement("div"); host.className = "def-toast-host"; body.appendChild(host); }
+  const t = document.createElement("div"); t.className = "def-toast"; t.textContent = msg; host.appendChild(t);
+  if (typeof setTimeout === "function") setTimeout(() => { t.remove(); if (!host.children.length) host.remove(); }, 1800);
+}
 function fieldErr(text) { const e = document.createElement("div"); e.className = "field-err"; e.textContent = text; return e; }
 function warnBox(text) { const w = document.createElement("div"); w.className = "warn-box"; w.textContent = text; return w; }
 function drow(k, v) {

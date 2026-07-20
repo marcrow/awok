@@ -91,9 +91,15 @@ test("renderDefinition mounts without throwing on the fixture model and renders 
   const { ctx } = makeCtx(model, { errors: [] });
   const root = document.createElement("div");
   expect(() => renderDefinition(root, ctx)).not.toThrow();
+  // The front-door hero is a distinct .def-hero (not a .settings-card), with an
+  // accent eyebrow and a mode badge; the remaining five sections are cards.
+  const hero = root.querySelector(".def-hero");
+  expect(!!hero).toBe(true);
+  expect(hero.querySelector(".eyebrow .lbl").textContent).toContain("front door");
+  expect(!!hero.querySelector(".def-mode.format")).toBe(true); // fixture has an enabled formatter
   const titles = [...root.querySelectorAll(".settings-card .head .t")].map(t => t.textContent);
   expect(titles).toEqual([
-    "Workflow definition", "Params — input side", "Return — outputs & emits",
+    "Params — input side", "Return — outputs & emits",
     "Formatter", "Caller preview", "Stats",
   ]);
 });
@@ -181,14 +187,14 @@ test("the preview reads view.definition_preview verbatim and never recomputes fr
 
   const preAfter = [...root.querySelectorAll("pre.yaml-pre")].find(p => p.textContent === "SERVER-COMPOSED FINAL PROMPT");
   expect(!!preAfter).toBe(true);
-  // the "style" caption line still lists the OLD compiled knobs from the
-  // stale view — not a freshly recomputed "length: exhaustive"
-  const styleNote = [...root.querySelectorAll(".help-note")].find(n => n.textContent.includes("tone: professional"));
-  expect(!!styleNote).toBe(true);
-  expect([...root.querySelectorAll(".help-note")].some(n => n.textContent.includes("exhaustive"))).toBe(false);
+  // the compiled-style chips still list the OLD server knobs from the stale
+  // view — not a freshly recomputed "length: exhaustive"
+  const chips = [...root.querySelectorAll(".def-style-chip")].map(c => c.textContent);
+  expect(chips).toContain("tone: professional");
+  expect(chips.some(c => c.includes("exhaustive"))).toBe(false);
 });
 
-test("editing the style 'length' knob via the DOM calls ctx.refreshView instead of recomputing the preview inline", () => {
+test("dragging the 'length' slider calls ctx.refreshView, mutates the model, and does NOT tear the tab down (D5)", () => {
   dom();
   const model = buildModel();
   const preview = { io_line: "", compiled: ["length: brief"], prompt: "STALE PROMPT" };
@@ -196,18 +202,56 @@ test("editing the style 'length' knob via the DOM calls ctx.refreshView instead 
   const root = document.createElement("div");
   renderDefinition(root, ctx);
 
-  const label = [...root.querySelectorAll("label")].find(l => l.textContent === "length");
-  expect(!!label).toBe(true);
-  const select = label.parentElement.querySelector("select");
-  [...select.querySelectorAll("option")].forEach(o => { o.selected = o.value === "exhaustive"; });
+  // length is now an ordinal slider (not a select): find the .def-slider whose
+  // header label reads "length", then drive its range input.
+  const slider = [...root.querySelectorAll(".def-slider")].find(s => s.querySelector(".lab").textContent.startsWith("length"));
+  expect(!!slider).toBe(true);
+  const range = slider.querySelector("input[type=range]");
+  expect(!!range).toBe(true);
+  // full scale is ["","terse","brief","standard","detailed","exhaustive"] -> idx 5
+  range.value = "5";
+  const inputEv = new range.ownerDocument.defaultView.Event("input");
 
   const before = count();
-  select.dispatchEvent(ev(select));
+  range.dispatchEvent(inputEv);
 
   expect(count()).toBe(before + 1);
   expect(model.definition.formatter.style.length).toBe("exhaustive");
-  // no rerender was wired to this field's onChange -> the DOM was not torn
-  // down/rebuilt, so the same stale preview <pre> is still there untouched
+  // commit() never rerenders -> the tab is not torn down, the stale server
+  // preview <pre> is still present (no client recompute), and the readout
+  // updated in place from the slider itself (not from a new server view).
   const pre = [...root.querySelectorAll("pre.yaml-pre")].find(p => p.textContent === "STALE PROMPT");
   expect(!!pre).toBe(true);
+  expect(slider.querySelector(".readout").textContent).toContain("exhaustive");
+});
+
+test("moving the 'length' slider to the none position clears the knob", () => {
+  dom();
+  const model = buildModel(); // starts at length: "brief"
+  const { ctx } = makeCtx(model, { definition_preview: { io_line: "", compiled: [], prompt: "" } });
+  const root = document.createElement("div");
+  renderDefinition(root, ctx);
+  const slider = [...root.querySelectorAll(".def-slider")].find(s => s.querySelector(".lab").textContent.startsWith("length"));
+  const range = slider.querySelector("input[type=range]");
+  range.value = "0"; // "none"
+  range.dispatchEvent(new range.ownerDocument.defaultView.Event("input"));
+  expect("length" in model.definition.formatter.style).toBe(false);
+});
+
+test("language chips single-select and commit the chosen language", () => {
+  dom();
+  const model = buildModel(); // language: "inherit"
+  const { ctx, count } = makeCtx(model, { definition_preview: { io_line: "", compiled: [], prompt: "" } });
+  const root = document.createElement("div");
+  renderDefinition(root, ctx);
+  const langLabel = [...root.querySelectorAll(".field > label")].find(l => l.textContent.startsWith("language"));
+  expect(!!langLabel).toBe(true);
+  const chips = langLabel.parentElement.querySelector(".def-chips");
+  const french = [...chips.querySelectorAll(".def-chip")].find(c => c.textContent.includes("French"));
+  expect(!!french).toBe(true);
+  const before = count();
+  french.dispatchEvent(new french.ownerDocument.defaultView.Event("click"));
+  expect(count()).toBe(before + 1);
+  expect(model.definition.formatter.style.language).toBe("French");
+  expect(french.classList.contains("on")).toBe(true);
 });
