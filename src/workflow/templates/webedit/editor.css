@@ -452,8 +452,22 @@ select:disabled{opacity:.42;cursor:not-allowed}
 /* Single stacked column (unlike settings' masonry grid): §1-§7 read top to
    bottom as one form — identity → params → return → formatter → previews. */
 #definition-scroll{flex:1 1 auto;overflow:auto;min-height:0}
-#definition{max-width:900px;margin:0 auto;padding:32px 28px 120px;display:flex;
+#definition{max-width:1180px;margin:0 auto;padding:32px 28px 120px;display:flex;
   flex-direction:column;gap:24px}
+/* two-column: main form on the left, a sticky stats rail on the right (like the
+   mockup) so the derived numbers stay in view instead of buried at the bottom. */
+.def-layout{display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:24px;align-items:start}
+.def-main{display:flex;flex-direction:column;gap:24px;min-width:0}
+.def-aside{position:sticky;top:16px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.def-aside .settings-card>.body{padding:14px 16px;gap:12px}
+.def-aside .derived{padding:10px 12px}
+.def-aside .derived .drow .k{flex:0 0 78px}
+@media (max-width:960px){.def-layout{grid-template-columns:1fr}.def-aside{position:static}}
+/* styled checkboxes (required / terminal / optional) — accent-color + a pill row
+   so a boolean field reads as designed, not raw HTML. */
+#definition .field.field-inline{background:var(--well);border:1px solid var(--border);
+  border-radius:7px;padding:8px 11px}
+.field input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex:0 0 auto}
 
 /* ---- front-door hero (reusable pattern; earmarked for Settings later) ---- */
 .def-hero{position:relative;overflow:hidden;background:linear-gradient(180deg,#0f1a2e,var(--panel));
@@ -478,11 +492,14 @@ select:disabled{opacity:.42;cursor:not-allowed}
 /* ---- ordinal slider (length / tone / format / audience) ---- */
 .def-slider{background:var(--well);border:1px solid var(--border);border-radius:10px;padding:12px 13px}
 .def-slider .top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
-.def-slider .lab{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);display:flex;align-items:center;gap:5px}
-.def-slider .readout{font:11.5px/1 var(--mono);color:#7dd3fc;font-weight:700;white-space:nowrap}
-.def-slider input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
-.def-slider .stops{display:flex;justify-content:space-between;margin-top:7px;gap:4px}
-.def-slider .stops span{font-size:10.5px;cursor:pointer;text-align:center;color:var(--dim);transition:color .12s}
+.def-slider .lab{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:flex;align-items:center;gap:5px}
+.def-slider .readout{font:12.5px/1 var(--mono);color:#7dd3fc;font-weight:700;white-space:nowrap}
+.def-slider input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;height:20px}
+/* stops absolutely positioned so each label centers under the thumb's travel
+   (space-between would drift out of alignment with the round); JS sets `left`. */
+.def-slider .stops{position:relative;height:16px;margin-top:6px}
+.def-slider .stops span{position:absolute;transform:translateX(-50%);white-space:nowrap;
+  font-size:12px;cursor:pointer;color:var(--muted);transition:color .12s}
 .def-slider .stops span.on{color:#7dd3fc;font-weight:700}
 
 /* ---- chip selector (language / stance / custom-voice toggle) ---- */

@@ -238,6 +238,35 @@ test("moving the 'length' slider to the none position clears the knob", () => {
   expect("length" in model.definition.formatter.style).toBe(false);
 });
 
+test("produced_by is a segmented chip control that reclassifies the output on click", () => {
+  dom();
+  const model = buildModel();
+  const { ctx } = makeCtx(model, {});
+  const root = document.createElement("div");
+  renderDefinition(root, ctx);
+  // the first produced_by chip group is the promoted output (work:action-items)
+  const pbLabel = [...root.querySelectorAll(".field > label")].find(l => l.textContent.startsWith("produced_by"));
+  expect(!!pbLabel).toBe(true);
+  const chips = pbLabel.parentElement.querySelector(".def-chips");
+  const formatterChip = [...chips.querySelectorAll(".def-chip")].find(c => c.textContent === "formatter");
+  expect(!!formatterChip).toBe(true);
+  formatterChip.dispatchEvent(new formatterChip.ownerDocument.defaultView.Event("click"));
+  expect(model.definition.outputs[0].produced_by).toBe("formatter");
+});
+
+test("stats render in the sticky right rail (.def-aside), the form in .def-main", () => {
+  dom();
+  const model = buildModel();
+  const { ctx } = makeCtx(model, {});
+  const root = document.createElement("div");
+  renderDefinition(root, ctx);
+  const aside = root.querySelector(".def-aside");
+  expect(!!aside).toBe(true);
+  expect([...aside.querySelectorAll(".settings-card .head .t")].map(t => t.textContent)).toContain("Stats");
+  const main = root.querySelector(".def-main");
+  expect([...main.querySelectorAll(".settings-card .head .t")].map(t => t.textContent)).toContain("Params — input side");
+});
+
 test("language chips single-select and commit the chosen language", () => {
   dom();
   const model = buildModel(); // language: "inherit"

@@ -52,13 +52,20 @@ export function renderDefinition(root, ctx) {
   const view = ctx.view || {};
   const rerender = () => renderDefinition(root, ctx);
 
-  root.appendChild(bannerSection(view));                        // §7
-  root.appendChild(heroSection(m, ctx, rerender));               // §1
-  root.appendChild(paramsSection(d, ctx, rerender));             // §2
-  root.appendChild(returnSection(m, d, ctx, rerender));          // §3
-  root.appendChild(formatterSection(m, d, ctx, rerender));       // §4
-  root.appendChild(callerPreview(d));                            // §5
-  root.appendChild(statsSection(m, d, view));                    // §6
+  root.appendChild(bannerSection(view));                        // §7 (full width)
+  // Two columns: the form on the left, a sticky stats rail on the right (like
+  // the mockup) so the derived numbers stay in view rather than buried at the end.
+  const layout = document.createElement("div"); layout.className = "def-layout";
+  const main = document.createElement("div"); main.className = "def-main";
+  const aside = document.createElement("aside"); aside.className = "def-aside";
+  main.appendChild(heroSection(m, ctx, rerender));               // §1
+  main.appendChild(paramsSection(d, ctx, rerender));             // §2
+  main.appendChild(returnSection(m, d, ctx, rerender));          // §3
+  main.appendChild(formatterSection(m, d, ctx, rerender));       // §4
+  main.appendChild(callerPreview(d));                            // §5
+  aside.appendChild(statsSection(m, d, view));                   // §6 (sticky rail)
+  layout.appendChild(main); layout.appendChild(aside);
+  root.appendChild(layout);
 }
 
 // ============================================================================
@@ -113,6 +120,7 @@ function heroSection(m, ctx, rerender) {
   fields.appendChild(titleRow);
 
   const descRow = fieldTextarea("description", skill.description || "", v => { skill.description = v; ctx.refreshView(); });
+  const descTa = descRow.querySelector("textarea"); if (descTa) { descTa.rows = 5; descTa.style.minHeight = "116px"; }
   fields.appendChild(withHelp(descRow, "Required. Claude Code reads this to decide when to invoke /" + (skill.name || "<name>") + "."));
   if (!descOK) fields.appendChild(fieldErr("Description is required — Claude Code reads it to decide when to invoke /" + (skill.name || "<name>") + "."));
 
@@ -182,9 +190,9 @@ function paramRow(p, idx, d, ctx, rerender) {
 
 function defaultField(p, ctx) {
   if (p.type === "bool") {
-    return fieldSelect("default", p.default === true ? "true" : p.default === false ? "false" : "", ["", "true", "false"], v => {
-      if (v === "") delete p.default; else p.default = (v === "true"); ctx.refreshView();
-    });
+    const cur = p.default === true ? "true" : p.default === false ? "false" : "";
+    return chipField("default", "unset · true · false.",
+      chipsControl(["", "true", "false"], cur, v => { if (v === "") delete p.default; else p.default = (v === "true"); ctx.refreshView(); }, null));
   }
   if (p.type === "number") {
     const r = fieldText("default", p.default != null ? String(p.default) : "", v => {
@@ -303,8 +311,8 @@ function outputRow(m, d, o, idx, ctx, rerender) {
   b.appendChild(withHelp(roleField, "Resolved via the namespaces map (edit in Settings). Use `path` to override."));
   b.appendChild(fieldText("path override (optional)", o.path || "", v => { const t = v.trim(); if (t) o.path = t; else delete o.path; ctx.refreshView(); }));
   b.appendChild(fieldSelect("kind", o.kind || "json", KINDS, v => { o.kind = v; ctx.refreshView(); }));
-  b.appendChild(withHelp(fieldSelect("produced_by", o.produced_by || "promote", ["promote", "formatter"], v => { o.produced_by = v; rerender(); ctx.refreshView(); }),
-    "promote = an internal phase already writes this role · formatter = the closing formatter (§4) writes it."));
+  b.appendChild(span2(chipField("produced_by", "promote = an internal phase already writes this role · formatter = the closing formatter (§4) writes it.",
+    chipsControl(["promote", "formatter"], o.produced_by || "promote", v => { o.produced_by = v; rerender(); ctx.refreshView(); }, null))));
   b.appendChild(fieldCheckbox("terminal (final deliverable)", !!o.terminal, v => { if (v) o.terminal = true; else delete o.terminal; ctx.refreshView(); }));
   b.appendChild(fieldCheckbox("optional (may be absent)", !!o.optional, v => { if (v) o.optional = true; else delete o.optional; ctx.refreshView(); }));
   const resolved = document.createElement("div"); resolved.className = "ioref-resolved";
@@ -337,10 +345,8 @@ function emitRow(m, d, e, idx, ctx, rerender) {
     b.appendChild(span2(ofFieldEditor(e, () => { rerender(); ctx.refreshView(); })));
   }
 
-  b.appendChild(withHelp(fieldSelect("source", e.source || "promote", ["promote", "create"], v => {
-    e.source = v; delete e.from; delete e.field;
-    rerender(); ctx.refreshView();
-  }), "promote = re-expose an internal signal already emitted by a phase · create = read a field of a formatter JSON output."));
+  b.appendChild(span2(chipField("source", "promote = re-expose an internal signal already emitted by a phase · create = read a field of a formatter JSON output.",
+    chipsControl(["promote", "create"], e.source || "promote", v => { e.source = v; delete e.from; delete e.field; rerender(); ctx.refreshView(); }, null))));
 
   if ((e.source || "promote") === "promote") {
     const sigs = internalSignals(m);
@@ -480,11 +486,12 @@ function formatterSection(m, d, ctx, rerender) {
   c.body.appendChild(caption("Invocation — the real terminal phase of the DAG (reserved id DEFINITION)"));
   const isAgent = f.invoke.type === "agent";
   const invBlock = block();
-  invBlock.appendChild(fieldSelect("type", f.invoke.type || "main_agent", ["main_agent", "agent"], v => {
-    f.invoke.type = v;
-    if (v !== "agent") { delete f.invoke.agent; delete f.invoke.model; delete f.invoke.effort; delete f.invoke.tools; }
-    rerender(); ctx.refreshView();
-  }));
+  invBlock.appendChild(span2(chipField("type", "main_agent = the orchestrator itself writes the answer · agent = a dedicated sub-agent does.",
+    chipsControl(["main_agent", "agent"], f.invoke.type || "main_agent", v => {
+      f.invoke.type = v;
+      if (v !== "agent") { delete f.invoke.agent; delete f.invoke.model; delete f.invoke.effort; delete f.invoke.tools; }
+      rerender(); ctx.refreshView();
+    }, null))));
   if (isAgent) {                                                                            // D10
     const agentField = fieldText("agent", f.invoke.agent || "", v => { const t = v.trim(); if (t) f.invoke.agent = t; else delete f.invoke.agent; ctx.refreshView(); });
     if (!f.invoke.agent) agentField.querySelector("input").style.borderColor = "var(--bad)";
@@ -727,7 +734,16 @@ function bigSlider(labelText, help, scale, labels, current, readoutFor, commit) 
   wrap.appendChild(range);
 
   const stops = document.createElement("div"); stops.className = "stops";
-  full.forEach((v, i) => { const sp = document.createElement("span"); sp.textContent = fullLabels[i]; if (v === (current || "")) sp.className = "on"; stops.appendChild(sp); });
+  const n = full.length;
+  full.forEach((v, i) => {
+    const sp = document.createElement("span"); sp.textContent = fullLabels[i];
+    // Center each label under the thumb at that stop: the native range thumb
+    // travels within [~9px, width-9px], so map i/(n-1) into that inset band
+    // instead of a plain space-between (which drifts off the round).
+    sp.style.left = "calc(9px + (100% - 18px) * " + (n > 1 ? i / (n - 1) : 0) + ")";
+    if (v === (current || "")) sp.className = "on";
+    stops.appendChild(sp);
+  });
   wrap.appendChild(stops);
 
   const apply = v => {

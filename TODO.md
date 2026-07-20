@@ -222,6 +222,19 @@
     **first tab**.
   - _To specify: other remaining web UI changes._
 - [x] **C2 — fix invocation file in web UI.** ✅ Done (removed from TBD).
+- [ ] **C4 — Generalize the Definition-tab front-door hero to Settings.** The `.def-hero`
+  pattern (radial glow, accent eyebrow, mode badge, then identity fields) built on the
+  Definition tab (commit `5a36dfb`) is deliberately self-contained and reusable — lift the
+  same visual treatment onto the **Settings** panel's identity/skill header. User validated
+  the hero and asked to carry it over (not urgent).
+- [ ] **C5 — Editable, documented vocabularies for prompt-assist knobs.** The formatter
+  style choices (tone `direct…zero-knowledge`, format `prose…table`, audience
+  `maintainer/external stakeholder/downstream workflow`, length scale) are currently a
+  **fixed list mirrored from YAML**. Wanted: a short **definition per option** (what
+  "maintainer" vs "external stakeholder" means), shown in the UI (tooltip/inline), and
+  **editable + extensible** — the user can reword a definition and add new options as
+  needed. Needs a design decision on where the vocabulary + its definitions live (engine
+  constant vs a declarable block the workflow/user owns) before build. Related: C3 help layer.
 - [ ] **C3 — Help & accessibility of the web UI for the uninitiated user.**
   **Persona (reference for all UI help work): someone who has never read a workflow
   YAML nor the awok docs** — they must understand each concept and fill each field
