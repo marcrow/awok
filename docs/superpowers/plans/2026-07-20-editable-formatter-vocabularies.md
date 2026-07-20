@@ -190,16 +190,19 @@ knobs:
 - [ ] **Step 2: Write the failing test** — `src/scripts/tests/test_workflow_vocab.py`:
 
 ```python
-import importlib.util, pathlib, sys
+# bb-workflow is extension-less, so spec_from_file_location returns None —
+# load it via SourceFileLoader, matching test_workflow_definition.py / conftest.py.
+import importlib.util, pathlib
+from importlib.machinery import SourceFileLoader
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-_spec = importlib.util.spec_from_file_location("bbw", ROOT / "src" / "scripts" / "bb-workflow")
-bbw = importlib.util.module_from_spec(_spec)
-sys.modules["bbw"] = bbw
-_spec.loader.exec_module(bbw)
+ROOT = pathlib.Path(__file__).resolve().parents[3]   # repo root (tests are at src/scripts/tests/)
+_loader = SourceFileLoader("bbw", str(ROOT / "src" / "scripts" / "bb-workflow"))
+_spec = importlib.util.spec_from_loader("bbw", _loader)
+bbw = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(bbw)
 
 
-def test_load_vocab_base_shape():
+def test_load_vocab_base_shape(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
     v = bbw.load_vocab()
     assert v["version"] == 1
     tone = v["knobs"]["tone"]
@@ -229,8 +232,8 @@ def test_load_vocab_merges_overlay(tmp_path, monkeypatch):
         "        definition: Friendly and encouraging.\n"
         "        prose: Write in a warm tone.\n",
         encoding="utf-8")
-    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
-    monkeypatch.setattr(bbw, "ENGINE_ROOT", ROOT)  # base still from the engine
+    # Deterministic: base from the engine, exactly one overlay (this tmp file).
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [overlay_dir / "vocab.yaml"])
     tone = {o["value"]: o for o in bbw.load_vocab()["knobs"]["tone"]["options"]}
     # reworded base option: definition overridden, prose kept from base, flagged
     assert tone["beginner"]["definition"] == "Reworded beginner meaning."
@@ -246,10 +249,13 @@ def test_load_vocab_merges_overlay(tmp_path, monkeypatch):
 Run: `pytest src/scripts/tests/test_workflow_vocab.py -v`
 Expected: FAIL — `AttributeError: module 'bbw' has no attribute 'load_vocab'`.
 
-- [ ] **Step 4: Implement the loader block** in `src/scripts/bb-workflow` (insert after `_apply_roots` / the roots block, ~line 78):
+- [ ] **Step 4: Implement the loader block** in `src/scripts/bb-workflow`. Place it **after** the `ENGINE_ROOT`/`CONTENT_ROOT` assignments + `_apply_roots(...)` call (~line 89) — the functions read `ENGINE_ROOT`/`CONTENT_ROOT` at **call time** (never at import), matching how the other path helpers behave and keeping `--workdir` / monkeypatch overrides effective:
 
 ```python
-DEFAULT_VOCAB_PATH = ENGINE_ROOT / "src" / "workflow" / "vocab.yaml"
+def _vocab_base_path():
+    """The engine base vocabulary path, resolved at call time so ENGINE_ROOT
+    overrides (--workdir, tests) take effect."""
+    return ENGINE_ROOT / "src" / "workflow" / "vocab.yaml"
 
 
 def _vocab_overlay_paths():
@@ -294,7 +300,7 @@ def load_vocab():
     workdir overlay, keyed by (knob, option-value). Each option is tagged with
     provenance (`source`, `overridden`). Single source consumed by both
     compile_style() and GET /api/vocab."""
-    base = yaml.safe_load(DEFAULT_VOCAB_PATH.read_text(encoding="utf-8")) or {}
+    base = yaml.safe_load(_vocab_base_path().read_text(encoding="utf-8")) or {}
     knobs = base.get("knobs") or {}
     for knob in knobs.values():
         for opt in knob.get("options") or []:
@@ -336,7 +342,8 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Add failing tests** to `src/scripts/tests/test_workflow_vocab.py`:
 
 ```python
-def test_compile_style_reads_vocab():
+def test_compile_style_reads_vocab(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
     # Known values -> the option's prose verbatim (reproduces legacy output).
     lines = bbw.compile_style({"length": "brief", "tone": "professional",
                                "format": "bullets", "audience": "maintainer",
@@ -349,7 +356,8 @@ def test_compile_style_reads_vocab():
     assert "Give a clear recommendation." in lines
 
 
-def test_compile_style_inherit_and_custom_and_lists():
+def test_compile_style_inherit_and_custom_and_lists(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
     assert bbw.compile_style({"language": "inherit"}) == []          # empty prose -> nothing
     assert bbw.compile_style({"tone": "custom", "toneCustom": "like a pirate"}) == ["like a pirate"]
     assert bbw.compile_style({}) == []
@@ -357,7 +365,8 @@ def test_compile_style_inherit_and_custom_and_lists():
     assert "Always include: TL;DR." in out and "Avoid: preamble." in out
 
 
-def test_compile_style_unknown_value_falls_back_to_template():
+def test_compile_style_unknown_value_falls_back_to_template(monkeypatch):
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
     # A value not in the vocab degrades via the knob's prose_template.
     assert bbw.compile_style({"tone": "sardonic"}) == ["Write in a sardonic tone."]
     assert bbw.compile_style({"length": "epic"}) == ["Keep the answer epic (appropriate length)."]
@@ -431,8 +440,9 @@ def compile_style(style: dict) -> list:
 - [ ] **Step 4: Add a base-prose pin** to `src/scripts/tests/test_workflow_definition.py` (after `test_compile_style`, ~line 171):
 
 ```python
-def test_base_vocab_prose_pinned():
+def test_base_vocab_prose_pinned(monkeypatch):
     # Pins the required-knob base prose so any wording change is deliberate.
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
     knobs = bbw.load_vocab()["knobs"]
     def prose(k, v): return {o["value"]: o["prose"] for o in knobs[k]["options"]}[v]
     assert prose("length", "brief") == "Keep the answer brief (~150 words)."
