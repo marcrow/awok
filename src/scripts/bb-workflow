@@ -168,7 +168,13 @@ def save_vocab_overlay(overlay):
         if kname not in _VOCAB_KNOBS:
             errors.append(f"unknown knob '{kname}'")
             continue
+        if not isinstance(kpatch, dict):
+            errors.append(f"{kname}: patch must be an object")
+            continue
         for opt in (kpatch.get("options") or []):
+            if not isinstance(opt, dict):
+                errors.append(f"{kname}: option must be an object")
+                continue
             v = opt.get("value")
             if not isinstance(v, str) or not v.strip():
                 errors.append(f"{kname}: option missing a string value")

@@ -137,3 +137,22 @@ def test_save_vocab_overlay_rejects_unknown_knob(tmp_path, monkeypatch):
     errs = bbw.save_vocab_overlay({"knobs": {"nope": {"options": []}}})
     assert errs and any("nope" in e for e in errs)
     assert not (tmp_path / "custom" / "vocab.yaml").exists()
+
+
+def test_save_vocab_overlay_rejects_non_dict_knob_patch(tmp_path, monkeypatch):
+    # A knob patch that isn't an object (e.g. a bare string) must be reported
+    # as a clean error, not crash with AttributeError (-> HTTP 500) on
+    # kpatch.get(...).
+    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
+    errs = bbw.save_vocab_overlay({"knobs": {"tone": "oops"}})
+    assert errs and any("tone" in e for e in errs)
+    assert not (tmp_path / "custom" / "vocab.yaml").exists()
+
+
+def test_save_vocab_overlay_rejects_non_dict_option(tmp_path, monkeypatch):
+    # A malformed option entry (a bare string instead of an object) must also
+    # degrade to a clean error rather than crash on opt.get(...).
+    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
+    errs = bbw.save_vocab_overlay({"knobs": {"tone": {"options": ["oops"]}}})
+    assert errs and any("tone" in e for e in errs)
+    assert not (tmp_path / "custom" / "vocab.yaml").exists()
