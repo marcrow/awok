@@ -52,6 +52,62 @@ def test_load_vocab_merges_overlay(tmp_path, monkeypatch):
     assert bbw.load_vocab.__doc__ is not None
 
 
+def test_load_vocab_merges_two_overlays_in_sequence(tmp_path, monkeypatch):
+    # The headline 3-layer merge: base <- engine-global overlay <- workdir
+    # overlay, applied in order. Exercises all three provenance shapes at once:
+    # a base option reworded by BOTH overlays, an overlay-added option reworded
+    # by the SECOND overlay, and an option only the second overlay ever touches.
+    dir_a = tmp_path / "a"; dir_a.mkdir()
+    dir_b = tmp_path / "b"; dir_b.mkdir()
+    (dir_a / "vocab.yaml").write_text(
+        "version: 1\n"
+        "knobs:\n"
+        "  tone:\n"
+        "    options:\n"
+        "      - value: direct\n"
+        "        definition: \"Overlay-A reworded: blunt and to the point.\"\n"
+        "      - value: warm\n"
+        "        definition: \"Overlay-A: friendly and encouraging.\"\n"
+        "        prose: \"Write in a warm tone.\"\n",
+        encoding="utf-8")
+    (dir_b / "vocab.yaml").write_text(
+        "version: 1\n"
+        "knobs:\n"
+        "  tone:\n"
+        "    options:\n"
+        "      - value: direct\n"
+        "        prose: \"Overlay-B reworded: speak like a drill sergeant.\"\n"
+        "      - value: warm\n"
+        "        definition: \"Overlay-B reworded: warm and reassuring.\"\n"
+        "      - value: playful\n"
+        "        definition: \"Overlay-B added: light and fun.\"\n"
+        "        prose: \"Write in a playful tone.\"\n",
+        encoding="utf-8")
+    # Order matters: engine-global (a) applied first, workdir (b) second.
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths",
+                         lambda: [dir_a / "vocab.yaml", dir_b / "vocab.yaml"])
+    tone = {o["value"]: o for o in bbw.load_vocab()["knobs"]["tone"]["options"]}
+
+    # 1. base option reworded by A then B: both edits land, base provenance kept.
+    direct = tone["direct"]
+    assert direct["definition"] == "Overlay-A reworded: blunt and to the point."
+    assert direct["prose"] == "Overlay-B reworded: speak like a drill sergeant."
+    assert direct["source"] == "base" and direct["overridden"] is True
+
+    # 2. overlay-A-added option reworded by overlay B: B's edit wins, A's
+    #    untouched field survives, provenance stays "overlay".
+    warm = tone["warm"]
+    assert warm["definition"] == "Overlay-B reworded: warm and reassuring."
+    assert warm["prose"] == "Write in a warm tone."
+    assert warm["source"] == "overlay"
+
+    # 3. option only overlay B ever introduces.
+    playful = tone["playful"]
+    assert playful["definition"] == "Overlay-B added: light and fun."
+    assert playful["prose"] == "Write in a playful tone."
+    assert playful["source"] == "overlay"
+
+
 def test_compile_style_reads_vocab(monkeypatch):
     monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [])  # base-only isolation
     # Known values -> the option's prose verbatim (reproduces legacy output).
