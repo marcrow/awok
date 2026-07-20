@@ -296,6 +296,67 @@ def test_preview_returns_mermaid(editor_server):
     assert "mermaid" in j and "dataflow" in j
 
 
+@pytest.fixture
+def editor_server_vocab(bbw_module, tmp_path, monkeypatch):
+    """Editor server with CONTENT_ROOT redirected to a temp dir, so PUT
+    /api/vocab writes into tmp_path/custom/vocab.yaml instead of the real
+    repo's custom/vocab.yaml. ENGINE_ROOT is left untouched so the base
+    vocab.yaml (the six real knobs) still loads for GET /api/vocab.
+    monkeypatch reverts CONTENT_ROOT after the test, same pattern as
+    test_workflow_vocab.py's save_vocab_overlay unit tests."""
+    monkeypatch.setattr(bbw_module, "CONTENT_ROOT", tmp_path)
+    handler = bbw_module.make_edit_handler(
+        workflows_dir=REPO_ROOT / "src" / "workflows",
+        agents_dir=REPO_ROOT / "src" / "agents",
+        templates_dir=REPO_ROOT / "src" / "workflow" / "templates",
+    )
+    srv = HTTPServer(("127.0.0.1", 0), handler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    yield srv.server_address, tmp_path
+    srv.shutdown()
+
+
+def test_get_vocab_returns_merged_and_overlay(editor_server_vocab):
+    addr, _ = editor_server_vocab
+    status, body = _get(addr, "/api/vocab")
+    assert status == 200
+    j = json.loads(body)
+    assert set(j.keys()) >= {"merged", "overlay"}
+    assert set(j["merged"]["knobs"].keys()) == {
+        "length", "tone", "format", "audience", "language", "stance"}
+    assert j["overlay"] == {}  # no overlay written yet in this temp root
+
+
+def test_put_vocab_valid_overlay_merges_and_roundtrips(editor_server_vocab):
+    addr, _ = editor_server_vocab
+    payload = {"knobs": {"tone": {"options": [
+        {"value": "warm", "definition": "Friendly.",
+         "prose": "Write in a warm tone."}]}}}
+    status, body = _send(addr, "PUT", "/api/vocab", payload)
+    assert status == 200
+    assert json.loads(body) == {"ok": True, "errors": []}
+
+    status2, body2 = _get(addr, "/api/vocab")
+    assert status2 == 200
+    j2 = json.loads(body2)
+    merged_tone = [o["value"] for o in j2["merged"]["knobs"]["tone"]["options"]]
+    assert "warm" in merged_tone
+    overlay_tone = [o["value"] for o in j2["overlay"]["knobs"]["tone"]["options"]]
+    assert "warm" in overlay_tone
+
+
+def test_put_vocab_unknown_knob_is_rejected(editor_server_vocab):
+    addr, tmp_dir = editor_server_vocab
+    status, body = _send(addr, "PUT", "/api/vocab",
+                         {"knobs": {"nope": {"options": []}}})
+    assert status == 422
+    j = json.loads(body)
+    assert j["ok"] is False
+    assert j["errors"] and any("nope" in e for e in j["errors"])
+    assert not (tmp_dir / "custom" / "vocab.yaml").exists()
+
+
 def test_render_dataflow_mermaid_from_dict(bbw_module):
     wf = yaml.safe_load((REPO_ROOT / "src" / "workflows" / "onboard.yaml").read_text())
     out = bbw_module.render_dataflow_mermaid(wf, mode="all")

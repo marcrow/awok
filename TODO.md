@@ -65,6 +65,13 @@
   verifiable (today the validator only checks the target exists); needed LATER as the
   `args` / return-value mapping of a dynamic workflow, and for standard→dynamic composition.
   To do: schema field, `workflow_call` validation against it, cartography rendering.
+  **STATUS 2026-07-17: designed + planned, dev not started.** Branch `feat/workflow-io-contract`.
+  Model = a phase-shaped top-level `definition:` block (`params` typed args + single `outputs`
+  io_ref list with `produced_by` + `emits` promote/create + optional `formatter` with
+  engine-compiled prompt-assist) + `workflow_call args:` binding + a WebUI "Workflow definition"
+  tab. Spec `docs/superpowers/specs/2026-07-17-workflow-io-contract-design.md`, plan
+  `docs/superpowers/plans/2026-07-17-workflow-io-contract.md` (12 tasks, subagent-driven),
+  mockup vendored alongside the spec. Dynamic args/return mapping deferred to B1.
 
 - [ ] **S2 — Extend `orchestration-capabilities.yaml` with an `actions:` section.**
   The js-safe frontier is declared for operators/connectors/builtins/operands but NOT for
@@ -215,6 +222,37 @@
     **first tab**.
   - _To specify: other remaining web UI changes._
 - [x] **C2 — fix invocation file in web UI.** ✅ Done (removed from TBD).
+- [ ] **C4 — Generalize the Definition-tab front-door hero to Settings.** The `.def-hero`
+  pattern (radial glow, accent eyebrow, mode badge, then identity fields) built on the
+  Definition tab (commit `5a36dfb`) is deliberately self-contained and reusable — lift the
+  same visual treatment onto the **Settings** panel's identity/skill header. User validated
+  the hero and asked to carry it over (not urgent).
+- [x] **C5 — Editable, documented vocabularies for prompt-assist knobs.** The formatter
+  style choices (tone `direct…zero-knowledge`, format `prose…table`, audience
+  `maintainer/external stakeholder/downstream workflow`, length scale) are currently a
+  **fixed list mirrored from YAML**. Wanted: a short **definition per option** (what
+  "maintainer" vs "external stakeholder" means), shown in the UI (tooltip/inline), and
+  **editable + extensible**.
+  **Decision (user, 2026-07-20): vocabularies are GLOBAL to the engine, editable in awok
+  — NOT per-workflow.** Two layers: (1) an **awok-defined base** (ships with the engine,
+  the canonical tones/formats/audiences + their definitions), and (2) a **user layer**
+  the user can extend/reword **without an awok update wiping it** (a user overlay file
+  that survives engine upgrades, merged over the base). Design the storage so an engine
+  update never clobbers user-added values/definitions. The engine's `compile_style` must
+  read from this merged vocabulary. Related: C3 help layer.
+  ✅ Done. `src/workflow/vocab.yaml` (base) merged with a gitignored `custom/vocab.yaml`
+  overlay by `load_vocab()` (add/reword only, never delete); `compile_style()` reads the
+  merged store with `prose_template` fallback; `GET`/`PUT /api/vocab` + a dedicated awok
+  settings page (⚙) expose it in the web editor. Design:
+  `2026-07-20-editable-formatter-vocabularies-design.md`, plan:
+  `2026-07-20-editable-formatter-vocabularies.md`. Zero SKILL.md/cartography drift
+  (`awok check` green), 332/332 pytest + 92/92 webedit bun tests green.
+- [x] **C6 — Replace every checkbox in the web UI with the `.awok-flag` pill toggle.**
+  ✅ Done. `flagToggle`/`flagsRow` live in `formfields.js` (shared); `fieldCheckbox` now
+  returns an `.awok-flag` pill (so its call sites — e.g. the invocation `background` flag —
+  are migrated with no change), and `ioRefEditor`'s io flags (optional/external/terminal,
+  the Grid input/output editor the user flagged) render as pills. `grep type=checkbox`
+  over webedit is empty. CSS in editor.css. 88/88 webedit green.
 - [ ] **C3 — Help & accessibility of the web UI for the uninitiated user.**
   **Persona (reference for all UI help work): someone who has never read a workflow
   YAML nor the awok docs** — they must understand each concept and fill each field

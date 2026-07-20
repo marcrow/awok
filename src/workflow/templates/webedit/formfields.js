@@ -39,12 +39,35 @@ export function fieldDatalist(label, value, options, onChange){
   i.addEventListener("change", () => onChange(i.value));
   r.appendChild(i); r.appendChild(dl); return r;
 }
+// awok-flag: the shared pill toggle for every boolean flag in the web UI
+// (aria-pressed ring + check, cyan on / slate off). Replaces raw checkboxes —
+// see TODO C6. opts: { title, dataK }.
+const FLAG_CHECK_SVG = '<svg class="awok-flag__check" width="8" height="8" viewBox="0 0 24 24" fill="none"><path d="M4 12.5 9.5 18 20 6" stroke="#062033" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+export function flagToggle(label, on, onToggle, opts = {}){
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "awok-flag";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  if (opts.title) btn.title = opts.title;
+  if (opts.dataK) btn.dataset.k = opts.dataK;
+  const ring = document.createElement("span"); ring.className = "awok-flag__ring"; ring.innerHTML = FLAG_CHECK_SVG;
+  const lab = document.createElement("span"); lab.className = "awok-flag__label"; lab.textContent = label;
+  btn.appendChild(ring); btn.appendChild(lab);
+  btn.addEventListener("click", () => {
+    const next = btn.getAttribute("aria-pressed") !== "true";
+    btn.setAttribute("aria-pressed", next ? "true" : "false");
+    onToggle(next);
+  });
+  return btn;
+}
+export function flagsRow(name, flags){
+  const w = document.createElement("div"); w.className = "awok-flags";
+  if (name){ const n = document.createElement("span"); n.className = "awok-flags__name"; n.textContent = name; w.appendChild(n); }
+  flags.forEach(f => w.appendChild(f));
+  return w;
+}
+// Boolean field — now the awok-flag pill (was a raw <input type=checkbox>).
 export function fieldCheckbox(label, checked, onChange){
-  const r = row(label); r.classList.add("field-inline");
-  const c = document.createElement("input"); c.type = "checkbox"; c.checked = !!checked;
-  c.addEventListener("change", () => onChange(c.checked));
-  r.insertBefore(c, r.firstChild);
-  return r;
+  return flagToggle(label, !!checked, v => onChange(v));
 }
 
 const IO_KINDS = ["json","jsonl","md","text","yaml","dir","sqlite","binary"];
@@ -94,13 +117,9 @@ export function ioRefEditor(label, items, onChange, namespaces){
       const kind = document.createElement("select"); kind.dataset.k = "kind";
       for (const k of IO_KINDS){ const o = document.createElement("option"); o.value = k; o.textContent = k; if (k === (item.kind||"json")) o.selected = true; kind.appendChild(o); }
       r.appendChild(kind);
-      for (const f of IO_FLAGS){
-        const lbl = document.createElement("label"); lbl.className = "ioref-flag";
-        const c = document.createElement("input"); c.type = "checkbox"; c.dataset.k = f; c.checked = !!item[f];
-        c.addEventListener("change", () => { if (c.checked) item[f] = true; else delete item[f]; emit(); });
-        lbl.appendChild(c); lbl.appendChild(document.createTextNode(f));
-        r.appendChild(lbl);
-      }
+      const flags = IO_FLAGS.map(f => flagToggle(f, !!item[f],
+        v => { if (v) item[f] = true; else delete item[f]; emit(); }, { dataK: f }));
+      r.appendChild(flagsRow(null, flags));
       const del = document.createElement("button"); del.className = "ioref-del"; del.textContent = "✕";
       del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
       r.appendChild(del);
@@ -149,7 +168,11 @@ export function stringListEditor(label, items, onChange){
     });
   }
   const add = document.createElement("button"); add.className = "stringlist-add"; add.textContent = "+ " + label;
-  add.addEventListener("click", () => { list.push(""); render(); emit(); });
+  // Do NOT emit() on add: the new row is empty and emit() filters empties, so it
+  // would send the list unchanged — and any consumer that re-renders on that
+  // (e.g. a tab whose every edit calls refreshView) tears the just-added row
+  // back out. The value is persisted on the row's change event instead.
+  add.addEventListener("click", () => { list.push(""); render(); });
   render(); wrap.appendChild(add);
   return wrap;
 }
@@ -473,5 +496,80 @@ export function triggerEditor(label, items, onChange){
   const add = document.createElement("button"); add.className = "trigger-add"; add.textContent = "+ trigger";
   add.addEventListener("click", () => { list.push({ on: TRIGGER_ON[0] }); render(); emit(); });
   render(); wrap.appendChild(add);
+  return wrap;
+}
+
+// ---- prompt-assist controls (shared by the Definition tab + the awok vocab
+// editor). Ordinal slider + chip selector, ported from the mockup. A slider's
+// `commit` mutates + refreshes but never rerenders, so dragging stays smooth
+// and the D5 preview contract holds. Index 0 of the range is the "none" stop.
+export function bigSlider(labelText, help, scale, labels, current, readoutFor, commit, defs) {
+  const wrap = document.createElement("div"); wrap.className = "def-slider";
+  const top = document.createElement("div"); top.className = "top";
+  const lab = document.createElement("span"); lab.className = "lab"; lab.textContent = labelText;
+  if (help) lab.appendChild(helpIcon(help));
+  const ro = document.createElement("span"); ro.className = "readout"; ro.textContent = readoutFor(current || "");
+  top.appendChild(lab); top.appendChild(ro); wrap.appendChild(top);
+
+  const full = ["", ...scale];
+  const fullLabels = ["none", ...(labels || scale)];
+  const idxOf = v => Math.max(0, full.indexOf(v || ""));
+
+  const range = document.createElement("input");
+  range.type = "range"; range.min = "0"; range.max = String(full.length - 1); range.step = "1";
+  range.value = String(idxOf(current));
+  wrap.appendChild(range);
+
+  const stops = document.createElement("div"); stops.className = "stops";
+  const n = full.length;
+  full.forEach((v, i) => {
+    const sp = document.createElement("span"); sp.textContent = fullLabels[i];
+    // Center each label under the thumb at that stop: the native range thumb
+    // travels within [~9px, width-9px], so map i/(n-1) into that inset band.
+    sp.style.left = "calc(9px + (100% - 18px) * " + (n > 1 ? i / (n - 1) : 0) + ")";
+    if (v === (current || "")) sp.className = "on";
+    if (defs && defs[v]) sp.title = defs[v];
+    stops.appendChild(sp);
+  });
+  wrap.appendChild(stops);
+
+  const apply = v => {
+    ro.textContent = readoutFor(v);
+    [...stops.children].forEach((sp, i) => sp.classList.toggle("on", full[i] === v));
+    range.value = String(idxOf(v));
+    commit(v);
+  };
+  range.addEventListener("input", () => apply(full[+range.value]));
+  [...stops.children].forEach((sp, i) => sp.addEventListener("click", () => apply(full[i])));
+  return wrap;
+}
+
+// Single-select chip row (language, stance). Updates highlight in place, then
+// commits (mutate + refreshView), no teardown. A "" value renders as "none".
+export function chipsControl(values, current, commit, labels, defs) {
+  const wrap = document.createElement("div"); wrap.className = "def-chips";
+  values.forEach(v => {
+    const chip = document.createElement("span");
+    chip.className = "def-chip" + (v === (current || "") ? " on" : "");
+    chip.textContent = labels && labels[v] != null ? labels[v] : (v === "" ? "none" : v);
+    if (defs && defs[v]) chip.title = defs[v];
+    chip.addEventListener("click", () => { [...wrap.children].forEach(c => c.classList.remove("on")); chip.classList.add("on"); commit(v); });
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+// A single action chip (e.g. "✎ custom voice…") — no selection state.
+export function actionChip(label, onClick) {
+  const wrap = document.createElement("div"); wrap.className = "def-chips";
+  const chip = document.createElement("span"); chip.className = "def-chip"; chip.textContent = label;
+  chip.addEventListener("click", onClick); wrap.appendChild(chip);
+  return wrap;
+}
+// A labeled `.field` wrapper around a chips node (matches the slider header).
+export function chipField(labelText, help, chipsNode) {
+  const wrap = document.createElement("div"); wrap.className = "field";
+  const l = document.createElement("label"); l.textContent = labelText + " ";
+  if (help) l.appendChild(helpIcon(help));
+  wrap.appendChild(l); wrap.appendChild(chipsNode);
   return wrap;
 }

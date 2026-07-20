@@ -60,7 +60,8 @@
       "additionalProperties": { "type": "string" },
       "description": "Carte namespace logique -> chemin de base. Un io_ref avec role 'ns:nom' résout en '<namespaces[ns]>/nom.<ext>'."
     },
-    "opportunistic": { "$ref": "#/definitions/opportunistic" }
+    "opportunistic": { "$ref": "#/definitions/opportunistic" },
+    "definition": { "$ref": "#/definitions/definition" }
   },
   "definitions": {
     "phase": {
@@ -75,6 +76,8 @@
           "type": "string",
           "description": "When type=workflow_call, the name of another workflow to invoke (must match a file src/workflows/<workflow>.yaml). Validated by coherence check."
         },
+        "args": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] },
+          "description": "For type=workflow_call: bind the target workflow's params. Value is a literal or 'signal:<key>'." },
         "description": { "type": "string" },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "parallel_with": { "type": "array", "items": { "type": "string" } },
@@ -222,6 +225,72 @@
             "examples": { "type": "array", "items": { "type": "string" } }
           }
         }
+      ]
+    },
+    "definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "params": { "type": "array", "items": { "$ref": "#/definitions/def_param" } },
+        "outputs": { "type": "array", "items": { "$ref": "#/definitions/def_output" } },
+        "emits": { "type": "array", "items": { "$ref": "#/definitions/def_emit" } },
+        "formatter": { "$ref": "#/definitions/def_formatter" }
+      }
+    },
+    "def_param": {
+      "type": "object", "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "type": { "enum": ["number", "string", "bool", "enum", "list"] },
+        "values": { "type": "array", "items": { "type": "string" } },
+        "of": { "$ref": "#/definitions/of_spec" },
+        "required": { "type": "boolean" },
+        "default": {},
+        "description": { "type": "string" }
+      }
+    },
+    "def_output": {
+      "allOf": [
+        { "$ref": "#/definitions/io_ref" },
+        { "type": "object", "required": ["produced_by"],
+          "properties": { "produced_by": { "enum": ["promote", "formatter"] } } }
+      ]
+    },
+    "def_emit": {
+      "type": "object", "required": ["name", "type", "source"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "type": { "enum": ["number", "string", "bool", "enum", "list"] },
+        "values": { "type": "array", "items": { "type": "string" } },
+        "of": { "$ref": "#/definitions/of_spec" },
+        "source": { "enum": ["promote", "create"] },
+        "from": { "type": "string" },
+        "field": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+      }
+    },
+    "def_formatter": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "prompt": { "type": "string" },
+        "invoke": { "type": "object", "properties": {
+          "type": { "enum": ["main_agent", "agent"] },
+          "agent": { "type": "string" },
+          "model": { "enum": ["haiku", "sonnet", "opus", "inherit"] },
+          "effort": { "enum": ["low", "medium", "high", "xhigh", "max", "inherit"] },
+          "tools": { "type": "array", "items": { "type": "string" } } } },
+        "inputs": { "type": "array", "items": { "$ref": "#/definitions/io_ref" } },
+        "style": { "type": "object" }
+      }
+    },
+    "of_spec": {
+      "oneOf": [
+        { "enum": ["string", "number", "bool", "enum"] },
+        { "type": "object", "additionalProperties": {
+          "oneOf": [ { "enum": ["string", "number", "bool"] },
+                     { "type": "object", "required": ["enum"],
+                       "properties": { "enum": { "type": "array", "items": { "type": "string" } } },
+                       "additionalProperties": false } ] } }
       ]
     }
   }

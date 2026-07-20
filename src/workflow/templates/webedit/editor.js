@@ -13,6 +13,8 @@ import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox, fieldDatalist,
          ioRefEditor, triggerEditor, stringListEditor, signalsEditor } from "./formfields.js";
 import { createDataflow } from "./dataflow.js";
 import * as orch from "./orchestration.js";
+import * as definition from "./definition.js";
+import { renderVocabEditor } from "./vocab.js";
 
 const $ = s => document.querySelector(s);
 const api = (m, p, b) => fetch(p, { method: m, headers: { "Content-Type": "application/json" },
@@ -37,6 +39,9 @@ let state = {
   // Reserved for the future JS ("dynamic") compile target — no functional
   // effect yet; only "standard" is selectable (Task 15).
   target: "standard",
+  // Merged prompt-assist vocabulary (/api/vocab), fetched once on load — feeds
+  // the Definition tab's knob controls (Task 5; see vocab.js's knobView).
+  vocab: null,
 };
 
 let dataflow = null;
@@ -117,6 +122,7 @@ async function refreshView() {
   renderYaml();
   renderIssues();
   if (state.tab === "dataflow") dataflow.render();
+  if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
   setStatus(j.errors && j.errors.length ? "⚠ " + j.errors.length + " schema issue(s)" : "");
   const orchCount = orchestrationWarnList().length;
   // Armed = a per-workflow baseline is established. Not armed (fresh load) →
@@ -1071,6 +1077,12 @@ function settingsCtx() {
            globalOpportunisticState, setGlobalOpportunistic } };
 }
 
+// --- definition (Workflow definition tab: params/outputs/emits/formatter) --
+function definitionCtx() {
+  return { getModel: () => state.model, setModel: m => { state.model = m; }, refreshView,
+           view: state.view || {}, vocab: state.vocab || { knobs: {} } };
+}
+
 // --- save / new / clone ----------------------------------------------------
 function modelForSave() {
   // Strip editor-only transient keys (standalone file blocks, block _id) so they
@@ -1125,12 +1137,48 @@ function switchTab(tab) {
   if (tab === "grid") schedulePaint();
   if (tab === "settings") renderSettings($("#settings"), settingsCtx());
   if (tab === "dataflow") dataflow.render();
+  if (tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
+}
+
+// --- awok settings (global, outside any workflow) --------------------------
+async function openVocabEditor() {
+  const { j } = await api("GET", "/api/vocab");
+  const merged = (j && j.merged) || { knobs: {} };
+  state.vocab = merged;   // keep the definition tab in sync with any fresh edits
+  renderVocabEditor($("#awok-vocab"), {
+    getMerged: () => merged,
+    sameRoot: !!(j && j.sameRoot),
+    paths: (j && j.paths) || {},
+    onSave: async (overlays) => {
+      const r = await api("PUT", "/api/vocab", { overlays });
+      if (r.status === 200) {
+        const fresh = await api("GET", "/api/vocab");
+        state.vocab = (fresh.j && fresh.j.merged) || merged;
+      }
+      return (r.j) || { ok: r.status === 200, errors: [] };
+    },
+  });
+}
+function enterAwokPage() {
+  // Hide the whole workflow chrome (tab bar + the entire main area) so the awok
+  // page owns the scroll region — otherwise the empty main keeps its flex space.
+  document.querySelectorAll("#tabs, main").forEach(el => el.classList.add("awok-hidden"));
+  $("#page-awok").hidden = false;
+  openVocabEditor();
+}
+function exitAwokPage() {
+  $("#page-awok").hidden = true;
+  document.querySelectorAll("#tabs, main").forEach(el => el.classList.remove("awok-hidden"));
+  // Re-render the active workflow tab from the (preserved) in-memory model.
+  if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
 }
 
 window.addEventListener("resize", () => { if (state.tab === "grid") schedulePaint(); if (state.tab === "dataflow") dataflow.paintEdges(); });
 document.addEventListener("DOMContentLoaded", () => {
   dataflow = createDataflow({ getModel: () => state.model, getAgents: () => state.agents, refreshView, setStatus });
   loadList();
+  api("GET", "/api/vocab").then(r => { state.vocab = (r.j && r.j.merged) || { knobs: {} };
+    if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx()); });
   $("#wf-select").addEventListener("change", e => {
     const next = e.target.value;
     if (next === state.name) return;
@@ -1140,6 +1188,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#wf-new").addEventListener("click", newWf);
   $("#wf-clone").addEventListener("click", cloneWf);
   $("#wf-save").addEventListener("click", save);
+  $("#awok-settings-btn").addEventListener("click", enterAwokPage);
+  $("#awok-back").addEventListener("click", exitAwokPage);
   $("#add-phase").addEventListener("click", addPhase);
   $("#target-pill").addEventListener("click", (e) => openTargetMenu(e.currentTarget));
   $("#info-btn").addEventListener("click", (e) => openInfoPopover(e.currentTarget));

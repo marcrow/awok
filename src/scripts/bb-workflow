@@ -89,6 +89,215 @@ REPO_ROOT_GUESS = ENGINE_ROOT
 _apply_roots(ENGINE_ROOT, CONTENT_ROOT)
 
 
+def _vocab_base_path():
+    """The engine base vocabulary path, resolved at call time so ENGINE_ROOT
+    overrides (--workdir, tests) take effect."""
+    return ENGINE_ROOT / "src" / "workflow" / "vocab.yaml"
+
+
+def _vocab_overlay_paths():
+    """Writable per-root overlays to apply over the base, engine then workdir.
+    De-duplicated: with no --workdir, ENGINE_ROOT == CONTENT_ROOT so the two
+    collapse to one file (applied once)."""
+    seen, out = set(), []
+    for root in (ENGINE_ROOT, CONTENT_ROOT):
+        p = (root / "custom" / "vocab.yaml").resolve()
+        if p not in seen:
+            seen.add(p); out.append(p)
+    return out
+
+
+def _vocab_target_paths():
+    """The two writable overlay targets: `engine` (ENGINE_ROOT/custom — shared
+    by ALL projects) and `workdir` (CONTENT_ROOT/custom — this project only).
+    With no --workdir they resolve to the SAME file (see `_vocab_same_root`)."""
+    return {"engine": ENGINE_ROOT / "custom" / "vocab.yaml",
+            "workdir": CONTENT_ROOT / "custom" / "vocab.yaml"}
+
+
+def _vocab_same_root():
+    """True when engine and workdir overlay targets are the same file (no
+    --workdir): the per-option scope choice then has no effect."""
+    t = _vocab_target_paths()
+    return t["engine"].resolve() == t["workdir"].resolve()
+
+
+def _apply_vocab_overlay(knobs, overlay, layer=None):
+    """Mutate `knobs` (merged so far) with one overlay dict, keyed by
+    (knob, value): reword an existing option (fields win, `overridden=True`)
+    or append a new one (`source='overlay'`). `layer` (engine/workdir) records
+    which overlay file the effective option lives in, for the editor's scope
+    choice."""
+    for kname, kpatch in (overlay.get("knobs") or {}).items():
+        knob = knobs.get(kname)
+        if knob is None:
+            continue  # overlays extend options within fixed knobs, never add knobs
+        by_value = {o["value"]: o for o in knob["options"]}
+        for opt in (kpatch.get("options") or []):
+            val = opt.get("value")
+            if val is None:
+                continue
+            if val in by_value:
+                target = by_value[val]
+                for k, x in opt.items():
+                    if k != "value":
+                        target[k] = x
+                target["overridden"] = True
+                if layer:
+                    target["layer"] = layer
+            else:
+                new = dict(opt); new.setdefault("source", "overlay")
+                new.setdefault("overridden", False)
+                if layer:
+                    new["layer"] = layer
+                knob["options"].append(new); by_value[val] = new
+
+
+def load_vocab():
+    """Merged prompt-assist vocabulary: engine base <- engine overlay <-
+    workdir overlay, keyed by (knob, option-value). Each option is tagged with
+    provenance (`source`, `overridden`). Single source consumed by both
+    compile_style() and GET /api/vocab."""
+    base = yaml.safe_load(_vocab_base_path().read_text(encoding="utf-8")) or {}
+    knobs = base.get("knobs") or {}
+    for knob in knobs.values():
+        for opt in knob.get("options") or []:
+            opt.setdefault("source", "base")
+            opt.setdefault("overridden", False)
+    targets = _vocab_target_paths()
+    eng, wd = targets["engine"].resolve(), targets["workdir"].resolve()
+
+    def _layer_of(path):
+        rp = path.resolve()
+        if rp == wd:
+            return "workdir"
+        if rp == eng:
+            return "engine"
+        return "workdir"          # unknown (e.g. test overlays) → project default
+    for path in _vocab_overlay_paths():
+        if path.is_file():
+            overlay = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            _apply_vocab_overlay(knobs, overlay, _layer_of(path))
+    # Order each knob's options by `weight` (the slider position in the editor);
+    # options without a numeric weight sort last, keeping their relative order.
+    for knob in knobs.values():
+        opts = knob.get("options") or []
+        opts.sort(key=lambda o: o["weight"] if isinstance(o.get("weight"),
+                  (int, float)) and not isinstance(o.get("weight"), bool) else float("inf"))
+    return {"version": base.get("version", 1), "knobs": knobs}
+
+
+_VOCAB_KNOBS = ("length", "tone", "format", "audience", "language", "stance")
+
+
+def _validate_overlay_shape(overlay):
+    """Shape-only validation of one overlay dict → list of error strings. The
+    knob set is fixed; overlays only extend options within it (option `value`
+    string; definition/prose/label/hint strings; weight a number)."""
+    errors = []
+    if not isinstance(overlay, dict):
+        return ["overlay must be an object"]
+    knobs = overlay.get("knobs") or {}
+    if not isinstance(knobs, dict):
+        return ["knobs must be an object"]
+    for kname, kpatch in knobs.items():
+        if kname not in _VOCAB_KNOBS:
+            errors.append(f"unknown knob '{kname}'")
+            continue
+        if not isinstance(kpatch, dict):
+            errors.append(f"{kname}: patch must be an object")
+            continue
+        for opt in (kpatch.get("options") or []):
+            if not isinstance(opt, dict):
+                errors.append(f"{kname}: option must be an object")
+                continue
+            v = opt.get("value")
+            if not isinstance(v, str) or not v.strip():
+                errors.append(f"{kname}: option missing a string value")
+            for field in ("definition", "prose", "label", "hint"):
+                if field in opt and not isinstance(opt[field], str):
+                    errors.append(f"{kname}.{v}: {field} must be a string")
+            if "weight" in opt and (not isinstance(opt["weight"], (int, float))
+                                    or isinstance(opt["weight"], bool)):
+                errors.append(f"{kname}.{v}: weight must be a number")
+    return errors
+
+
+def _write_overlay_file(overlay, dest):
+    """Write one overlay dict to `dest` (creating custom/). Strips editor-only
+    provenance keys (source/overridden/layer) that never belong on disk."""
+    knobs = overlay.get("knobs") or {}
+    clean = {}
+    for kname, kpatch in knobs.items():
+        opts = []
+        for opt in (kpatch.get("options") or []):
+            opts.append({k: x for k, x in opt.items()
+                         if k not in ("source", "overridden", "layer")})
+        if opts:
+            clean[kname] = {"options": opts}
+    out = {"version": overlay.get("version", 1), "knobs": clean}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(yaml.safe_dump(out, sort_keys=False, allow_unicode=True),
+                    encoding="utf-8")
+
+
+def save_vocab_overlay(overlay, target="workdir"):
+    """Validate (shape only) and write ONE overlay to `target`
+    (`workdir` → CONTENT_ROOT/custom, `engine` → ENGINE_ROOT/custom). Never
+    touches the base. Returns [] or a list of error strings."""
+    errors = _validate_overlay_shape(overlay)
+    if errors:
+        return errors
+    dest = _vocab_target_paths().get(target) or _vocab_target_paths()["workdir"]
+    _write_overlay_file(overlay, dest)
+    return []
+
+
+def _merge_overlays(a, b):
+    """Union two overlays (b wins on a same (knob, value) option)."""
+    out = {"version": (b or {}).get("version") or (a or {}).get("version", 1), "knobs": {}}
+    for src in (a, b):
+        for kname, kpatch in ((src or {}).get("knobs") or {}).items():
+            dst = out["knobs"].setdefault(kname, {"options": []})
+            by_val = {o.get("value"): o for o in dst["options"]}
+            for opt in (kpatch.get("options") or []):
+                v = opt.get("value")
+                if v in by_val:
+                    by_val[v].update(opt)
+                else:
+                    dst["options"].append(dict(opt)); by_val[v] = dst["options"][-1]
+    return out
+
+
+def save_vocab_overlays(overlays):
+    """Write both scope targets at once: `overlays` = {engine: {...}, workdir:
+    {...}}. When engine and workdir are the same file (no --workdir) their
+    contents are merged and written once, so neither clobbers the other."""
+    overlays = overlays or {}
+    errors = []
+    for name in ("engine", "workdir"):
+        if overlays.get(name):
+            errors += [f"{name}: {e}" for e in _validate_overlay_shape(overlays[name])]
+    if errors:
+        return errors
+    targets = _vocab_target_paths()
+    blank = {"version": 1, "knobs": {}}
+    if _vocab_same_root():
+        _write_overlay_file(_merge_overlays(overlays.get("engine"), overlays.get("workdir")),
+                            targets["workdir"])
+    else:
+        for name in ("engine", "workdir"):
+            _write_overlay_file(overlays.get(name) or blank, targets[name])
+    return []
+
+
+def _raw_vocab_overlay(target="workdir"):
+    """One target's overlay dict as-authored (for the editor to edit and PUT
+    back), or {} if absent."""
+    p = _vocab_target_paths().get(target) or _vocab_target_paths()["workdir"]
+    return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
+
+
 def discover_workflows(workflows_dir: Path = None) -> list:
     """Return [(name, path), ...] for every workflow YAML under workflows_dir.
 
@@ -937,6 +1146,115 @@ def _validate_signals(workflow: dict) -> list:
     return errors
 
 
+def _all_produced_roles(workflow: dict) -> dict:
+    """role (namespace-stripped of trailing .field) -> kind, for every output an
+    internal phase/invocation produces. Used to check definition promote-outputs."""
+    roles = {}
+    for phase in workflow.get("phases", []):
+        for out in phase.get("outputs", []) or []:
+            roles[out.get("role", "")] = out.get("kind")
+        for inv in phase.get("invocations", []) or []:
+            for out in inv.get("outputs", []) or []:
+                roles[out.get("role", "")] = out.get("kind")
+    return roles
+
+
+def validate_definition(workflow: dict) -> list:
+    """Blocking rules for the workflow-level `definition` contract (spec 2026-07-17).
+    Params, outputs (produced_by + promote/formatter), emits (promote/create),
+    reserved id DEFINITION. Signal keys are lowercase <pid>.<name>."""
+    d = workflow.get("definition")
+    if not d:
+        return []
+    errors = []
+
+    # reserved id
+    if any(p.get("id") == "DEFINITION" for p in workflow.get("phases", [])):
+        errors.append("phase id 'DEFINITION' is reserved for the workflow definition block")
+
+    # --- params ---
+    seen = set()
+    for p in d.get("params", []) or []:
+        name = p.get("name", "?")
+        tag = f"definition param '{name}'"
+        ptype = p.get("type")
+        if name in seen:
+            errors.append(f"{tag}: duplicate param name")
+        seen.add(name)
+        if ptype == "enum":
+            errors.extend(_check_values_form(p.get("values"), tag))
+        if ptype == "list":
+            if not p.get("of"):
+                errors.append(f"{tag}: type 'list' requires an 'of' element type")
+            else:
+                errors.extend(_check_of_form(p.get("of"), p.get("values"), tag))
+        if p.get("required") and p.get("default") not in (None, ""):
+            errors.append(f"{tag}: a required param cannot declare a default")
+        default = p.get("default")
+        if default not in (None, ""):
+            if ptype == "number" and not isinstance(default, (int, float)):
+                errors.append(f"{tag}: default must be a number")
+            if ptype == "bool" and not isinstance(default, bool):
+                errors.append(f"{tag}: default must be a bool")
+            if ptype == "enum" and default not in (p.get("values") or []):
+                errors.append(f"{tag}: default must be one of the enum values")
+            if ptype == "list":
+                errors.append(f"{tag}: a list param cannot declare a default")
+
+    # --- outputs ---
+    produced = _all_produced_roles(workflow)
+    fmt = (d.get("formatter") or {})
+    has_formatter = bool(fmt.get("enabled"))
+    fmt_output_roles = {o.get("role"): o.get("kind")
+                        for o in d.get("outputs", []) or [] if o.get("produced_by") == "formatter"}
+    for o in d.get("outputs", []) or []:
+        role = o.get("role") or o.get("path") or "?"
+        pb = o.get("produced_by")
+        if pb == "promote" and o.get("role") and o["role"] not in produced:
+            errors.append(f"definition output '{role}' is produced_by promote but no internal phase produces role '{o['role']}'")
+        if pb == "formatter" and not has_formatter:
+            errors.append(f"definition output '{role}' is produced_by formatter but no formatter is enabled")
+
+    # --- emits ---
+    signals = collect_signals(workflow)
+    seen_e = set()
+    for e in d.get("emits", []) or []:
+        name = e.get("name", "?")
+        tag = f"definition emit '{name}'"
+        if name in seen_e:
+            errors.append(f"{tag}: duplicate emit name")
+        seen_e.add(name)
+        if e.get("type") == "enum":
+            errors.extend(_check_values_form(e.get("values"), tag))
+        if e.get("type") == "list":
+            if not e.get("of"):
+                errors.append(f"{tag}: type 'list' requires 'of'")
+            else:
+                errors.extend(_check_of_form(e.get("of"), e.get("values"), tag))
+        src = e.get("source")
+        if src == "promote":
+            key = e.get("from")
+            if not key:
+                errors.append(f"{tag}: promote requires a 'from' internal signal key")
+            elif key not in signals:
+                errors.append(f"{tag}: promote 'from' {key!r} is not a declared signal")
+            else:
+                st = signals[key].get("type")
+                if st and st != e.get("type"):
+                    errors.append(f"{tag}: type '{e.get('type')}' differs from promoted signal {key} ('{st}')")
+        elif src == "create":
+            if not has_formatter:
+                errors.append(f"{tag}: source 'create' requires a formatter")
+            role = e.get("from")
+            if not role or role not in fmt_output_roles:
+                errors.append(f"{tag}: create 'from' must read a formatter output role")
+            elif fmt_output_roles.get(role) != "json":
+                errors.append(f"{tag}: create reads role '{role}' which must be kind 'json' to carry a field")
+            if not e.get("field"):
+                errors.append(f"{tag}: create requires a 'field' selector")
+    return errors
+
+
 def _value_spec(emit):
     t = emit.get("type")
     if t == "bool":
@@ -1421,6 +1739,22 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
                         f"phase '{pid}' (workflow_call) references unknown workflow '{target}' "
                         f"(no src/workflows/{target}.yaml)"
                     )
+                else:
+                    # bind args against the target's definition.params
+                    target_path = workflows_dir / f"{target}.yaml"
+                    try:
+                        target_wf = load_workflow(target_path)
+                    except Exception:
+                        target_wf = None
+                    if target_wf is not None:
+                        tparams = (target_wf.get("definition") or {}).get("params", []) or []
+                        tnames = {p.get("name") for p in tparams}
+                        required = {p.get("name") for p in tparams if p.get("required")}
+                        bound = set((phase.get("args") or {}).keys())
+                        for miss in sorted(required - bound):
+                            errors.append(f"phase '{pid}' (workflow_call {target}) required param '{miss}' is unbound")
+                        for extra in sorted(bound - tnames):
+                            errors.append(f"phase '{pid}' (workflow_call {target}) binds unknown param '{extra}'")
 
         # invocations
         for inv in phase.get("invocations", []):
@@ -1472,6 +1806,8 @@ def validate_coherence(workflow: dict, agents_dir: Path = None,
         errors.extend(validate_orchestration(workflow))
 
     errors.extend(_validate_signals(workflow))
+
+    errors.extend(validate_definition(workflow))
 
     return errors
 
@@ -1972,24 +2308,19 @@ def _invocation_run_directive(inv: dict):
             f"at `deploy`; the sub-agent uses exactly these, nothing to pass at launch.")
 
 
-def generate_skill_md(workflow_path: Path, output_path: Path,
-                     templates_dir: Path = None, agents_dir: Path = None,
-                     invocations_dir: Path = None) -> None:
-    """Generate the SKILL.md from workflow.yaml + snippets."""
+def render_skill_markdown(workflow: dict, templates_dir: Path = None,
+                          invocations_dir: Path = None) -> str:
+    """Render the SKILL.md string from an already-loaded workflow dict + snippets.
+
+    Shared by `generate_skill_md` (file writer) and tests that only need the
+    rendered string (e.g. exercising the synthetic DEFINITION phase end to end).
+    Does NOT validate — callers that read from disk (`generate_skill_md`)
+    validate first; callers that already hold a trusted in-memory dict (tests)
+    can skip straight to rendering.
+    """
     templates_dir = templates_dir or (REPO_ROOT_GUESS / "src" / "workflow" / "templates")
     # Jinja templates are engine-owned; invocation snippets are content-owned.
     invocations_dir = invocations_dir or (templates_dir / "invocations")
-
-    workflow = load_workflow(workflow_path)
-
-    # Validate first; fail loudly
-    schema_errors = validate_schema(workflow)
-    if schema_errors:
-        raise ValueError(f"Workflow invalid: {schema_errors}")
-
-    coherence_errors = validate_coherence(workflow, agents_dir=agents_dir)
-    if coherence_errors:
-        raise ValueError(f"Workflow coherence errors: {coherence_errors}")
 
     # Résout les chemins dérivés (role+namespace) pour le rendu — sur une copie,
     # le YAML source reste en rôles.
@@ -2119,6 +2450,15 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         lstrip_blocks=True,
     )
     template = env.get_template("skill-skeleton.md.jinja")
+
+    # Synthesize the terminal DEFINITION phase (only present when the workflow
+    # declares a `definition:` block) and compose its full formatter prompt —
+    # None for workflows without a definition, which keeps their SKILL.md
+    # byte-identical (the template guards the whole block on this being set).
+    definition_phase = _synthesize_definition_phase(workflow)
+    if definition_phase is not None:
+        definition_phase["composed_prompt"] = compose_formatter_prompt(workflow, definition_phase)
+
     output = template.render(
         skill=workflow.get("skill", {"name": "unnamed", "description": ""}),
         phases=phases_rendered,
@@ -2138,7 +2478,29 @@ def generate_skill_md(workflow_path: Path, output_path: Path,
         any_invocation_tools=any_invocation_tools,
         any_parallelism=any_parallelism,
         orchestration_md=render_orchestration(workflow),
+        definition_phase=definition_phase,
     )
+
+    return output
+
+
+def generate_skill_md(workflow_path: Path, output_path: Path,
+                     templates_dir: Path = None, agents_dir: Path = None,
+                     invocations_dir: Path = None) -> None:
+    """Generate the SKILL.md from workflow.yaml + snippets."""
+    workflow = load_workflow(workflow_path)
+
+    # Validate first; fail loudly
+    schema_errors = validate_schema(workflow)
+    if schema_errors:
+        raise ValueError(f"Workflow invalid: {schema_errors}")
+
+    coherence_errors = validate_coherence(workflow, agents_dir=agents_dir)
+    if coherence_errors:
+        raise ValueError(f"Workflow coherence errors: {coherence_errors}")
+
+    output = render_skill_markdown(workflow, templates_dir=templates_dir,
+                                   invocations_dir=invocations_dir)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -2371,6 +2733,7 @@ def build_view_payload(model: dict) -> dict:
         "orchestration_overlay": build_orchestration_overlay(model),
         "orchestration_warnings": validate_orchestration(model),
         "dataflow_warnings": _safe_dataflow_warnings(model),
+        "definition_preview": _safe_definition_preview(model),
     }
 
 
@@ -2380,6 +2743,26 @@ def _safe_dataflow_warnings(model: dict) -> list:
         return check_dataflow_warnings(model)
     except Exception:
         return []
+
+
+def _safe_definition_preview(model: dict) -> dict:
+    """Server-rendered `definition_preview` for the editor — computed here so
+    the WebUI (Task 10) never recompiles the style knobs, just renders them
+    verbatim. `{prompt, compiled, io_line}`; None when there is no
+    `definition` block or a mid-edit model makes synthesis blow up."""
+    try:
+        def_phase = _synthesize_definition_phase(model)
+        if def_phase is None:
+            return None
+        fmt = (model.get("definition") or {}).get("formatter") or {}
+        inputs, outputs = _resolve_definition_formatter_io(model, def_phase)
+        return {
+            "prompt": compose_formatter_prompt(model, def_phase),
+            "compiled": compile_style(fmt.get("style") or {}),
+            "io_line": _format_io_compact(inputs, outputs),
+        }
+    except Exception:
+        return None
 
 
 def build_edge_labels(workflow: dict) -> dict:
@@ -2467,6 +2850,173 @@ def build_phase_agent_nodes(workflow: dict) -> list:
     return nodes
 
 
+def _synthesize_definition_phase(workflow: dict) -> dict:
+    """Build the terminal DEFINITION phase from the definition block, WITHOUT
+    mutating workflow['phases']. depends_on is derived from the phases that
+    produce its promoted signals, promote-outputs and formatter inputs."""
+    d = workflow.get("definition")
+    if not d:
+        return None
+    fmt = d.get("formatter") or {}
+    has_fmt = bool(fmt.get("enabled"))
+    inv = fmt.get("invoke") or {}
+    phase = {
+        "id": "DEFINITION", "name": "Workflow output", "group": "handoff",
+        "type": (inv.get("type") or "main_agent") if has_fmt else "main_agent",
+        "inputs": list(fmt.get("inputs") or []),
+        "outputs": list(d.get("outputs") or []),
+        "emits": list(d.get("emits") or []),
+        "depends_on": _derive_definition_depends_on(workflow, d),
+    }
+    if has_fmt and inv.get("type") == "agent" and inv.get("agent"):
+        io = {"inputs": list(fmt.get("inputs") or []),
+              "outputs": [o for o in (d.get("outputs") or []) if o.get("produced_by") == "formatter"]}
+        phase["invocations"] = [dict(agent=inv["agent"], model=inv.get("model"),
+                                     effort=inv.get("effort"), tools=inv.get("tools"),
+                                     description=fmt.get("prompt", ""), **io)]
+    return phase
+
+
+def _derive_definition_depends_on(workflow: dict, d: dict) -> list:
+    """Phases the DEFINITION node waits on: producers of promoted signals, of
+    promote-output roles, and of formatter input roles."""
+    deps = set()
+    # promoted signals -> emitting phase
+    sig_phase = {f"{p['id'].lower()}.{e['name']}": p["id"]
+                 for p in workflow.get("phases", []) for e in (p.get("emits") or [])}
+    for e in d.get("emits", []) or []:
+        if e.get("source") == "promote" and e.get("from") in sig_phase:
+            deps.add(sig_phase[e["from"]])
+    # role -> producing phase
+    role_phase = {}
+    for p in workflow.get("phases", []):
+        for out in (p.get("outputs") or []):
+            role_phase[out.get("role")] = p["id"]
+        for inv in (p.get("invocations") or []):
+            for out in (inv.get("outputs") or []):
+                role_phase[out.get("role")] = p["id"]
+    for o in d.get("outputs", []) or []:
+        if o.get("produced_by") == "promote" and o.get("role") in role_phase:
+            deps.add(role_phase[o["role"]])
+    for i in (d.get("formatter") or {}).get("inputs", []) or []:
+        if i.get("role") in role_phase:
+            deps.add(role_phase[i["role"]])
+    return sorted(deps)
+
+
+def _vocab_prose(knob, value):
+    """Injected prose for one (knob, value): the option's explicit `prose`
+    (verbatim; '' -> inject nothing) else the knob's prose_template
+    interpolated with {value} and {hint}. Returns None to inject nothing."""
+    for opt in knob.get("options") or []:
+        if opt.get("value") == value:
+            if "prose" in opt:
+                return opt["prose"] or None
+            break
+    tmpl = knob.get("prose_template")
+    if not tmpl:
+        return None
+    hint = knob.get("hint_fallback", "")
+    for opt in knob.get("options") or []:
+        if opt.get("value") == value:
+            hint = opt.get("hint", hint); break
+    try:
+        return tmpl.format(value=value, hint=hint) or None
+    except (KeyError, IndexError, ValueError):
+        return None
+
+
+def compile_style(style: dict) -> list:
+    """Prompt-assist knobs -> deterministic prose lines (single source of truth;
+    the WebUI preview renders these verbatim). Reads the merged vocabulary
+    (load_vocab). Free prompt is concatenated after by the caller."""
+    st = style or {}
+    knobs = load_vocab()["knobs"]
+    parts = []
+    if st.get("length"):
+        line = _vocab_prose(knobs["length"], st["length"])
+        if line: parts.append(line)
+    if st.get("tone") == "custom":
+        if st.get("toneCustom"):
+            parts.append(st["toneCustom"])
+    elif st.get("tone"):
+        line = _vocab_prose(knobs["tone"], st["tone"])
+        if line: parts.append(line)
+    if st.get("format"):
+        line = _vocab_prose(knobs["format"], st["format"])
+        if line: parts.append(line)
+    if st.get("language") and st["language"] != "inherit":
+        line = _vocab_prose(knobs["language"], st["language"])
+        if line: parts.append(line)
+    if st.get("audience"):
+        line = _vocab_prose(knobs["audience"], st["audience"])
+        if line: parts.append(line)
+    for m in st.get("mustInclude", []) or []:
+        parts.append(f"Always include: {m}.")
+    for a in st.get("avoid", []) or []:
+        parts.append(f"Avoid: {a}.")
+    if st.get("stance"):
+        line = _vocab_prose(knobs["stance"], st["stance"])
+        if line: parts.append(line)
+    return parts
+
+
+def _resolve_definition_formatter_io(workflow: dict, def_phase: dict) -> tuple:
+    """Resolve the DEFINITION phase's formatter inputs/outputs to concrete
+    paths and return them as `(inputs, outputs)` plain io_ref lists, ready for
+    `_format_io_compact`.
+
+    `resolve_io_paths()` only walks `workflow['phases']`, not the
+    `definition` block, so the DEFINITION phase's formatter I/O is resolved
+    here explicitly — mirroring the same-purpose resolution already done ad
+    hoc for it in `build_dataflow_graph`. `def_phase` is expected to be
+    `_synthesize_definition_phase(workflow)`'s output: its `inputs` are
+    exactly the formatter's inputs, and its `outputs` mix promote + formatter
+    outputs, so only `produced_by: formatter` outputs belong in the
+    formatter's own "Writes" listing. Shared by `compose_formatter_prompt`
+    and `_safe_definition_preview` so path resolution lives in one place.
+    """
+    namespaces = workflow.get("namespaces", {})
+
+    def _resolved(io_list):
+        resolved = []
+        for io in io_list or []:
+            io = dict(io)
+            if not io.get("path"):
+                path = resolve_io_path(io, namespaces)
+                if path is not None:
+                    io["path"] = path
+            resolved.append(io)
+        return resolved
+
+    inputs = _resolved(def_phase.get("inputs", []))
+    outputs = _resolved([o for o in (def_phase.get("outputs") or [])
+                         if o.get("produced_by") == "formatter"])
+    return inputs, outputs
+
+
+def compose_formatter_prompt(workflow: dict, def_phase: dict) -> str:
+    """Full formatter prompt = io listing + compiled style + free prompt. Files
+    are listed HERE, never by the author (pitfall #5).
+
+    `_format_io_compact(inputs, outputs)` takes plain io_ref lists and expects
+    each item to already carry a resolved `path` — see
+    `_resolve_definition_formatter_io`.
+    """
+    fmt = (workflow.get("definition") or {}).get("formatter") or {}
+    inputs, outputs = _resolve_definition_formatter_io(workflow, def_phase)
+    io_line = _format_io_compact(inputs, outputs)
+    style_lines = compile_style(fmt.get("style") or {})
+    blocks = []
+    if io_line and io_line != "_(no I/O)_":
+        blocks.append(io_line)
+    if style_lines:
+        blocks.append("\n".join(style_lines))
+    if fmt.get("prompt"):
+        blocks.append(fmt["prompt"])
+    return "\n\n".join(blocks)
+
+
 def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
     """Build a dataflow view of the workflow.
 
@@ -2520,6 +3070,75 @@ def build_dataflow_graph(workflow: dict, mode: str = "internal") -> dict:
             for inp in phase.get("inputs", []) or []:
                 consumer_edges.add((pid, agent_label, node_id, inp["path"]))
                 file_paths.add(inp["path"])
+
+    # The workflow-level definition block acts as a terminal producer/consumer
+    # node: only formatter I/O participates (promote-only outputs are already
+    # tracked at their originating phase — re-registering them here would be a
+    # spurious second producer for the same path).
+    def_phase = _synthesize_definition_phase(workflow)
+    if def_phase:
+        fmt_inputs = def_phase.get("inputs") or []
+        fmt_outputs = [o for o in (def_phase.get("outputs") or [])
+                       if o.get("produced_by") == "formatter"]
+        if fmt_inputs or fmt_outputs:
+            invs = def_phase.get("invocations") or []
+            agent_label = invs[0]["agent"] if invs else def_phase.get("type", "phase")
+            pid = def_phase["id"]
+            node_id = f"{pid}_{_node_id_filter(agent_label)}"
+            key = (pid, agent_label)
+            node = nodes_by_key.get(key)
+            if not node:
+                node = {
+                    "node_id": node_id, "phase_id": pid,
+                    "phase_name": def_phase.get("name", pid),
+                    "agent": agent_label, "group": def_phase.get("group", ""),
+                }
+                nodes_by_key[key] = node
+                phase_agents.append(node)
+            def_namespaces = workflow.get("namespaces", {})
+            for out in fmt_outputs:
+                path = resolve_io_path(out, def_namespaces)
+                if path:
+                    producer_edges.add((pid, agent_label, node_id, path))
+                    file_paths.add(path)
+            for inp in fmt_inputs:
+                path = resolve_io_path(inp, def_namespaces)
+                if path:
+                    consumer_edges.add((pid, agent_label, node_id, path))
+                    file_paths.add(path)
+
+    # A workflow_call phase produces its target workflow's declared definition
+    # outputs (the caller "receives" them, so downstream consumers in THIS
+    # workflow see the call as their producer). Guarded: a missing/broken
+    # target must never crash dataflow rendering.
+    for phase in workflow.get("phases", []):
+        if phase.get("type") != "workflow_call":
+            continue
+        tgt = phase.get("workflow")
+        if not tgt:
+            continue
+        tpath = DEFAULT_WORKFLOWS_DIR / f"{tgt}.yaml"
+        if not tpath.exists():
+            continue
+        try:
+            tw = load_workflow(tpath)
+        except Exception:
+            continue
+        tgt_outputs = (tw.get("definition") or {}).get("outputs") or []
+        if not tgt_outputs:
+            continue
+        pid = phase["id"]
+        agent_label = phase.get("type", "phase")
+        node = nodes_by_key.get((pid, agent_label))
+        if not node:
+            continue
+        node_id = node["node_id"]
+        tgt_namespaces = tw.get("namespaces", {})
+        for out in tgt_outputs:
+            path = resolve_io_path(out, tgt_namespaces)
+            if path:
+                producer_edges.add((pid, agent_label, node_id, path))
+                file_paths.add(path)
 
     # Classify each path: internal (has both producer and consumer),
     # external (consumed only) or terminal (produced only).
@@ -2669,11 +3288,20 @@ def render_cartography_mermaid(workflow: dict, templates_dir: Path = None) -> st
     env.filters["node_id"] = _node_id_filter
     resolve_opportunistic(workflow)
     template = env.get_template("cartography.mermaid.jinja")
+
+    # Mirror render_skill_markdown: synthesize the terminal DEFINITION phase so
+    # the cartography can draw its boundary node — None (and no node rendered)
+    # for workflows without a `definition:` block.
+    definition_phase = _synthesize_definition_phase(workflow)
+    if definition_phase is not None:
+        definition_phase["composed_prompt"] = compose_formatter_prompt(workflow, definition_phase)
+
     return template.render(
         phases=workflow.get("phases", []),
         groups=workflow.get("groups", {}),
         group_colors=_resolve_group_colors(workflow),
         orchestration_overlay=build_orchestration_overlay(workflow),
+        definition_phase=definition_phase,
     )
 
 
@@ -3931,6 +4559,16 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 fp = (invocations_dir / f"{agent}.md")
                 text = fp.read_text() if fp.exists() else ""
                 return self._json(200, {"prompt": text})
+            if p == "/api/vocab":
+                tp = _vocab_target_paths()
+                return self._json(200, {
+                    "merged": load_vocab(),
+                    "overlay": _raw_vocab_overlay("workdir"),   # back-compat (single)
+                    "path": str(tp["workdir"]),                 # back-compat
+                    "overlays": {"engine": _raw_vocab_overlay("engine"),
+                                 "workdir": _raw_vocab_overlay("workdir")},
+                    "paths": {"engine": str(tp["engine"]), "workdir": str(tp["workdir"])},
+                    "sameRoot": _vocab_same_root()})
             return self._json(404, {"error": "unknown route"})
 
         def _route_post(self):
@@ -3998,6 +4636,16 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 fp.write_text(join_agent_md(fm, self._body().get("body", "")),
                               encoding="utf-8")
                 return self._json(200, {"ok": True})
+            if p == "/api/vocab":
+                body = self._body()
+                # New shape: {overlays: {engine, workdir}} → write both targets.
+                # Back-compat: a bare overlay dict → the workdir target.
+                if isinstance(body, dict) and "overlays" in body:
+                    errs = save_vocab_overlays(body.get("overlays"))
+                else:
+                    errs = save_vocab_overlay(body, "workdir")
+                return self._json(200 if not errs else 422,
+                                  {"ok": not errs, "errors": errs})
             return self._json(404, {"error": "unknown route"})
 
     return _Handler

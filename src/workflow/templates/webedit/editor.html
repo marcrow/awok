@@ -14,6 +14,7 @@
     <div class="brand">
       <img id="brand-logo" src="/editor/awok-mascot.png" alt="awok" width="34" height="34">
       <span class="wordmark">awok</span>
+      <button id="awok-settings-btn" class="icon-btn" title="awok settings (vocabulary)">⚙</button>
     </div>
     <div class="vsep"></div>
     <div class="wf-picker">
@@ -35,6 +36,7 @@
     <div class="tabs-left">
       <button class="tab active" data-tab="grid">Grid</button>
       <button class="tab" data-tab="dataflow">Dataflow</button>
+      <button class="tab" data-tab="definition">Definition</button>
       <button class="tab" data-tab="settings">Settings</button>
       <button class="tab tab-yaml" data-tab="yaml">YAML</button>
     </div>
@@ -109,6 +111,15 @@
       </div>
     </section>
 
+    <!-- DEFINITION (Workflow definition: identity, params, outputs & emits) -->
+    <section id="panel-definition" class="panel">
+      <div id="definition-toolbar">
+        <span class="tb-title">Definition</span>
+        <span class="tb-count">the I/O contract callers bind</span>
+      </div>
+      <div id="definition-scroll"><div id="definition"></div></div>
+    </section>
+
     <!-- SETTINGS -->
     <section id="panel-settings" class="panel">
       <div id="settings-toolbar">
@@ -121,6 +132,16 @@
     <!-- YAML (read-only view, unchanged) -->
     <section id="panel-yaml" class="panel"><pre id="yaml-src"></pre></section>
   </main>
+
+  <!-- awok settings (global, outside any workflow) -->
+  <section id="page-awok" class="awok-page" hidden>
+    <header class="awok-page-head">
+      <button id="awok-back" class="btn-ghost">← Workflow</button>
+      <h2>awok settings</h2>
+    </header>
+    <nav class="awok-page-nav"><button class="awok-sec active" data-sec="vocab">Vocabulary</button></nav>
+    <div id="awok-vocab"></div>
+  </section>
 
   <!-- Drawer (action editor) -->
   <aside id="edit-panel" hidden></aside>

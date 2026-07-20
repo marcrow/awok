@@ -463,6 +463,29 @@ Each agent has 3 descriptions to keep aligned (semantic consistency, not verbati
 **When you modify an agent's description**, check all 3 locations. If a gap is detected,
 align all 3.
 
+### Prompt-assist vocabularies (`vocab.yaml` + `custom/` overlay)
+
+The formatter's prompt-assist knobs (`length`, `tone`, `format`, `audience`,
+`language`, `stance`) are a **data-driven vocabulary**, global to the engine
+(not per-workflow). Two layers, merged by `load_vocab()`:
+
+- **Base** — `src/workflow/vocab.yaml` (engine, canonical, versioned). Each option
+  carries a human `definition` and the injected `prose`.
+- **User overlay** — `custom/vocab.yaml` at the project root (**gitignored**, survives
+  engine upgrades and `install.sh`). Resolution: base ← `ENGINE_ROOT/custom` (shared by
+  ALL projects) ← `CONTENT_ROOT/custom` (this `--workdir` only; workdir wins). An overlay
+  may **add** or **reword** options, never delete a base one; the knob set is fixed. Each
+  option carries a `weight` — the engine sorts options by it (the editor's slider order).
+
+`compile_style()` reads the merged store (no hardcoded maps); unknown values fall back
+to the knob's `prose_template`, so `def_formatter.style` stays schema-open. The web
+editor (dedicated awok settings page, the ⚙ button) reads it via `GET /api/vocab` and
+writes both overlays via `PUT /api/vocab` — each option has a **scope** toggle (this
+project → `CONTENT_ROOT/custom`, or shared → `ENGINE_ROOT/custom`); with no `--workdir`
+the two collapse to one file and the toggle is hidden. Custom options are deletable in
+the UI (base ones are not). Never hand-edit a generated SKILL.md. Design:
+`docs/superpowers/specs/2026-07-20-editable-formatter-vocabularies-design.md`.
+
 ### Patching the engine or a template — the change ripples to every workflow
 
 Editing one workflow's `.yaml` is **local**. Editing the **engine**

@@ -1,0 +1,93 @@
+schema_version: 1
+skill:
+  name: definition-demo
+  description: |
+    Fixture workflow exercising the workflow-level `definition:` contract end to
+    end: typed params (string/enum/number/list-of), a `promote` emit sourced
+    from an internal signal, a `create` emit sourced from a formatter JSON
+    output + field, and an editable-input formatter with prompt-assist style
+    knobs. Used only by the test suite — not a real, installable workflow.
+  title: "/definition-demo — I/O contract fixture"
+namespaces:
+  work: work/definition-demo
+groups:
+  collect:
+    description: Gather the raw material for the channel summary
+  synthesize:
+    description: Turn the raw material into internal artifacts the boundary reads
+phases:
+  - id: GATHER
+    name: Gather channel highlights
+    group: collect
+    type: main_agent
+    description: >
+      Collect the day's highlights for the target channel into a small JSON
+      list, ready for the formatter to compose into a final summary.
+    outputs:
+      - { role: work:highlights, kind: json }
+
+  - id: ANALYZE
+    name: Analyze sentiment and action items
+    group: synthesize
+    type: main_agent
+    depends_on: [GATHER]
+    description: >
+      Read the gathered highlights, classify the overall channel sentiment, and
+      draft the action items extracted from them.
+    inputs:
+      - { role: work:highlights, kind: json }
+    outputs:
+      - { role: work:action-items, kind: md }
+    emits:
+      - { name: sentiment, type: enum, values: [positive, neutral, negative], source: token }
+
+definition:
+  params:
+    - name: channel
+      type: string
+      required: true
+      description: Target channel name to summarize.
+    - name: tone
+      type: enum
+      values: [neutral, casual, formal]
+      default: neutral
+      description: Tone of the produced summary.
+    - name: max_items
+      type: number
+      default: 5
+      description: Maximum number of highlights to include.
+    - name: labels
+      type: list
+      of: string
+      description: Optional free-form labels to tag the summary with.
+  outputs:
+    - { role: work:action-items, kind: md, produced_by: promote }
+    - { role: work:summary, kind: json, produced_by: formatter }
+  emits:
+    - name: sentiment
+      type: enum
+      values: [positive, neutral, negative]
+      source: promote
+      from: analyze.sentiment
+    - name: summary_len
+      type: number
+      source: create
+      from: work:summary
+      field: length
+  formatter:
+    enabled: true
+    prompt: >
+      Compose the final channel summary from the gathered highlights, honoring
+      the requested tone and the max_items cap.
+    invoke:
+      type: main_agent
+    inputs:
+      - { role: work:highlights, kind: json }
+    style:
+      length: brief
+      tone: professional
+      format: bullets
+      language: inherit
+      mustInclude: ["channel name"]
+      avoid: ["internal jargon"]
+      stance: recommend
