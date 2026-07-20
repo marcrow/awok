@@ -279,7 +279,7 @@ New `src/workflow/templates/webedit/vocab.js`, exporting:
    read-only, overlay ones editable, with "add option" and "reword" actions that build the
    overlay patch and `PUT /api/vocab`.
 
-`definition.js` consumes (1); the global panel (7.2) hosts (2). The future agent-style
+`definition.js` consumes (1); the awok settings page (7.2) hosts (2). The future agent-style
 editor reuses both. The client fetches `/api/vocab` once on load (and re-fetches after a
 successful `PUT`).
 
@@ -289,19 +289,29 @@ successful `PUT`).
 is **never phrased as an example** (`"e.g. …"`) so it does not pollute the compiled prompt
 if left as-is.
 
-### 7.2 Global awok settings panel
+### 7.2 A separate awok settings **page** (top-level view, not an overlay)
 
-The current tab strip (`Grid / Dataflow / Definition / Settings / YAML`) is
-**workflow-scoped** — there is already a per-workflow `Settings` tab. The vocabulary is
-**awok-global**, so it must not be a peer tab there. Instead:
+The whole editor UI is today dedicated to **one workflow** — the topbar workflow picker,
+the workflow-scoped tab strip (`Grid / Dataflow / Definition / Settings / YAML`, note the
+per-workflow `Settings` tab), and the per-workflow panels. The vocabulary is
+**awok-global**, a different section *outside* any workflow, so it is a **full page of its
+own**, reached by a **top-level view switch** — not a peer tab and not a modal overlay.
 
-- A new **⚙ button in the topbar `brand` zone** (`editor.html`, next to the awok
-  wordmark — the awok-level zone, distinct from the workflow picker and the per-workflow
-  `Save`). Title e.g. "awok settings".
-- It opens a **full-viewport global panel** reusing the existing `.notice-overlay` chrome
-  (as `openPrompt` / `openAgentForm` do). First and only section for now: **Vocabulary**
-  (the `vocab.js` editor). The panel is structured to accommodate future awok-level config
-  sections, per the user's note that a dedicated awok surface is the right long-term home.
+- **Entry**: a new **⚙ button in the topbar `brand` zone** (`editor.html`, next to the
+  awok wordmark — the awok-level zone, distinct from the workflow picker and the
+  per-workflow `Save`). Title e.g. "awok settings".
+- **Switch**: clicking it enters an **awok-settings view** that replaces the workflow
+  chrome — the workflow-scoped tab bar and per-workflow panels are hidden and a dedicated
+  awok-settings header is shown, with a clear **back affordance** ("← Workflow", and the
+  awok wordmark) returning to the workflow view. This is a top-level view toggle in
+  `editor.js`, **distinct from `switchTab`** (which is workflow-scoped). A new
+  `<section id="page-awok">` in `editor.html` holds the page.
+- **Structure**: the page has its own section nav so it can grow future awok-level config;
+  v1 renders a single section, **Vocabulary** (the `vocab.js` editor).
+- **State**: switching to the awok page does **not** reload or drop the in-memory workflow
+  model — returning restores the workflow view exactly as left (no lost edits). The vocab
+  page is independent: it reads/writes its own overlay via `GET`/`PUT /api/vocab`, with no
+  coupling to the per-workflow `Save`.
 
 ## 8. Tests
 
