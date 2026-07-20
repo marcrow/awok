@@ -80,3 +80,41 @@ def test_compile_style_unknown_value_falls_back_to_template(monkeypatch):
     # A value not in the vocab degrades via the knob's prose_template.
     assert bbw.compile_style({"tone": "sardonic"}) == ["Write in a sardonic tone."]
     assert bbw.compile_style({"length": "epic"}) == ["Keep the answer epic (appropriate length)."]
+
+
+def test_compile_style_reflects_overlay(tmp_path, monkeypatch):
+    # Prove compile_style reads the MERGED vocab, not just the base: an
+    # overlay that rewords tone's `direct` prose must show up verbatim, and
+    # the base wording must be gone. If the overlay path were dropped (or
+    # _vocab_overlay_paths regressed to []), this would fail on both asserts.
+    overlay_dir = tmp_path / "custom"; overlay_dir.mkdir()
+    (overlay_dir / "vocab.yaml").write_text(
+        "version: 1\n"
+        "knobs:\n"
+        "  tone:\n"
+        "    options:\n"
+        "      - value: direct\n"
+        "        prose: \"Speak plainly and bluntly.\"\n",
+        encoding="utf-8")
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [overlay_dir / "vocab.yaml"])
+    lines = bbw.compile_style({"tone": "direct"})
+    assert "Speak plainly and bluntly." in lines
+    assert "Write in a direct tone." not in lines
+
+
+def test_vocab_prose_degrades_on_malformed_prose_template(monkeypatch):
+    # A malformed prose_template (stray brace) must degrade to no line, not
+    # crash `awok generate` with a ValueError.
+    def fake_load_vocab():
+        return {
+            "version": 1,
+            "knobs": {
+                "tone": {
+                    "kind": "ordinal",
+                    "prose_template": "Weird {value",
+                    "options": [],
+                }
+            },
+        }
+    monkeypatch.setattr(bbw, "load_vocab", fake_load_vocab)
+    assert bbw.compile_style({"tone": "whatever"}) == []

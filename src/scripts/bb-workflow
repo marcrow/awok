@@ -2774,7 +2774,7 @@ def _vocab_prose(knob, value):
             hint = opt.get("hint", hint); break
     try:
         return tmpl.format(value=value, hint=hint) or None
-    except (KeyError, IndexError):
+    except (KeyError, IndexError, ValueError):
         return None
 
 
