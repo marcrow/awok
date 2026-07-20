@@ -498,3 +498,78 @@ export function triggerEditor(label, items, onChange){
   render(); wrap.appendChild(add);
   return wrap;
 }
+
+// ---- prompt-assist controls (shared by the Definition tab + the awok vocab
+// editor). Ordinal slider + chip selector, ported from the mockup. A slider's
+// `commit` mutates + refreshes but never rerenders, so dragging stays smooth
+// and the D5 preview contract holds. Index 0 of the range is the "none" stop.
+export function bigSlider(labelText, help, scale, labels, current, readoutFor, commit, defs) {
+  const wrap = document.createElement("div"); wrap.className = "def-slider";
+  const top = document.createElement("div"); top.className = "top";
+  const lab = document.createElement("span"); lab.className = "lab"; lab.textContent = labelText;
+  if (help) lab.appendChild(helpIcon(help));
+  const ro = document.createElement("span"); ro.className = "readout"; ro.textContent = readoutFor(current || "");
+  top.appendChild(lab); top.appendChild(ro); wrap.appendChild(top);
+
+  const full = ["", ...scale];
+  const fullLabels = ["none", ...(labels || scale)];
+  const idxOf = v => Math.max(0, full.indexOf(v || ""));
+
+  const range = document.createElement("input");
+  range.type = "range"; range.min = "0"; range.max = String(full.length - 1); range.step = "1";
+  range.value = String(idxOf(current));
+  wrap.appendChild(range);
+
+  const stops = document.createElement("div"); stops.className = "stops";
+  const n = full.length;
+  full.forEach((v, i) => {
+    const sp = document.createElement("span"); sp.textContent = fullLabels[i];
+    // Center each label under the thumb at that stop: the native range thumb
+    // travels within [~9px, width-9px], so map i/(n-1) into that inset band.
+    sp.style.left = "calc(9px + (100% - 18px) * " + (n > 1 ? i / (n - 1) : 0) + ")";
+    if (v === (current || "")) sp.className = "on";
+    if (defs && defs[v]) sp.title = defs[v];
+    stops.appendChild(sp);
+  });
+  wrap.appendChild(stops);
+
+  const apply = v => {
+    ro.textContent = readoutFor(v);
+    [...stops.children].forEach((sp, i) => sp.classList.toggle("on", full[i] === v));
+    range.value = String(idxOf(v));
+    commit(v);
+  };
+  range.addEventListener("input", () => apply(full[+range.value]));
+  [...stops.children].forEach((sp, i) => sp.addEventListener("click", () => apply(full[i])));
+  return wrap;
+}
+
+// Single-select chip row (language, stance). Updates highlight in place, then
+// commits (mutate + refreshView), no teardown. A "" value renders as "none".
+export function chipsControl(values, current, commit, labels, defs) {
+  const wrap = document.createElement("div"); wrap.className = "def-chips";
+  values.forEach(v => {
+    const chip = document.createElement("span");
+    chip.className = "def-chip" + (v === (current || "") ? " on" : "");
+    chip.textContent = labels && labels[v] != null ? labels[v] : (v === "" ? "none" : v);
+    if (defs && defs[v]) chip.title = defs[v];
+    chip.addEventListener("click", () => { [...wrap.children].forEach(c => c.classList.remove("on")); chip.classList.add("on"); commit(v); });
+    wrap.appendChild(chip);
+  });
+  return wrap;
+}
+// A single action chip (e.g. "✎ custom voice…") — no selection state.
+export function actionChip(label, onClick) {
+  const wrap = document.createElement("div"); wrap.className = "def-chips";
+  const chip = document.createElement("span"); chip.className = "def-chip"; chip.textContent = label;
+  chip.addEventListener("click", onClick); wrap.appendChild(chip);
+  return wrap;
+}
+// A labeled `.field` wrapper around a chips node (matches the slider header).
+export function chipField(labelText, help, chipsNode) {
+  const wrap = document.createElement("div"); wrap.className = "field";
+  const l = document.createElement("label"); l.textContent = labelText + " ";
+  if (help) l.appendChild(helpIcon(help));
+  wrap.appendChild(l); wrap.appendChild(chipsNode);
+  return wrap;
+}

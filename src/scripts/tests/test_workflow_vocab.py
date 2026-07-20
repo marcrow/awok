@@ -212,3 +212,39 @@ def test_save_vocab_overlay_rejects_non_dict_option(tmp_path, monkeypatch):
     errs = bbw.save_vocab_overlay({"knobs": {"tone": {"options": ["oops"]}}})
     assert errs and any("tone" in e for e in errs)
     assert not (tmp_path / "custom" / "vocab.yaml").exists()
+
+
+def test_load_vocab_sorts_options_by_weight(tmp_path, monkeypatch):
+    # An overlay-added option with a weight between two base weights lands
+    # between them on the slider (options are returned in weight order).
+    overlay_dir = tmp_path / "custom"; overlay_dir.mkdir()
+    (overlay_dir / "vocab.yaml").write_text(
+        "version: 1\n"
+        "knobs:\n"
+        "  tone:\n"
+        "    options:\n"
+        "      - value: brisk\n"
+        "        weight: 15\n"
+        "        prose: Write in a brisk tone.\n",
+        encoding="utf-8")
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [overlay_dir / "vocab.yaml"])
+    order = [o["value"] for o in bbw.load_vocab()["knobs"]["tone"]["options"]]
+    assert order[:3] == ["direct", "brisk", "professional"]   # 10, 15, 20
+
+
+def test_save_vocab_overlay_accepts_weight(tmp_path, monkeypatch):
+    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
+    errs = bbw.save_vocab_overlay({"version": 1, "knobs": {"tone": {"options": [
+        {"value": "warm", "prose": "Write in a warm tone.", "weight": 25}]}}})
+    assert errs == []
+    import yaml as _y
+    got = _y.safe_load((tmp_path / "custom" / "vocab.yaml").read_text())
+    assert got["knobs"]["tone"]["options"][0]["weight"] == 25
+
+
+def test_save_vocab_overlay_rejects_non_number_weight(tmp_path, monkeypatch):
+    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
+    errs = bbw.save_vocab_overlay({"knobs": {"tone": {"options": [
+        {"value": "warm", "weight": "heavy"}]}}})
+    assert errs and any("weight" in e for e in errs)
+    assert not (tmp_path / "custom" / "vocab.yaml").exists()

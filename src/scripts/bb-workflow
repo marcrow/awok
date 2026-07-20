@@ -147,6 +147,12 @@ def load_vocab():
         if path.is_file():
             overlay = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             _apply_vocab_overlay(knobs, overlay)
+    # Order each knob's options by `weight` (the slider position in the editor);
+    # options without a numeric weight sort last, keeping their relative order.
+    for knob in knobs.values():
+        opts = knob.get("options") or []
+        opts.sort(key=lambda o: o["weight"] if isinstance(o.get("weight"),
+                  (int, float)) and not isinstance(o.get("weight"), bool) else float("inf"))
     return {"version": base.get("version", 1), "knobs": knobs}
 
 
@@ -181,6 +187,9 @@ def save_vocab_overlay(overlay):
             for field in ("definition", "prose", "label", "hint"):
                 if field in opt and not isinstance(opt[field], str):
                     errors.append(f"{kname}.{v}: {field} must be a string")
+            if "weight" in opt and (not isinstance(opt["weight"], (int, float))
+                                    or isinstance(opt["weight"], bool)):
+                errors.append(f"{kname}.{v}: weight must be a number")
     if errors:
         return errors
     out = {"version": overlay.get("version", 1),

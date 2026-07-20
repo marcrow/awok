@@ -1160,13 +1160,15 @@ async function openVocabEditor() {
   });
 }
 function enterAwokPage() {
-  document.querySelectorAll("#tabs, main > .panel").forEach(el => el.classList.add("awok-hidden"));
+  // Hide the whole workflow chrome (tab bar + the entire main area) so the awok
+  // page owns the scroll region — otherwise the empty main keeps its flex space.
+  document.querySelectorAll("#tabs, main").forEach(el => el.classList.add("awok-hidden"));
   $("#page-awok").hidden = false;
   openVocabEditor();
 }
 function exitAwokPage() {
   $("#page-awok").hidden = true;
-  document.querySelectorAll("#tabs, main > .panel").forEach(el => el.classList.remove("awok-hidden"));
+  document.querySelectorAll("#tabs, main").forEach(el => el.classList.remove("awok-hidden"));
   // Re-render the active workflow tab from the (preserved) in-memory model.
   if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx());
 }
