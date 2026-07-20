@@ -89,6 +89,67 @@ REPO_ROOT_GUESS = ENGINE_ROOT
 _apply_roots(ENGINE_ROOT, CONTENT_ROOT)
 
 
+def _vocab_base_path():
+    """The engine base vocabulary path, resolved at call time so ENGINE_ROOT
+    overrides (--workdir, tests) take effect."""
+    return ENGINE_ROOT / "src" / "workflow" / "vocab.yaml"
+
+
+def _vocab_overlay_paths():
+    """Writable per-root overlays to apply over the base, engine then workdir.
+    De-duplicated: with no --workdir, ENGINE_ROOT == CONTENT_ROOT so the two
+    collapse to one file (applied once)."""
+    seen, out = set(), []
+    for root in (ENGINE_ROOT, CONTENT_ROOT):
+        p = (root / "custom" / "vocab.yaml").resolve()
+        if p not in seen:
+            seen.add(p); out.append(p)
+    return out
+
+
+def _apply_vocab_overlay(knobs, overlay):
+    """Mutate `knobs` (merged so far) with one overlay dict, keyed by
+    (knob, value): reword an existing option (fields win, `overridden=True`)
+    or append a new one (`source='overlay'`)."""
+    for kname, kpatch in (overlay.get("knobs") or {}).items():
+        knob = knobs.get(kname)
+        if knob is None:
+            continue  # overlays extend options within fixed knobs, never add knobs
+        by_value = {o["value"]: o for o in knob["options"]}
+        for opt in (kpatch.get("options") or []):
+            val = opt.get("value")
+            if val is None:
+                continue
+            if val in by_value:
+                target = by_value[val]
+                for k, x in opt.items():
+                    if k != "value":
+                        target[k] = x
+                target["overridden"] = True
+            else:
+                new = dict(opt); new.setdefault("source", "overlay")
+                new.setdefault("overridden", False)
+                knob["options"].append(new); by_value[val] = new
+
+
+def load_vocab():
+    """Merged prompt-assist vocabulary: engine base <- engine overlay <-
+    workdir overlay, keyed by (knob, option-value). Each option is tagged with
+    provenance (`source`, `overridden`). Single source consumed by both
+    compile_style() and GET /api/vocab."""
+    base = yaml.safe_load(_vocab_base_path().read_text(encoding="utf-8")) or {}
+    knobs = base.get("knobs") or {}
+    for knob in knobs.values():
+        for opt in knob.get("options") or []:
+            opt.setdefault("source", "base")
+            opt.setdefault("overridden", False)
+    for path in _vocab_overlay_paths():
+        if path.is_file():
+            overlay = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            _apply_vocab_overlay(knobs, overlay)
+    return {"version": base.get("version", 1), "knobs": knobs}
+
+
 def discover_workflows(workflows_dir: Path = None) -> list:
     """Return [(name, path), ...] for every workflow YAML under workflows_dir.
 

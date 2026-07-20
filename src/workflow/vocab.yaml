@@ -1,0 +1,121 @@
+version: 1
+knobs:
+  length:
+    kind: ordinal
+    optional: true
+    prose_template: "Keep the answer {value} ({hint})."
+    hint_fallback: "appropriate length"
+    options:
+      - value: terse
+        hint: "~40 words"
+        definition: "Just the answer, no elaboration or supporting reasoning."
+        prose: "Keep the answer terse (~40 words)."
+      - value: brief
+        hint: "~150 words"
+        definition: "A short answer that still gives the key reasoning, not only the verdict."
+        prose: "Keep the answer brief (~150 words)."
+      - value: standard
+        hint: "~400 words"
+        definition: "A full answer with reasoning and the main caveats."
+        prose: "Keep the answer standard (~400 words)."
+      - value: detailed
+        hint: "~800 words"
+        definition: "A thorough answer covering edge cases and alternatives."
+        prose: "Keep the answer detailed (~800 words)."
+      - value: exhaustive
+        hint: "as long as needed"
+        definition: "Leave nothing out; length is not a constraint."
+        prose: "Keep the answer exhaustive (as long as needed)."
+  tone:
+    kind: ordinal
+    optional: true
+    supports_custom: true
+    prose_template: "Write in a {value} tone."
+    options:
+      - value: direct
+        definition: "Straight to the point; no preamble, hedging, or throat-clearing."
+        prose: "Write in a direct tone."
+      - value: professional
+        definition: "Neutral and businesslike, for a work audience."
+        prose: "Write in a professional tone."
+      - value: didactic
+        definition: "Explains as it goes, teaching the reasoning, not just stating it."
+        prose: "Write in a didactic tone."
+      - value: beginner
+        definition: "Assumes the reader is smart but new to this exact topic."
+        prose: "Write in a beginner tone."
+      - value: zero-knowledge
+        definition: "Assumes no prior context at all; define every term."
+        prose: "Write in a zero-knowledge tone."
+  format:
+    kind: ordinal
+    optional: true
+    prose_template: "Format as {value}."
+    options:
+      - value: prose
+        definition: "Flowing paragraphs, no lists or headers."
+        prose: "Write as flowing prose."
+      - value: tldr
+        label: "TL;DR"
+        definition: "A one-line takeaway first, then the supporting detail."
+        prose: "Lead with a TL;DR, then the detail."
+      - value: bullets
+        definition: "A bulleted list of points rather than paragraphs."
+        prose: "Structure as bullet points."
+      - value: sections
+        definition: "Organized under headers, one per theme."
+        prose: "Organize under section headers."
+      - value: table
+        definition: "A table when the content is comparable rows and columns."
+        prose: "Present as a table."
+  audience:
+    kind: ordinal
+    optional: true
+    prose_template: "Written for a {value}."
+    options:
+      - value: maintainer
+        definition: "A developer who owns this code and knows the domain."
+        prose: "Written for a maintainer."
+      - value: external stakeholder
+        label: "external"
+        definition: "A reader outside the team — no code access, cares about outcomes."
+        prose: "Written for an external stakeholder."
+      - value: downstream workflow
+        label: "downstream"
+        definition: "Another automated workflow that will parse this, not a human."
+        prose: "Written for a downstream workflow."
+  language:
+    kind: nominal
+    prose_template: "Respond in {value}."
+    options:
+      - value: inherit
+        label: "↩ inherit"
+        definition: "Follow the session / default language; inject nothing."
+        prose: ""
+      - value: English
+        label: "🇬🇧 English"
+        definition: "Answer in English regardless of the input language."
+        prose: "Respond in English."
+      - value: French
+        label: "🇫🇷 French"
+        definition: "Answer in French regardless of the input language."
+        prose: "Respond in French."
+      - value: German
+        label: "🇩🇪 German"
+        definition: "Answer in German regardless of the input language."
+        prose: "Respond in German."
+      - value: Spanish
+        label: "🇪🇸 Spanish"
+        definition: "Answer in Spanish regardless of the input language."
+        prose: "Respond in Spanish."
+  stance:
+    kind: nominal
+    optional: true
+    prose_template: "{value}"
+    options:
+      - value: recommend
+        definition: "Commit to one clear pick rather than laying out choices."
+        prose: "Give a clear recommendation."
+      - value: present
+        definition: "Lay out the options and their trade-offs without choosing."
+        prose: "Present options rather than a single pick."
