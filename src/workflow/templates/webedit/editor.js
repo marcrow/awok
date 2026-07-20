@@ -38,6 +38,9 @@ let state = {
   // Reserved for the future JS ("dynamic") compile target — no functional
   // effect yet; only "standard" is selectable (Task 15).
   target: "standard",
+  // Merged prompt-assist vocabulary (/api/vocab), fetched once on load — feeds
+  // the Definition tab's knob controls (Task 5; see vocab.js's knobView).
+  vocab: null,
 };
 
 let dataflow = null;
@@ -1075,7 +1078,8 @@ function settingsCtx() {
 
 // --- definition (Workflow definition tab: params/outputs/emits/formatter) --
 function definitionCtx() {
-  return { getModel: () => state.model, setModel: m => { state.model = m; }, refreshView, view: state.view || {} };
+  return { getModel: () => state.model, setModel: m => { state.model = m; }, refreshView,
+           view: state.view || {}, vocab: state.vocab || { knobs: {} } };
 }
 
 // --- save / new / clone ----------------------------------------------------
@@ -1139,6 +1143,8 @@ window.addEventListener("resize", () => { if (state.tab === "grid") schedulePain
 document.addEventListener("DOMContentLoaded", () => {
   dataflow = createDataflow({ getModel: () => state.model, getAgents: () => state.agents, refreshView, setStatus });
   loadList();
+  api("GET", "/api/vocab").then(r => { state.vocab = (r.j && r.j.merged) || { knobs: {} };
+    if (state.tab === "definition") definition.renderDefinition($("#definition"), definitionCtx()); });
   $("#wf-select").addEventListener("change", e => {
     const next = e.target.value;
     if (next === state.name) return;

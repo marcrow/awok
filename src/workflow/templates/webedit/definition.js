@@ -14,6 +14,7 @@
 import { helpIcon, helpNote } from "./render-helpers.js";
 import { fieldText, fieldTextarea, fieldSelect, flagToggle, flagsRow,
          ioRefEditor, stringListEditor, resolveIoPath } from "./formfields.js";
+import { knobView } from "./vocab.js";
 
 const NAME_RE = /^[a-z][a-z0-9-]*$/;        // skill.name (kebab-case slug)
 const ID_RE = /^[a-z][a-z0-9_]*$/;          // param / emit / of-field name
@@ -22,21 +23,6 @@ const KINDS = ["json", "jsonl", "md", "text", "yaml", "dir", "sqlite", "binary"]
 const MODELS = ["inherit", "haiku", "sonnet", "opus"];
 const EFFORTS = ["inherit", "low", "medium", "high", "xhigh", "max"];
 const FILE_PATH_HINT = /(^|\s)[\w./-]+\.(json|md|yaml|txt|csv|html)\b/;
-
-// Prompt-assist scales — ordinal knobs edited as sliders (least → most), the
-// intuitive control ported from the mockup's `bigSlider`. Values match the
-// engine's compile_style() vocabulary; only the on-screen ORDER is the axis.
-const LEN_SCALE = ["terse", "brief", "standard", "detailed", "exhaustive"];
-const LEN_HINT = { terse: "~40 words", brief: "~150 words", standard: "~400 words", detailed: "~800 words", exhaustive: "as long as needed" };
-const TONE_SCALE = ["direct", "professional", "didactic", "beginner", "zero-knowledge"];
-const TONE_LABELS = ["direct", "pro", "didactic", "beginner", "zero-know"];
-const FMT_SCALE = ["prose", "tldr", "bullets", "sections", "table"];
-const FMT_LABELS = ["prose", "TL;DR", "bullets", "sections", "table"];
-const AUD_SCALE = ["maintainer", "external stakeholder", "downstream workflow"];
-const AUD_LABELS = ["maintainer", "external", "downstream"];
-const LANGS = ["inherit", "English", "French", "German", "Spanish"];
-const LANG_LABELS = { inherit: "↩ inherit", English: "🇬🇧 English", French: "🇫🇷 French", German: "🇩🇪 German", Spanish: "🇪🇸 Spanish" };
-const STANCE = ["recommend", "present"];
 
 export function renderDefinition(root, ctx) {
   if (!root || !ctx.getModel()) return;
@@ -426,41 +412,44 @@ function formatterSection(m, d, ctx, rerender) {
   c.body.appendChild(caption("Prompt-assist — slide the ordinal knobs; they compile to prose server-side (the preview below shows the result verbatim)"));
   const knobs = document.createElement("div"); knobs.style.cssText = "display:flex;flex-direction:column;gap:12px";
 
-  // length — ordinal slider with a word-count readout.
-  knobs.appendChild(bigSlider("length", "How long should the final answer be?", LEN_SCALE, LEN_SCALE,
-    st.length || "", v => (v ? v + " · " + LEN_HINT[v] : "none"),
-    v => { if (v) st.length = v; else delete st.length; ctx.refreshView(); }));
+  const V = ctx.vocab || { knobs: {} };
+  const kLen = knobView(V, "length"), kTone = knobView(V, "tone"),
+        kFmt = knobView(V, "format"), kAud = knobView(V, "audience"),
+        kLang = knobView(V, "language"), kStance = knobView(V, "stance");
 
-  // tone — ordinal slider, with a custom-voice escape hatch (engine: tone=custom + toneCustom).
+  // length — ordinal slider with a word-count readout + per-option definitions.
+  knobs.appendChild(bigSlider("length", "How long should the final answer be?", kLen.scale, kLen.labels,
+    st.length || "", v => (v ? v + (kLen.hints[v] ? " · " + kLen.hints[v] : "") : "none"),
+    v => { if (v) st.length = v; else delete st.length; ctx.refreshView(); }, kLen.defs));
+
   if (st.tone === "custom") {
     const cf = fieldText("tone · custom voice", st.toneCustom || "", v => { if (v) st.toneCustom = v; else delete st.toneCustom; ctx.refreshView(); });
     cf.querySelector("input").placeholder = "e.g. warm, like explaining to a smart friend";
     knobs.appendChild(cf);
     knobs.appendChild(actionChip("↩ use the tone scale", () => { delete st.tone; delete st.toneCustom; rerender(); ctx.refreshView(); }));
   } else {
-    knobs.appendChild(bigSlider("tone", "Most direct → most beginner-friendly.", TONE_SCALE, TONE_LABELS,
+    knobs.appendChild(bigSlider("tone", "Most direct → most beginner-friendly.", kTone.scale, kTone.labels,
       st.tone || "", v => v || "none",
-      v => { if (v) st.tone = v; else delete st.tone; ctx.refreshView(); }));
-    knobs.appendChild(actionChip("✎ custom voice…", () => { st.tone = "custom"; delete st.toneCustom; rerender(); ctx.refreshView(); }));
+      v => { if (v) st.tone = v; else delete st.tone; ctx.refreshView(); }, kTone.defs));
+    if (kTone.supportsCustom)
+      knobs.appendChild(actionChip("✎ custom voice…", () => { st.tone = "custom"; delete st.toneCustom; rerender(); ctx.refreshView(); }));
   }
 
-  // format — ordinal slider (least → most structured).
-  knobs.appendChild(bigSlider("format", "Least → most structured.", FMT_SCALE, FMT_LABELS,
-    st.format || "", v => { const i = FMT_SCALE.indexOf(v); return i < 0 ? "none" : FMT_LABELS[i]; },
-    v => { if (v) st.format = v; else delete st.format; ctx.refreshView(); }));
+  knobs.appendChild(bigSlider("format", "Least → most structured.", kFmt.scale, kFmt.labels,
+    st.format || "", v => { const i = kFmt.scale.indexOf(v); return i < 0 ? "none" : kFmt.labels[i]; },
+    v => { if (v) st.format = v; else delete st.format; ctx.refreshView(); }, kFmt.defs));
 
-  // audience — ordinal slider (internal → external), optional.
-  knobs.appendChild(bigSlider("audience (optional)", "Internal → external reader.", AUD_SCALE, AUD_LABELS,
-    st.audience || "", v => { const i = AUD_SCALE.indexOf(v); return i < 0 ? "none" : AUD_LABELS[i]; },
-    v => { if (v) st.audience = v; else delete st.audience; ctx.refreshView(); }));
+  knobs.appendChild(bigSlider("audience (optional)", "Internal → external reader.", kAud.scale, kAud.labels,
+    st.audience || "", v => { const i = kAud.scale.indexOf(v); return i < 0 ? "none" : kAud.labels[i]; },
+    v => { if (v) st.audience = v; else delete st.audience; ctx.refreshView(); }, kAud.defs));
 
-  // language — non-ordinal → chips.
+  const langLabels = Object.fromEntries(kLang.scale.map((v, i) => [v, kLang.labels[i]]));
   knobs.appendChild(chipField("language", "Output language; inherit = follow the session/default.",
-    chipsControl(LANGS, st.language || "inherit", v => { st.language = v; ctx.refreshView(); }, LANG_LABELS)));
+    chipsControl(kLang.scale, st.language || "inherit", v => { st.language = v; ctx.refreshView(); }, langLabels, kLang.defs)));
 
-  // stance — non-ordinal → chips (leading “none” clears it).
+  const stanceLabels = Object.fromEntries(kStance.scale.map((v, i) => [v, kStance.labels[i]]));
   knobs.appendChild(chipField("stance (optional)", "recommend = give a clear pick · present = lay out options.",
-    chipsControl(["", ...STANCE], st.stance || "", v => { if (v) st.stance = v; else delete st.stance; ctx.refreshView(); }, null)));
+    chipsControl(["", ...kStance.scale], st.stance || "", v => { if (v) st.stance = v; else delete st.stance; ctx.refreshView(); }, stanceLabels, kStance.defs)));
 
   // must-include / avoid — free lists.
   const lists = block();
@@ -719,7 +708,7 @@ function emptyNote(text) { const n = document.createElement("div"); n.className 
 // but never rerenders — so dragging stays smooth AND the D5 contract holds
 // (the preview only refreshes from the server view, never a client recompute).
 // Index 0 of the range is always the "none" position, which clears the knob.
-function bigSlider(labelText, help, scale, labels, current, readoutFor, commit) {
+function bigSlider(labelText, help, scale, labels, current, readoutFor, commit, defs) {
   const wrap = document.createElement("div"); wrap.className = "def-slider";
   const top = document.createElement("div"); top.className = "top";
   const lab = document.createElement("span"); lab.className = "lab"; lab.textContent = labelText;
@@ -745,6 +734,7 @@ function bigSlider(labelText, help, scale, labels, current, readoutFor, commit) 
     // instead of a plain space-between (which drifts off the round).
     sp.style.left = "calc(9px + (100% - 18px) * " + (n > 1 ? i / (n - 1) : 0) + ")";
     if (v === (current || "")) sp.className = "on";
+    if (defs && defs[v]) sp.title = defs[v];
     stops.appendChild(sp);
   });
   wrap.appendChild(stops);
@@ -762,12 +752,13 @@ function bigSlider(labelText, help, scale, labels, current, readoutFor, commit) 
 
 // Single-select chip row (language, stance). Updates highlight in place, then
 // commits (mutate + refreshView), no teardown. A "" value renders as “none”.
-function chipsControl(values, current, commit, labels) {
+function chipsControl(values, current, commit, labels, defs) {
   const wrap = document.createElement("div"); wrap.className = "def-chips";
   values.forEach(v => {
     const chip = document.createElement("span");
     chip.className = "def-chip" + (v === (current || "") ? " on" : "");
     chip.textContent = labels && labels[v] != null ? labels[v] : (v === "" ? "none" : v);
+    if (defs && defs[v]) chip.title = defs[v];
     chip.addEventListener("click", () => { [...wrap.children].forEach(c => c.classList.remove("on")); chip.classList.add("on"); commit(v); });
     wrap.appendChild(chip);
   });

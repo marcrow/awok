@@ -11,6 +11,27 @@ import { test, expect } from "bun:test";
 import { parseHTML } from "linkedom";
 import { renderDefinition } from "../../../workflow/templates/webedit/definition.js";
 
+// Merged-vocab fixture (Task 4/5): stands in for the /api/vocab payload's
+// `merged` field. The knob wiring in definition.js reads this via
+// ctx.vocab / knobView — no more local LEN_SCALE/TONE_SCALE/... constants.
+const VOCAB = { version: 1, knobs: {
+  length: { kind: "ordinal", optional: true, options: [
+    { value: "terse", hint: "~40 words", definition: "d", prose: "p", source: "base", overridden: false },
+    { value: "brief", hint: "~150 words", definition: "d", prose: "p", source: "base", overridden: false },
+    { value: "standard", hint: "~400 words", definition: "d", prose: "p", source: "base", overridden: false } ] },
+  tone: { kind: "ordinal", optional: true, supports_custom: true, options: [
+    { value: "direct", definition: "d", prose: "p", source: "base", overridden: false } ] },
+  format: { kind: "ordinal", optional: true, options: [
+    { value: "prose", definition: "d", prose: "p", source: "base", overridden: false } ] },
+  audience: { kind: "ordinal", optional: true, options: [
+    { value: "maintainer", definition: "d", prose: "p", source: "base", overridden: false } ] },
+  language: { kind: "nominal", options: [
+    { value: "inherit", label: "↩ inherit", definition: "d", prose: "", source: "base", overridden: false },
+    { value: "French", label: "🇫🇷 French", definition: "d", prose: "p", source: "base", overridden: false } ] },
+  stance: { kind: "nominal", optional: true, options: [
+    { value: "recommend", definition: "d", prose: "p", source: "base", overridden: false } ] },
+}};
+
 function dom(){ const { document } = parseHTML("<!DOCTYPE html><body></body>"); globalThis.document = document; return document; }
 function ev(node){ return new node.ownerDocument.defaultView.Event("change"); }
 
@@ -81,6 +102,7 @@ function makeCtx(model, view = {}) {
     setModel: () => {},
     refreshView: () => { refreshCount++; },
     view,
+    vocab: VOCAB,
   };
   return { ctx, count: () => refreshCount };
 }
@@ -208,21 +230,21 @@ test("dragging the 'length' slider calls ctx.refreshView, mutates the model, and
   expect(!!slider).toBe(true);
   const range = slider.querySelector("input[type=range]");
   expect(!!range).toBe(true);
-  // full scale is ["","terse","brief","standard","detailed","exhaustive"] -> idx 5
-  range.value = "5";
+  // VOCAB's length scale is ["terse","brief","standard"] -> full = ["","terse","brief","standard"] -> idx 3
+  range.value = "3";
   const inputEv = new range.ownerDocument.defaultView.Event("input");
 
   const before = count();
   range.dispatchEvent(inputEv);
 
   expect(count()).toBe(before + 1);
-  expect(model.definition.formatter.style.length).toBe("exhaustive");
+  expect(model.definition.formatter.style.length).toBe("standard");
   // commit() never rerenders -> the tab is not torn down, the stale server
   // preview <pre> is still present (no client recompute), and the readout
   // updated in place from the slider itself (not from a new server view).
   const pre = [...root.querySelectorAll("pre.yaml-pre")].find(p => p.textContent === "STALE PROMPT");
   expect(!!pre).toBe(true);
-  expect(slider.querySelector(".readout").textContent).toContain("exhaustive");
+  expect(slider.querySelector(".readout").textContent).toContain("standard");
 });
 
 test("moving the 'length' slider to the none position clears the knob", () => {
@@ -236,6 +258,27 @@ test("moving the 'length' slider to the none position clears the knob", () => {
   range.value = "0"; // "none"
   range.dispatchEvent(new range.ownerDocument.defaultView.Event("input"));
   expect("length" in model.definition.formatter.style).toBe(false);
+});
+
+test("knob option lists are sourced from ctx.vocab, not hardcoded constants", () => {
+  dom();
+  const model = buildModel();
+  const { ctx } = makeCtx(model, {});
+  const root = document.createElement("div");
+  renderDefinition(root, ctx);
+
+  // VOCAB's audience knob declares a single option ("maintainer") — the old
+  // AUD_SCALE constant had three ("maintainer", "external stakeholder",
+  // "downstream workflow"). Only "none"+"maintainer" stops should exist.
+  const audSlider = [...root.querySelectorAll(".def-slider")].find(s => s.querySelector(".lab").textContent.startsWith("audience"));
+  expect(!!audSlider).toBe(true);
+  const audStops = [...audSlider.querySelectorAll(".stops span")].map(s => s.textContent);
+  expect(audStops).toEqual(["none", "maintainer"]);
+
+  // Same for format: VOCAB has only "prose" — the old FMT_SCALE had five.
+  const fmtSlider = [...root.querySelectorAll(".def-slider")].find(s => s.querySelector(".lab").textContent.startsWith("format"));
+  const fmtStops = [...fmtSlider.querySelectorAll(".stops span")].map(s => s.textContent);
+  expect(fmtStops).toEqual(["none", "prose"]);
 });
 
 test("produced_by is a segmented chip control that reclassifies the output on click", () => {
