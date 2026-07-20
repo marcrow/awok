@@ -118,3 +118,22 @@ def test_vocab_prose_degrades_on_malformed_prose_template(monkeypatch):
         }
     monkeypatch.setattr(bbw, "load_vocab", fake_load_vocab)
     assert bbw.compile_style({"tone": "whatever"}) == []
+
+
+def test_save_vocab_overlay_writes_only_overlay(tmp_path, monkeypatch):
+    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
+    errs = bbw.save_vocab_overlay({"version": 1, "knobs": {"tone": {"options": [
+        {"value": "warm", "definition": "Friendly.", "prose": "Write in a warm tone."}]}}})
+    assert errs == []
+    written = tmp_path / "custom" / "vocab.yaml"
+    assert written.is_file()
+    import yaml as _y
+    got = _y.safe_load(written.read_text())
+    assert got["knobs"]["tone"]["options"][0]["value"] == "warm"
+
+
+def test_save_vocab_overlay_rejects_unknown_knob(tmp_path, monkeypatch):
+    monkeypatch.setattr(bbw, "CONTENT_ROOT", tmp_path)
+    errs = bbw.save_vocab_overlay({"knobs": {"nope": {"options": []}}})
+    assert errs and any("nope" in e for e in errs)
+    assert not (tmp_path / "custom" / "vocab.yaml").exists()

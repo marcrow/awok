@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 **/.claude/settings.local.json
 work/
+
+# User vocabulary / config overlay (survives engine upgrades; never committed)
+/custom/

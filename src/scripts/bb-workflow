@@ -150,6 +150,49 @@ def load_vocab():
     return {"version": base.get("version", 1), "knobs": knobs}
 
 
+_VOCAB_KNOBS = ("length", "tone", "format", "audience", "language", "stance")
+
+
+def save_vocab_overlay(overlay):
+    """Validate (shape only) and write the current root's overlay
+    (CONTENT_ROOT/custom/vocab.yaml). Never touches the base. Returns [] or
+    a list of error strings. The knob set is fixed; overlays only extend
+    options within it."""
+    errors = []
+    if not isinstance(overlay, dict):
+        return ["overlay must be an object"]
+    knobs = overlay.get("knobs") or {}
+    if not isinstance(knobs, dict):
+        return ["knobs must be an object"]
+    for kname, kpatch in knobs.items():
+        if kname not in _VOCAB_KNOBS:
+            errors.append(f"unknown knob '{kname}'")
+            continue
+        for opt in (kpatch.get("options") or []):
+            v = opt.get("value")
+            if not isinstance(v, str) or not v.strip():
+                errors.append(f"{kname}: option missing a string value")
+            for field in ("definition", "prose", "label", "hint"):
+                if field in opt and not isinstance(opt[field], str):
+                    errors.append(f"{kname}.{v}: {field} must be a string")
+    if errors:
+        return errors
+    out = {"version": overlay.get("version", 1),
+           "knobs": {k: knobs[k] for k in knobs}}
+    dest = CONTENT_ROOT / "custom" / "vocab.yaml"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(yaml.safe_dump(out, sort_keys=False, allow_unicode=True),
+                    encoding="utf-8")
+    return []
+
+
+def _raw_vocab_overlay():
+    """The current root's overlay dict as-authored (for the editor to edit and
+    PUT back), or {} if absent."""
+    p = CONTENT_ROOT / "custom" / "vocab.yaml"
+    return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
+
+
 def discover_workflows(workflows_dir: Path = None) -> list:
     """Return [(name, path), ...] for every workflow YAML under workflows_dir.
 
@@ -4411,6 +4454,9 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 fp = (invocations_dir / f"{agent}.md")
                 text = fp.read_text() if fp.exists() else ""
                 return self._json(200, {"prompt": text})
+            if p == "/api/vocab":
+                return self._json(200, {"merged": load_vocab(),
+                                        "overlay": _raw_vocab_overlay()})
             return self._json(404, {"error": "unknown route"})
 
         def _route_post(self):
@@ -4478,6 +4524,10 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 fp.write_text(join_agent_md(fm, self._body().get("body", "")),
                               encoding="utf-8")
                 return self._json(200, {"ok": True})
+            if p == "/api/vocab":
+                errs = save_vocab_overlay(self._body())
+                return self._json(200 if not errs else 422,
+                                  {"ok": not errs, "errors": errs})
             return self._json(404, {"error": "unknown route"})
 
     return _Handler
