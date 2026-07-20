@@ -248,3 +248,52 @@ def test_save_vocab_overlay_rejects_non_number_weight(tmp_path, monkeypatch):
         {"value": "warm", "weight": "heavy"}]}}})
     assert errs and any("weight" in e for e in errs)
     assert not (tmp_path / "custom" / "vocab.yaml").exists()
+
+
+def test_load_vocab_tags_option_layer(tmp_path, monkeypatch):
+    # With distinct engine + workdir overlays, each option records which layer
+    # it lives in (engine = shared across projects, workdir = this project).
+    eng = tmp_path / "eng" / "vocab.yaml"; wd = tmp_path / "wd" / "vocab.yaml"
+    eng.parent.mkdir(parents=True); wd.parent.mkdir(parents=True)
+    eng.write_text("version: 1\nknobs:\n  tone:\n    options:\n      - value: shared-tone\n        prose: p\n", encoding="utf-8")
+    wd.write_text("version: 1\nknobs:\n  tone:\n    options:\n      - value: proj-tone\n        prose: p\n", encoding="utf-8")
+    monkeypatch.setattr(bbw, "_vocab_target_paths", lambda: {"engine": eng, "workdir": wd})
+    monkeypatch.setattr(bbw, "_vocab_overlay_paths", lambda: [eng, wd])
+    tone = {o["value"]: o for o in bbw.load_vocab()["knobs"]["tone"]["options"]}
+    assert tone["shared-tone"]["layer"] == "engine"
+    assert tone["proj-tone"]["layer"] == "workdir"
+
+
+def test_save_vocab_overlays_writes_both_targets(tmp_path, monkeypatch):
+    eng = tmp_path / "eng" / "custom" / "vocab.yaml"; wd = tmp_path / "wd" / "custom" / "vocab.yaml"
+    monkeypatch.setattr(bbw, "_vocab_target_paths", lambda: {"engine": eng, "workdir": wd})
+    errs = bbw.save_vocab_overlays({
+        "engine": {"knobs": {"tone": {"options": [{"value": "shared", "prose": "p"}]}}},
+        "workdir": {"knobs": {"tone": {"options": [{"value": "proj", "prose": "p"}]}}}})
+    assert errs == []
+    import yaml as _y
+    assert _y.safe_load(eng.read_text())["knobs"]["tone"]["options"][0]["value"] == "shared"
+    assert _y.safe_load(wd.read_text())["knobs"]["tone"]["options"][0]["value"] == "proj"
+
+
+def test_save_vocab_overlays_same_root_merges_once(tmp_path, monkeypatch):
+    single = tmp_path / "custom" / "vocab.yaml"
+    monkeypatch.setattr(bbw, "_vocab_target_paths", lambda: {"engine": single, "workdir": single})
+    errs = bbw.save_vocab_overlays({
+        "engine": {"knobs": {"tone": {"options": [{"value": "a", "prose": "p"}]}}},
+        "workdir": {"knobs": {"tone": {"options": [{"value": "b", "prose": "p"}]}}}})
+    assert errs == []
+    import yaml as _y
+    vals = {o["value"] for o in _y.safe_load(single.read_text())["knobs"]["tone"]["options"]}
+    assert vals == {"a", "b"}          # both scopes merged into the one file, no clobber
+
+
+def test_write_overlay_strips_provenance_keys(tmp_path, monkeypatch):
+    wd = tmp_path / "custom" / "vocab.yaml"
+    monkeypatch.setattr(bbw, "_vocab_target_paths", lambda: {"engine": wd, "workdir": wd})
+    bbw.save_vocab_overlay({"knobs": {"tone": {"options": [
+        {"value": "warm", "prose": "p", "source": "overlay", "overridden": False, "layer": "workdir"}]}}}, "workdir")
+    import yaml as _y
+    opt = _y.safe_load(wd.read_text())["knobs"]["tone"]["options"][0]
+    assert "source" not in opt and "layer" not in opt and "overridden" not in opt
+    assert opt["value"] == "warm"

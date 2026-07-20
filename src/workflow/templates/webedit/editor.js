@@ -1144,13 +1144,13 @@ function switchTab(tab) {
 async function openVocabEditor() {
   const { j } = await api("GET", "/api/vocab");
   const merged = (j && j.merged) || { knobs: {} };
-  const overlay = (j && j.overlay) || { version: 1, knobs: {} };
   state.vocab = merged;   // keep the definition tab in sync with any fresh edits
   renderVocabEditor($("#awok-vocab"), {
     getMerged: () => merged,
-    getOverlay: () => overlay,
-    onSave: async (ov) => {
-      const r = await api("PUT", "/api/vocab", ov);
+    sameRoot: !!(j && j.sameRoot),
+    paths: (j && j.paths) || {},
+    onSave: async (overlays) => {
+      const r = await api("PUT", "/api/vocab", { overlays });
       if (r.status === 200) {
         const fresh = await api("GET", "/api/vocab");
         state.vocab = (fresh.j && fresh.j.merged) || merged;

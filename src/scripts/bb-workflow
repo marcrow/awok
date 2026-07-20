@@ -107,10 +107,27 @@ def _vocab_overlay_paths():
     return out
 
 
-def _apply_vocab_overlay(knobs, overlay):
+def _vocab_target_paths():
+    """The two writable overlay targets: `engine` (ENGINE_ROOT/custom — shared
+    by ALL projects) and `workdir` (CONTENT_ROOT/custom — this project only).
+    With no --workdir they resolve to the SAME file (see `_vocab_same_root`)."""
+    return {"engine": ENGINE_ROOT / "custom" / "vocab.yaml",
+            "workdir": CONTENT_ROOT / "custom" / "vocab.yaml"}
+
+
+def _vocab_same_root():
+    """True when engine and workdir overlay targets are the same file (no
+    --workdir): the per-option scope choice then has no effect."""
+    t = _vocab_target_paths()
+    return t["engine"].resolve() == t["workdir"].resolve()
+
+
+def _apply_vocab_overlay(knobs, overlay, layer=None):
     """Mutate `knobs` (merged so far) with one overlay dict, keyed by
     (knob, value): reword an existing option (fields win, `overridden=True`)
-    or append a new one (`source='overlay'`)."""
+    or append a new one (`source='overlay'`). `layer` (engine/workdir) records
+    which overlay file the effective option lives in, for the editor's scope
+    choice."""
     for kname, kpatch in (overlay.get("knobs") or {}).items():
         knob = knobs.get(kname)
         if knob is None:
@@ -126,9 +143,13 @@ def _apply_vocab_overlay(knobs, overlay):
                     if k != "value":
                         target[k] = x
                 target["overridden"] = True
+                if layer:
+                    target["layer"] = layer
             else:
                 new = dict(opt); new.setdefault("source", "overlay")
                 new.setdefault("overridden", False)
+                if layer:
+                    new["layer"] = layer
                 knob["options"].append(new); by_value[val] = new
 
 
@@ -143,10 +164,20 @@ def load_vocab():
         for opt in knob.get("options") or []:
             opt.setdefault("source", "base")
             opt.setdefault("overridden", False)
+    targets = _vocab_target_paths()
+    eng, wd = targets["engine"].resolve(), targets["workdir"].resolve()
+
+    def _layer_of(path):
+        rp = path.resolve()
+        if rp == wd:
+            return "workdir"
+        if rp == eng:
+            return "engine"
+        return "workdir"          # unknown (e.g. test overlays) → project default
     for path in _vocab_overlay_paths():
         if path.is_file():
             overlay = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            _apply_vocab_overlay(knobs, overlay)
+            _apply_vocab_overlay(knobs, overlay, _layer_of(path))
     # Order each knob's options by `weight` (the slider position in the editor);
     # options without a numeric weight sort last, keeping their relative order.
     for knob in knobs.values():
@@ -159,11 +190,10 @@ def load_vocab():
 _VOCAB_KNOBS = ("length", "tone", "format", "audience", "language", "stance")
 
 
-def save_vocab_overlay(overlay):
-    """Validate (shape only) and write the current root's overlay
-    (CONTENT_ROOT/custom/vocab.yaml). Never touches the base. Returns [] or
-    a list of error strings. The knob set is fixed; overlays only extend
-    options within it."""
+def _validate_overlay_shape(overlay):
+    """Shape-only validation of one overlay dict → list of error strings. The
+    knob set is fixed; overlays only extend options within it (option `value`
+    string; definition/prose/label/hint strings; weight a number)."""
     errors = []
     if not isinstance(overlay, dict):
         return ["overlay must be an object"]
@@ -190,21 +220,81 @@ def save_vocab_overlay(overlay):
             if "weight" in opt and (not isinstance(opt["weight"], (int, float))
                                     or isinstance(opt["weight"], bool)):
                 errors.append(f"{kname}.{v}: weight must be a number")
-    if errors:
-        return errors
-    out = {"version": overlay.get("version", 1),
-           "knobs": {k: knobs[k] for k in knobs}}
-    dest = CONTENT_ROOT / "custom" / "vocab.yaml"
+    return errors
+
+
+def _write_overlay_file(overlay, dest):
+    """Write one overlay dict to `dest` (creating custom/). Strips editor-only
+    provenance keys (source/overridden/layer) that never belong on disk."""
+    knobs = overlay.get("knobs") or {}
+    clean = {}
+    for kname, kpatch in knobs.items():
+        opts = []
+        for opt in (kpatch.get("options") or []):
+            opts.append({k: x for k, x in opt.items()
+                         if k not in ("source", "overridden", "layer")})
+        if opts:
+            clean[kname] = {"options": opts}
+    out = {"version": overlay.get("version", 1), "knobs": clean}
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(yaml.safe_dump(out, sort_keys=False, allow_unicode=True),
                     encoding="utf-8")
+
+
+def save_vocab_overlay(overlay, target="workdir"):
+    """Validate (shape only) and write ONE overlay to `target`
+    (`workdir` → CONTENT_ROOT/custom, `engine` → ENGINE_ROOT/custom). Never
+    touches the base. Returns [] or a list of error strings."""
+    errors = _validate_overlay_shape(overlay)
+    if errors:
+        return errors
+    dest = _vocab_target_paths().get(target) or _vocab_target_paths()["workdir"]
+    _write_overlay_file(overlay, dest)
     return []
 
 
-def _raw_vocab_overlay():
-    """The current root's overlay dict as-authored (for the editor to edit and
-    PUT back), or {} if absent."""
-    p = CONTENT_ROOT / "custom" / "vocab.yaml"
+def _merge_overlays(a, b):
+    """Union two overlays (b wins on a same (knob, value) option)."""
+    out = {"version": (b or {}).get("version") or (a or {}).get("version", 1), "knobs": {}}
+    for src in (a, b):
+        for kname, kpatch in ((src or {}).get("knobs") or {}).items():
+            dst = out["knobs"].setdefault(kname, {"options": []})
+            by_val = {o.get("value"): o for o in dst["options"]}
+            for opt in (kpatch.get("options") or []):
+                v = opt.get("value")
+                if v in by_val:
+                    by_val[v].update(opt)
+                else:
+                    dst["options"].append(dict(opt)); by_val[v] = dst["options"][-1]
+    return out
+
+
+def save_vocab_overlays(overlays):
+    """Write both scope targets at once: `overlays` = {engine: {...}, workdir:
+    {...}}. When engine and workdir are the same file (no --workdir) their
+    contents are merged and written once, so neither clobbers the other."""
+    overlays = overlays or {}
+    errors = []
+    for name in ("engine", "workdir"):
+        if overlays.get(name):
+            errors += [f"{name}: {e}" for e in _validate_overlay_shape(overlays[name])]
+    if errors:
+        return errors
+    targets = _vocab_target_paths()
+    blank = {"version": 1, "knobs": {}}
+    if _vocab_same_root():
+        _write_overlay_file(_merge_overlays(overlays.get("engine"), overlays.get("workdir")),
+                            targets["workdir"])
+    else:
+        for name in ("engine", "workdir"):
+            _write_overlay_file(overlays.get(name) or blank, targets[name])
+    return []
+
+
+def _raw_vocab_overlay(target="workdir"):
+    """One target's overlay dict as-authored (for the editor to edit and PUT
+    back), or {} if absent."""
+    p = _vocab_target_paths().get(target) or _vocab_target_paths()["workdir"]
     return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.is_file() else {}
 
 
@@ -4470,8 +4560,15 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                 text = fp.read_text() if fp.exists() else ""
                 return self._json(200, {"prompt": text})
             if p == "/api/vocab":
-                return self._json(200, {"merged": load_vocab(),
-                                        "overlay": _raw_vocab_overlay()})
+                tp = _vocab_target_paths()
+                return self._json(200, {
+                    "merged": load_vocab(),
+                    "overlay": _raw_vocab_overlay("workdir"),   # back-compat (single)
+                    "path": str(tp["workdir"]),                 # back-compat
+                    "overlays": {"engine": _raw_vocab_overlay("engine"),
+                                 "workdir": _raw_vocab_overlay("workdir")},
+                    "paths": {"engine": str(tp["engine"]), "workdir": str(tp["workdir"])},
+                    "sameRoot": _vocab_same_root()})
             return self._json(404, {"error": "unknown route"})
 
         def _route_post(self):
@@ -4540,7 +4637,13 @@ def make_edit_handler(workflows_dir: Path, agents_dir: Path,
                               encoding="utf-8")
                 return self._json(200, {"ok": True})
             if p == "/api/vocab":
-                errs = save_vocab_overlay(self._body())
+                body = self._body()
+                # New shape: {overlays: {engine, workdir}} → write both targets.
+                # Back-compat: a bare overlay dict → the workdir target.
+                if isinstance(body, dict) and "overlays" in body:
+                    errs = save_vocab_overlays(body.get("overlays"))
+                else:
+                    errs = save_vocab_overlay(body, "workdir")
                 return self._json(200 if not errs else 422,
                                   {"ok": not errs, "errors": errs})
             return self._json(404, {"error": "unknown route"})

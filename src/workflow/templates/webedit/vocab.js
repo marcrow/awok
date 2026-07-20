@@ -43,14 +43,31 @@ const KNOB_HELP = {
 };
 
 const numWeight = o => (typeof o.weight === "number" ? o.weight : Infinity);
+// scope → overlay layer: "workdir" = this project, "engine" = shared by all projects.
+const scopeOf = o => (o.layer === "engine" ? "engine" : "workdir");
+
+// A 2-choice segmented control for the save scope of one option.
+function scopeToggle(current, onChange) {
+  const wrap = document.createElement("div"); wrap.className = "vocab-scope";
+  [["workdir", "This project"], ["engine", "Shared · all projects"]].forEach(([val, lab]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "vocab-scope-opt" + (current === val ? " on" : "");
+    b.textContent = lab; b.dataset.scope = val;
+    b.addEventListener("click", () => onChange(val));
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
 
 export function renderVocabEditor(root, ctx) {
   root.replaceChildren();
   const merged = ctx.getMerged() || { knobs: {} };
-  const overlayVersion = ((ctx.getOverlay() || {}).version) || 1;
+  const sameRoot = !!ctx.sameRoot;
+  const paths = ctx.paths || {};
 
   // Working model: a mutable clone of every knob's merged options. All edits,
-  // adds and deletes happen here; the overlay is rebuilt from it on Save.
+  // adds and deletes happen here; the overlays are rebuilt from it on Save.
   const model = {};
   KNOB_ORDER.forEach(name => {
     const km = merged.knobs && merged.knobs[name];
@@ -59,15 +76,14 @@ export function renderVocabEditor(root, ctx) {
   const touched = new Set();          // "knob:value" of base options the user edited
   const mark = (name, value) => { if (value) touched.add(name + ":" + value); };
 
-  // Rebuild the overlay from the model: custom options in full, plus base
-  // options that were reworded (provenance flag) or edited this session. A
-  // deleted custom option is simply absent → gone. Base options are never
-  // deletable, so the base contract can't be orphaned.
-  const buildOverlay = () => {
-    const ov = { version: overlayVersion, knobs: {} };
+  // Rebuild BOTH scope overlays from the model. An option is written to the
+  // overlay of its scope (`layer`): custom options in full, plus base options
+  // reworded or edited this session. A deleted custom option is simply absent
+  // → gone. Base options are never deletable, so the base can't be orphaned.
+  const buildOverlays = () => {
+    const overlays = { engine: { version: 1, knobs: {} }, workdir: { version: 1, knobs: {} } };
     KNOB_ORDER.forEach(name => {
       const opts = model[name]; if (!opts) return;
-      const entries = [];
       opts.forEach(o => {
         if (!o.value) return;                         // skip an in-progress blank option
         const isCustom = o.source === "overlay";
@@ -79,17 +95,26 @@ export function renderVocabEditor(root, ctx) {
         if (typeof o.weight === "number") e.weight = o.weight;
         if (o.hint) e.hint = o.hint;
         if (o.label) e.label = o.label;
-        entries.push(e);
+        const ov = overlays[scopeOf(o)];
+        (ov.knobs[name] = ov.knobs[name] || { options: [] }).options.push(e);
       });
-      if (entries.length) ov.knobs[name] = { options: entries };
     });
-    return ov;
+    return overlays;
   };
 
   const wrap = document.createElement("div"); wrap.className = "vocab-editor";
   const intro = document.createElement("p"); intro.className = "vocab-intro";
-  intro.textContent = "Prompt-assist vocabulary — global to awok. Slide to an option to edit its meaning and the sentence injected into the prompt, or add your own. Base options are shipped; your edits and additions are saved to this project's custom/ overlay and survive engine upgrades.";
+  intro.textContent = sameRoot
+    ? "Prompt-assist vocabulary — global to awok. Slide to an option to edit its meaning and the injected sentence, or add your own. Your edits are saved to this project's custom/ overlay and survive engine upgrades."
+    : "Prompt-assist vocabulary. Slide to an option to edit it or add your own, and choose per option whether it lives in THIS project or is SHARED across all projects (the awok-wide overlay).";
   wrap.appendChild(intro);
+  if (paths.workdir || paths.engine) {
+    const pl = document.createElement("p"); pl.className = "vocab-paths";
+    pl.textContent = sameRoot
+      ? "Saved to: " + (paths.workdir || paths.engine)
+      : "This project → " + paths.workdir + "   ·   Shared → " + paths.engine;
+    wrap.appendChild(pl);
+  }
 
   KNOB_ORDER.forEach(name => {
     const opts = model[name]; if (!opts) return;
@@ -149,7 +174,8 @@ export function renderVocabEditor(root, ctx) {
       const head = document.createElement("div"); head.className = "vocab-card-head";
       const badge = document.createElement("span");
       badge.className = "vocab-src vocab-src-" + (custom ? "overlay" : "base");
-      badge.textContent = custom ? "custom" : (o.overridden ? "base · reworded" : "base");
+      const scopeWord = sameRoot ? "" : (scopeOf(o) === "engine" ? " · shared" : " · project");
+      badge.textContent = custom ? ("custom" + scopeWord) : (o.overridden ? "base · reworded" : "base");
       head.appendChild(badge);
       if (custom) {
         const del = document.createElement("button");
@@ -216,6 +242,22 @@ export function renderVocabEditor(root, ctx) {
       }
       card.appendChild(wrow);
 
+      // scope — where this option is saved (only meaningful when the two roots
+      // differ, i.e. under --workdir). Hidden when they are the same file.
+      if (!sameRoot) {
+        const srow = document.createElement("div"); srow.className = "vocab-scope-row";
+        const lab = document.createElement("span"); lab.className = "vocab-field-lab";
+        lab.textContent = "saved in";
+        srow.appendChild(lab);
+        srow.appendChild(scopeToggle(scopeOf(o), (val) => {
+          o.layer = val; if (!custom) mark(name, o.value); renderEdit();
+        }));
+        const ph = document.createElement("span"); ph.className = "vocab-path-hint";
+        ph.textContent = "→ " + (paths[scopeOf(o)] || "");
+        srow.appendChild(ph);
+        card.appendChild(srow);
+      }
+
       editHost.appendChild(card);
       renderAdd();
     };
@@ -232,7 +274,7 @@ export function renderVocabEditor(root, ctx) {
         if (!blank) {
           const maxW = opts.reduce((m, o) => Math.max(m, typeof o.weight === "number" ? o.weight : 0), 0);
           blank = { value: "", definition: "", prose: "", weight: maxW + 10,
-                    source: "overlay", overridden: false, _autoProse: true };
+                    source: "overlay", overridden: false, layer: "workdir", _autoProse: true };
           opts.push(blank);
         }
         sel = blank; renderEdit();
@@ -252,7 +294,7 @@ export function renderVocabEditor(root, ctx) {
   const status = document.createElement("span"); status.className = "vocab-status";
   save.addEventListener("click", async () => {
     status.textContent = "saving…";
-    const r = await ctx.onSave(buildOverlay());
+    const r = await ctx.onSave(buildOverlays());
     status.textContent = r && r.ok ? "✓ saved" : "✗ " + (((r && r.errors) || ["error"]).join("; "));
   });
   bar.appendChild(save); bar.appendChild(status); wrap.appendChild(bar);
