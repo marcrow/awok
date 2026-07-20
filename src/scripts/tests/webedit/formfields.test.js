@@ -135,9 +135,11 @@ test("stringListEditor renders, adds, deletes, drops empties", () => {
   const items = ["old dep → CVE", ""]; let got = null;
   const node = stringListEditor("examples", items, v => got = v);
   expect(node.querySelectorAll(".stringlist-row").length).toBe(2);
-  // add a row
+  // add a row — must NOT emit yet (empty row would be filtered out and a
+  // refreshView-driven re-render would tear it back out before it can be typed)
   node.querySelector(".stringlist-add").dispatchEvent(click(node));
   expect(node.querySelectorAll(".stringlist-row").length).toBe(3);
+  expect(got).toBe(null);
   // fill the new row and fire change
   const inputs = node.querySelectorAll(".stringlist-row input");
   inputs[2].value = "WordPress → recon"; inputs[2].dispatchEvent(ev(inputs[2]));

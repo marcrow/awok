@@ -232,9 +232,22 @@
   `maintainer/external stakeholder/downstream workflow`, length scale) are currently a
   **fixed list mirrored from YAML**. Wanted: a short **definition per option** (what
   "maintainer" vs "external stakeholder" means), shown in the UI (tooltip/inline), and
-  **editable + extensible** — the user can reword a definition and add new options as
-  needed. Needs a design decision on where the vocabulary + its definitions live (engine
-  constant vs a declarable block the workflow/user owns) before build. Related: C3 help layer.
+  **editable + extensible**.
+  **Decision (user, 2026-07-20): vocabularies are GLOBAL to the engine, editable in awok
+  — NOT per-workflow.** Two layers: (1) an **awok-defined base** (ships with the engine,
+  the canonical tones/formats/audiences + their definitions), and (2) a **user layer**
+  the user can extend/reword **without an awok update wiping it** (a user overlay file
+  that survives engine upgrades, merged over the base). Design the storage so an engine
+  update never clobbers user-added values/definitions. The engine's `compile_style` must
+  read from this merged vocabulary. Related: C3 help layer.
+- [ ] **C6 — Replace every checkbox in the web UI with the `.awok-flag` pill toggle.**
+  The raw `<input type=checkbox>` looks unstyled across the whole editor (user flagged it
+  as UI-wide). The target component (`.awok-flag`: aria-pressed pill, ring + check, cyan
+  on / slate off) is built and in use on the Definition tab (`flagToggle`/`flagsRow` in
+  definition.js, CSS in editor.css). Generalize: lift `flagToggle` into a shared module
+  (formfields.js) and migrate `fieldCheckbox` call sites (Wiring io-ref flags
+  optional/external/terminal, Settings, orchestration…) to it. Keep `fieldCheckbox` only
+  where a genuine checkbox is semantically needed.
 - [ ] **C3 — Help & accessibility of the web UI for the uninitiated user.**
   **Persona (reference for all UI help work): someone who has never read a workflow
   YAML nor the awok docs** — they must understand each concept and fill each field

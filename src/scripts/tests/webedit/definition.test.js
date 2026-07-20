@@ -254,6 +254,27 @@ test("produced_by is a segmented chip control that reclassifies the output on cl
   expect(model.definition.outputs[0].produced_by).toBe("formatter");
 });
 
+test("boolean flags render as awok-flag pill toggles and update the model on click", () => {
+  dom();
+  const model = buildModel();
+  const { ctx } = makeCtx(model, {});
+  const root = document.createElement("div");
+  renderDefinition(root, ctx);
+  // param 'channel' is required -> its flag is pressed
+  const reqFlag = [...root.querySelectorAll(".awok-flag")].find(f => f.querySelector(".awok-flag__label").textContent === "required");
+  expect(!!reqFlag).toBe(true);
+  expect(reqFlag.getAttribute("aria-pressed")).toBe("true");
+  // outputs carry terminal/optional flags; the first output (work:action-items)
+  // has no terminal -> toggling it flips aria-pressed in place (no rerender) and
+  // sets the model.
+  const termFlag = [...root.querySelectorAll(".awok-flag")].find(f => f.querySelector(".awok-flag__label").textContent === "terminal");
+  expect(!!termFlag).toBe(true);
+  expect(termFlag.getAttribute("aria-pressed")).toBe("false");
+  termFlag.dispatchEvent(new termFlag.ownerDocument.defaultView.Event("click"));
+  expect(model.definition.outputs[0].terminal).toBe(true);
+  expect(termFlag.getAttribute("aria-pressed")).toBe("true");
+});
+
 test("stats render in the sticky right rail (.def-aside), the form in .def-main", () => {
   dom();
   const model = buildModel();

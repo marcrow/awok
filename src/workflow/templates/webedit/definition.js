@@ -12,7 +12,7 @@
 // then calls ctx.refreshView() for the server round-trip that recomputes the
 // validation banner + the server-rendered preview (D5).
 import { helpIcon, helpNote } from "./render-helpers.js";
-import { fieldText, fieldTextarea, fieldSelect, fieldCheckbox,
+import { fieldText, fieldTextarea, fieldSelect,
          ioRefEditor, stringListEditor, resolveIoPath } from "./formfields.js";
 
 const NAME_RE = /^[a-z][a-z0-9-]*$/;        // skill.name (kebab-case slug)
@@ -179,9 +179,10 @@ function paramRow(p, idx, d, ctx, rerender) {
     // D8: `of` offers string|number|bool|enum + an object-map builder (see ofFieldEditor).
     b.appendChild(span2(ofFieldEditor(p, () => { rerender(); ctx.refreshView(); })));
   }
-  b.appendChild(withHelp(fieldCheckbox("required", !!p.required, v => {
-    p.required = v; if (v) delete p.default; rerender(); ctx.refreshView();
-  }), "required and default are mutually exclusive."));
+  b.appendChild(span2(flagsRow(null, [
+    flagToggle("required", !!p.required, v => { p.required = v; if (v) delete p.default; rerender(); ctx.refreshView(); },
+      "required and default are mutually exclusive"),
+  ])));
   if (!p.required && p.type !== "list") b.appendChild(defaultField(p, ctx));
   b.appendChild(span2(fieldText("description (recommended)", p.description || "", v => { if (v) p.description = v; else delete p.description; ctx.refreshView(); })));
   b.appendChild(removeBtn(() => { d.params.splice(idx, 1); rerender(); ctx.refreshView(); toast("Param removed"); }));
@@ -313,8 +314,10 @@ function outputRow(m, d, o, idx, ctx, rerender) {
   b.appendChild(fieldSelect("kind", o.kind || "json", KINDS, v => { o.kind = v; ctx.refreshView(); }));
   b.appendChild(span2(chipField("produced_by", "promote = an internal phase already writes this role · formatter = the closing formatter (§4) writes it.",
     chipsControl(["promote", "formatter"], o.produced_by || "promote", v => { o.produced_by = v; rerender(); ctx.refreshView(); }, null))));
-  b.appendChild(fieldCheckbox("terminal (final deliverable)", !!o.terminal, v => { if (v) o.terminal = true; else delete o.terminal; ctx.refreshView(); }));
-  b.appendChild(fieldCheckbox("optional (may be absent)", !!o.optional, v => { if (v) o.optional = true; else delete o.optional; ctx.refreshView(); }));
+  b.appendChild(span2(flagsRow("flags", [
+    flagToggle("terminal", !!o.terminal, v => { if (v) o.terminal = true; else delete o.terminal; ctx.refreshView(); }, "final deliverable read outside the pipeline"),
+    flagToggle("optional", !!o.optional, v => { if (v) o.optional = true; else delete o.optional; ctx.refreshView(); }, "may be absent on some runs"),
+  ])));
   const resolved = document.createElement("div"); resolved.className = "ioref-resolved";
   const path = resolveIoPath(o, m.namespaces);
   if (path) resolved.textContent = "→ " + path;
@@ -769,6 +772,30 @@ function chipsControl(values, current, commit, labels) {
     wrap.appendChild(chip);
   });
   return wrap;
+}
+// awok-flag pill toggle for a boolean flag — state on aria-pressed, ring fills
+// when on. Replaces the raw <input type=checkbox> (see TODO C6 to generalize).
+function flagToggle(label, on, onToggle, title) {
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "awok-flag";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  if (title) btn.title = title;
+  const ring = document.createElement("span"); ring.className = "awok-flag__ring";
+  ring.innerHTML = '<svg class="awok-flag__check" width="8" height="8" viewBox="0 0 24 24" fill="none"><path d="M4 12.5 9.5 18 20 6" stroke="#062033" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const lab = document.createElement("span"); lab.className = "awok-flag__label"; lab.textContent = label;
+  btn.appendChild(ring); btn.appendChild(lab);
+  btn.addEventListener("click", () => {
+    const next = btn.getAttribute("aria-pressed") !== "true";
+    btn.setAttribute("aria-pressed", next ? "true" : "false");
+    onToggle(next);
+  });
+  return btn;
+}
+function flagsRow(name, flags) {
+  const w = document.createElement("div"); w.className = "awok-flags";
+  if (name) { const n = document.createElement("span"); n.className = "awok-flags__name"; n.textContent = name; w.appendChild(n); }
+  flags.forEach(f => w.appendChild(f));
+  return w;
 }
 // A single action chip (e.g. “✎ custom voice…”) — no selection state.
 function actionChip(label, onClick) {

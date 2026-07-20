@@ -463,11 +463,25 @@ select:disabled{opacity:.42;cursor:not-allowed}
 .def-aside .derived{padding:10px 12px}
 .def-aside .derived .drow .k{flex:0 0 78px}
 @media (max-width:960px){.def-layout{grid-template-columns:1fr}.def-aside{position:static}}
-/* styled checkboxes (required / terminal / optional) — accent-color + a pill row
-   so a boolean field reads as designed, not raw HTML. */
-#definition .field.field-inline{background:var(--well);border:1px solid var(--border);
-  border-radius:7px;padding:8px 11px}
 .field input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;flex:0 0 auto}
+
+/* awok-flag: pill toggle for boolean flags (required / terminal / optional).
+   State lives on aria-pressed; the ring fills + a check fades in when on. This
+   is the target style for every checkbox across the web UI (see TODO C6). */
+.awok-flags{display:inline-flex;align-items:center;gap:9px;flex-wrap:wrap;font-family:var(--mono)}
+.awok-flags__name{font-size:12px;color:var(--text);font-weight:600;margin-right:2px}
+.awok-flag{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 8px;border-radius:20px;
+  cursor:pointer;background:var(--bg);border:1px solid var(--border);box-shadow:none;transition:all .15s}
+.awok-flag:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.awok-flag__ring{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--faint);background:transparent;
+  display:flex;align-items:center;justify-content:center;transition:all .15s}
+.awok-flag__check{opacity:0;transition:opacity .15s}
+.awok-flag__label{font-size:10.5px;font-weight:700;color:var(--muted);transition:color .15s}
+.awok-flag[aria-pressed="true"]{background:rgba(56,189,248,0.13);border-color:rgba(56,189,248,0.5);
+  box-shadow:0 0 0 3px rgba(56,189,248,0.10)}
+.awok-flag[aria-pressed="true"] .awok-flag__ring{border-color:var(--accent);background:var(--accent)}
+.awok-flag[aria-pressed="true"] .awok-flag__check{opacity:1}
+.awok-flag[aria-pressed="true"] .awok-flag__label{color:#7dd3fc}
 
 /* ---- front-door hero (reusable pattern; earmarked for Settings later) ---- */
 .def-hero{position:relative;overflow:hidden;background:linear-gradient(180deg,#0f1a2e,var(--panel));

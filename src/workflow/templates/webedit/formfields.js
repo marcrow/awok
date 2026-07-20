@@ -149,7 +149,11 @@ export function stringListEditor(label, items, onChange){
     });
   }
   const add = document.createElement("button"); add.className = "stringlist-add"; add.textContent = "+ " + label;
-  add.addEventListener("click", () => { list.push(""); render(); emit(); });
+  // Do NOT emit() on add: the new row is empty and emit() filters empties, so it
+  // would send the list unchanged — and any consumer that re-renders on that
+  // (e.g. a tab whose every edit calls refreshView) tears the just-added row
+  // back out. The value is persisted on the row's change event instead.
+  add.addEventListener("click", () => { list.push(""); render(); });
   render(); wrap.appendChild(add);
   return wrap;
 }
