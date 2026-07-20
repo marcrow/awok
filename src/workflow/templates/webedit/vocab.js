@@ -118,7 +118,7 @@ export function renderVocabEditor(root, ctx) {
       const labels = v.map(o => (o.label != null ? o.label : o.value));
       const defs = Object.fromEntries(v.map(o => [o.value, o.definition || ""]));
       const cur = sel && sel.value ? sel.value : "";
-      sliderHost.appendChild(bigSlider("", KNOB_HELP[name], scale, labels, cur,
+      sliderHost.appendChild(bigSlider("", null, scale, labels, cur,
         x => x || "— pick an option to edit —",
         x => { sel = opts.find(o => o.value === x) || null; renderEdit(); }, defs));
     };
