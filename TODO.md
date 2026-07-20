@@ -240,14 +240,12 @@
   that survives engine upgrades, merged over the base). Design the storage so an engine
   update never clobbers user-added values/definitions. The engine's `compile_style` must
   read from this merged vocabulary. Related: C3 help layer.
-- [ ] **C6 — Replace every checkbox in the web UI with the `.awok-flag` pill toggle.**
-  The raw `<input type=checkbox>` looks unstyled across the whole editor (user flagged it
-  as UI-wide). The target component (`.awok-flag`: aria-pressed pill, ring + check, cyan
-  on / slate off) is built and in use on the Definition tab (`flagToggle`/`flagsRow` in
-  definition.js, CSS in editor.css). Generalize: lift `flagToggle` into a shared module
-  (formfields.js) and migrate `fieldCheckbox` call sites (Wiring io-ref flags
-  optional/external/terminal, Settings, orchestration…) to it. Keep `fieldCheckbox` only
-  where a genuine checkbox is semantically needed.
+- [x] **C6 — Replace every checkbox in the web UI with the `.awok-flag` pill toggle.**
+  ✅ Done. `flagToggle`/`flagsRow` live in `formfields.js` (shared); `fieldCheckbox` now
+  returns an `.awok-flag` pill (so its call sites — e.g. the invocation `background` flag —
+  are migrated with no change), and `ioRefEditor`'s io flags (optional/external/terminal,
+  the Grid input/output editor the user flagged) render as pills. `grep type=checkbox`
+  over webedit is empty. CSS in editor.css. 88/88 webedit green.
 - [ ] **C3 — Help & accessibility of the web UI for the uninitiated user.**
   **Persona (reference for all UI help work): someone who has never read a workflow
   YAML nor the awok docs** — they must understand each concept and fill each field

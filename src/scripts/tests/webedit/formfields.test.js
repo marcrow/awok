@@ -53,14 +53,15 @@ test("fieldSelect selects current + lists options", () => {
   expect(got).toBe("opus");
 });
 
-test("fieldCheckbox binds boolean", () => {
+test("fieldCheckbox binds boolean (awok-flag pill)", () => {
   dom();
   let got=null;
-  const r = fieldCheckbox("background", true, v=>got=v);
-  const cb = r.querySelector("input[type=checkbox]");
-  expect(cb.checked).toBe(true);
-  cb.checked=false; cb.dispatchEvent(ev(cb));
+  const flag = fieldCheckbox("background", true, v=>got=v);
+  expect(flag.classList.contains("awok-flag")).toBe(true);
+  expect(flag.getAttribute("aria-pressed")).toBe("true");
+  flag.dispatchEvent(new flag.ownerDocument.defaultView.Event("click"));
   expect(got).toBe(false);
+  expect(flag.getAttribute("aria-pressed")).toBe("false");
 });
 
 test("ioRefEditor renders rows and adds", () => {
@@ -113,9 +114,11 @@ test("ioRefEditor edits path/flags through callback", () => {
   const pathIn = node.querySelector("input[data-k=path]");
   pathIn.value = "y/z.json"; pathIn.dispatchEvent(ev(pathIn));
   expect(changed[0].path).toBe("y/z.json");
-  const ext = node.querySelector("input[data-k=external]");
-  ext.checked = true; ext.dispatchEvent(ev(ext));
+  const ext = node.querySelector(".awok-flag[data-k=external]");
+  expect(!!ext).toBe(true);
+  ext.dispatchEvent(new ext.ownerDocument.defaultView.Event("click"));
   expect(changed[0].external).toBe(true);
+  expect(ext.getAttribute("aria-pressed")).toBe("true");
 });
 
 test("triggerEditor lists, adds, reflects 'on'", () => {

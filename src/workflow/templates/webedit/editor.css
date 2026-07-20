@@ -291,7 +291,6 @@ body.drawer-open .legend-rows{display:grid;grid-template-columns:repeat(auto-fil
 .ioref-row input[data-k=path]{flex:1 1 auto;min-width:80px;color:var(--warn-2)}
 .ioref-row select{flex:0 0 auto}
 .ioref-row input:focus,.ioref-row select:focus{border-color:var(--accent)}
-.ioref-flag{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0}
 .ioref-del{background:none;border:none;color:var(--dim);font-size:15px;padding:0 2px}
 .ioref-del:hover{color:#fca5a5}
 .ioref-resolved{font:10.5px/1.4 var(--mono);color:var(--faint);margin:4px 0 0 2px}

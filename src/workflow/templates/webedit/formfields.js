@@ -39,12 +39,35 @@ export function fieldDatalist(label, value, options, onChange){
   i.addEventListener("change", () => onChange(i.value));
   r.appendChild(i); r.appendChild(dl); return r;
 }
+// awok-flag: the shared pill toggle for every boolean flag in the web UI
+// (aria-pressed ring + check, cyan on / slate off). Replaces raw checkboxes —
+// see TODO C6. opts: { title, dataK }.
+const FLAG_CHECK_SVG = '<svg class="awok-flag__check" width="8" height="8" viewBox="0 0 24 24" fill="none"><path d="M4 12.5 9.5 18 20 6" stroke="#062033" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+export function flagToggle(label, on, onToggle, opts = {}){
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "awok-flag";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  if (opts.title) btn.title = opts.title;
+  if (opts.dataK) btn.dataset.k = opts.dataK;
+  const ring = document.createElement("span"); ring.className = "awok-flag__ring"; ring.innerHTML = FLAG_CHECK_SVG;
+  const lab = document.createElement("span"); lab.className = "awok-flag__label"; lab.textContent = label;
+  btn.appendChild(ring); btn.appendChild(lab);
+  btn.addEventListener("click", () => {
+    const next = btn.getAttribute("aria-pressed") !== "true";
+    btn.setAttribute("aria-pressed", next ? "true" : "false");
+    onToggle(next);
+  });
+  return btn;
+}
+export function flagsRow(name, flags){
+  const w = document.createElement("div"); w.className = "awok-flags";
+  if (name){ const n = document.createElement("span"); n.className = "awok-flags__name"; n.textContent = name; w.appendChild(n); }
+  flags.forEach(f => w.appendChild(f));
+  return w;
+}
+// Boolean field — now the awok-flag pill (was a raw <input type=checkbox>).
 export function fieldCheckbox(label, checked, onChange){
-  const r = row(label); r.classList.add("field-inline");
-  const c = document.createElement("input"); c.type = "checkbox"; c.checked = !!checked;
-  c.addEventListener("change", () => onChange(c.checked));
-  r.insertBefore(c, r.firstChild);
-  return r;
+  return flagToggle(label, !!checked, v => onChange(v));
 }
 
 const IO_KINDS = ["json","jsonl","md","text","yaml","dir","sqlite","binary"];
@@ -94,13 +117,9 @@ export function ioRefEditor(label, items, onChange, namespaces){
       const kind = document.createElement("select"); kind.dataset.k = "kind";
       for (const k of IO_KINDS){ const o = document.createElement("option"); o.value = k; o.textContent = k; if (k === (item.kind||"json")) o.selected = true; kind.appendChild(o); }
       r.appendChild(kind);
-      for (const f of IO_FLAGS){
-        const lbl = document.createElement("label"); lbl.className = "ioref-flag";
-        const c = document.createElement("input"); c.type = "checkbox"; c.dataset.k = f; c.checked = !!item[f];
-        c.addEventListener("change", () => { if (c.checked) item[f] = true; else delete item[f]; emit(); });
-        lbl.appendChild(c); lbl.appendChild(document.createTextNode(f));
-        r.appendChild(lbl);
-      }
+      const flags = IO_FLAGS.map(f => flagToggle(f, !!item[f],
+        v => { if (v) item[f] = true; else delete item[f]; emit(); }, { dataK: f }));
+      r.appendChild(flagsRow(null, flags));
       const del = document.createElement("button"); del.className = "ioref-del"; del.textContent = "✕";
       del.addEventListener("click", () => { list.splice(idx, 1); render(); emit(); });
       r.appendChild(del);
