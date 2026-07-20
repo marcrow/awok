@@ -227,7 +227,7 @@
   Definition tab (commit `5a36dfb`) is deliberately self-contained and reusable — lift the
   same visual treatment onto the **Settings** panel's identity/skill header. User validated
   the hero and asked to carry it over (not urgent).
-- [ ] **C5 — Editable, documented vocabularies for prompt-assist knobs.** The formatter
+- [x] **C5 — Editable, documented vocabularies for prompt-assist knobs.** The formatter
   style choices (tone `direct…zero-knowledge`, format `prose…table`, audience
   `maintainer/external stakeholder/downstream workflow`, length scale) are currently a
   **fixed list mirrored from YAML**. Wanted: a short **definition per option** (what
@@ -240,6 +240,13 @@
   that survives engine upgrades, merged over the base). Design the storage so an engine
   update never clobbers user-added values/definitions. The engine's `compile_style` must
   read from this merged vocabulary. Related: C3 help layer.
+  ✅ Done. `src/workflow/vocab.yaml` (base) merged with a gitignored `custom/vocab.yaml`
+  overlay by `load_vocab()` (add/reword only, never delete); `compile_style()` reads the
+  merged store with `prose_template` fallback; `GET`/`PUT /api/vocab` + a dedicated awok
+  settings page (⚙) expose it in the web editor. Design:
+  `2026-07-20-editable-formatter-vocabularies-design.md`, plan:
+  `2026-07-20-editable-formatter-vocabularies.md`. Zero SKILL.md/cartography drift
+  (`awok check` green), 332/332 pytest + 92/92 webedit bun tests green.
 - [x] **C6 — Replace every checkbox in the web UI with the `.awok-flag` pill toggle.**
   ✅ Done. `flagToggle`/`flagsRow` live in `formfields.js` (shared); `fieldCheckbox` now
   returns an `.awok-flag` pill (so its call sites — e.g. the invocation `background` flag —
